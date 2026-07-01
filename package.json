@@ -4,11 +4,17 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --check",
+    "format:fix": "oxfmt .",
+    "check": "turbo run check",
+    "check:fix": "turbo run check:fix",
     "check-types": "turbo run check-types"
   },
   "devDependencies": {
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
     "prettier": "^3.7.4",
     "turbo": "^2.10.0",
     "typescript": "5.9.2"
