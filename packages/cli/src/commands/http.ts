@@ -18,10 +18,13 @@ export const httpCommand = Command.make(
       Flag.withDescription("number of hidden local client sockets"),
       Flag.optional,
     ),
-    domain: Flag.string("domain").pipe(Flag.withDescription("base tunnel domain"), Flag.optional),
+    domain: Flag.string("domain").pipe(
+      Flag.withDescription("tunnel domain or {slug} host pattern"),
+      Flag.optional,
+    ),
     secret: Flag.string("secret").pipe(Flag.withDescription("relay secret"), Flag.optional),
     relayUrl: Flag.string("relay-url").pipe(
-      Flag.withDescription("relay origin override for local testing"),
+      Flag.withDescription("explicit relay origin override, such as ws://127.0.0.1:3002"),
       Flag.optional,
     ),
   },
@@ -46,6 +49,18 @@ export const httpCommand = Command.make(
     {
       command: "turbotunnel http 3000",
       description: "Expose a local app running on port 3000",
+    },
+    {
+      command: "turbotunnel http 3000 --domain localhost",
+      description: "Use http/ws for localhost without adding a port",
+    },
+    {
+      command: "turbotunnel http 3000 --domain localhost:3002",
+      description: "Use the port included in the tunnel domain",
+    },
+    {
+      command: "turbotunnel http 3000 --relay-url ws://127.0.0.1:3002",
+      description: "Connect the local client to an explicit relay origin",
     },
   ]),
 );
