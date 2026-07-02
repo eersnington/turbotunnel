@@ -1,0 +1,23 @@
+{
+  "name": "@repo/turbotunnel-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "catalog:",
+    "@repo/turbotunnel-protocol": "*",
+    "effect": "catalog:",
+    "kleur": "^4.1.5",
+    "nanoid": "^5.1.6",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/node": "^22.15.3",
+    "@types/ws": "^8.18.1",
+    "typescript": "5.9.2"
+  }
+}
