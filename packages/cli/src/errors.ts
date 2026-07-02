@@ -114,6 +114,6 @@ export function renderUnknownCliFailure(cause: unknown): string {
   }
 
   return kleur.red(
-    "Unexpected CLI failure. No relay was deployed and no local tunnel was started.",
+    "Unexpected CLI failure. No gateway was deployed and no local tunnel was started.",
   );
 }

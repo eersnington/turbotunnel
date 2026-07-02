@@ -3,7 +3,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { resolveHttpTunnelConfig } from "../config.js";
 import { startHttpTunnel } from "../local-client/tunnel.js";
-import { deployRelay } from "./deploy.js";
+import { deployGateway } from "./deploy.js";
 
 export const httpCommand = Command.make(
   "http",
@@ -43,7 +43,7 @@ export const httpCommand = Command.make(
   }),
 ).pipe(
   Command.withDescription(
-    "Expose a localhost HTTP/WebSocket app through a user-owned Vercel relay",
+    "Expose a localhost HTTP/WebSocket app through a user-owned Vercel gateway",
   ),
   Command.withExamples([
     {
@@ -82,10 +82,10 @@ export const deployCommand = Command.make(
     ),
   },
   Effect.fn("deployCommand")(function* ({ project, domain, region }) {
-    yield* deployRelay({
+    yield* deployGateway({
       project: Option.getOrUndefined(project),
       domain: Option.getOrUndefined(domain),
       region,
     });
   }),
-).pipe(Command.withDescription("Deploy the Turbotunnel relay to Vercel"));
+).pipe(Command.withDescription("Deploy the Turbotunnel gateway to Vercel"));

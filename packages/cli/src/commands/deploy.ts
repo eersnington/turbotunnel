@@ -42,9 +42,9 @@ type DeployError =
 const cleanSlug = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
 const PROJECT_SUFFIX = "-turbotunnel";
 const VERCEL_CLI_MISSING_MESSAGE =
-  "Vercel CLI is required to deploy Turbotunnel, but no `vercel` executable was found in PATH. Install it with `bun add --global vercel` or `npm install --global vercel`, then run `vercel login` and retry `bun run tt -- deploy`. No relay was deployed and your local tunnel config was not changed.";
+  "Vercel CLI is required to deploy Turbotunnel, but no `vercel` executable was found in PATH. Install it with `bun add --global vercel` or `npm install --global vercel`, then run `vercel login` and retry `bun run tt -- deploy`. No gateway was deployed and your local tunnel config was not changed.";
 
-export const deployRelay = Effect.fn("deployRelay")(function* (
+export const deployGateway = Effect.fn("deployGateway")(function* (
   options: DeployCommandOptions,
 ): Effect.fn.Return<DeployPlan, DeployError, ChildProcessSpawner> {
   const plan = yield* makeDeployPlan(options);
@@ -54,9 +54,9 @@ export const deployRelay = Effect.fn("deployRelay")(function* (
   });
   yield* runCommand("vercel", ["whoami"], undefined, {
     failureMessage:
-      "Vercel CLI is installed, but `vercel whoami` failed. Run `vercel login`, confirm the account has access to create projects, then retry `bun run tt -- deploy`. No relay was deployed and your local tunnel config was not changed.",
+      "Vercel CLI is installed, but `vercel whoami` failed. Run `vercel login`, confirm the account has access to create projects, then retry `bun run tt -- deploy`. No gateway was deployed and your local tunnel config was not changed.",
   });
-  yield* generateRelayDeployment(plan.deployDir);
+  yield* generateGatewayDeployment(plan.deployDir);
   yield* runCommand("vercel", ["link", "--yes", "--project", plan.project], plan.deployDir);
   yield* setVercelEnv(plan.deployDir, "TURBOTUNNEL_BASE_DOMAIN", plan.baseDomain);
   yield* setVercelEnv(plan.deployDir, "TURBOTUNNEL_RELAY_SECRET", Redacted.value(plan.relaySecret));
@@ -73,7 +73,7 @@ export const deployRelay = Effect.fn("deployRelay")(function* (
   yield* runCommand("vercel", ["deploy", "--prod", "--yes"], plan.deployDir);
   yield* writeLocalConfig(plan);
 
-  yield* Console.log(kleur.green(`Relay deployed at https://${plan.publicHost}/`));
+  yield* Console.log(kleur.green(`Gateway deployed at https://${plan.publicHost}/`));
   return plan;
 });
 
@@ -140,20 +140,20 @@ function domainToAdd(baseDomain: string, slug: string): string {
   return `*.${baseDomain}`;
 }
 
-const generateRelayDeployment = Effect.fn("generateRelayDeployment")(function* (
+const generateGatewayDeployment = Effect.fn("generateGatewayDeployment")(function* (
   deployDir: string,
 ): Effect.fn.Return<void, DeploymentGenerationFailed, never> {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../");
-  const templateDir = join(repoRoot, "packages", "relay-template");
-  yield* fsOperation("remove generated relay directory", deployDir, () =>
+  const templateDir = join(repoRoot, "packages", "gateway", "vercel");
+  yield* fsOperation("remove generated gateway directory", deployDir, () =>
     rm(deployDir, { recursive: true, force: true }),
   );
-  yield* fsOperation("create generated relay directory", deployDir, () =>
+  yield* fsOperation("create generated gateway directory", deployDir, () =>
     mkdir(deployDir, { recursive: true }),
   );
   yield* writeGeneratedPackageJson(deployDir);
   yield* copyFileFromTemplate(templateDir, deployDir, "api/server.ts", (text) =>
-    text.replace('from "@repo/turbotunnel-relay"', 'from "../src/relay/index.js"'),
+    text.replace('from "@repo/gateway"', 'from "../src/gateway/index.js"'),
   );
   yield* writeGeneratedTsconfig(deployDir);
   yield* copyFileFromTemplate(templateDir, deployDir, "vercel.json");
@@ -162,8 +162,8 @@ const generateRelayDeployment = Effect.fn("generateRelayDeployment")(function* (
     join(deployDir, "src", "protocol"),
   );
   yield* copyDirectory(
-    join(repoRoot, "packages", "relay", "src"),
-    join(deployDir, "src", "relay"),
+    join(repoRoot, "packages", "gateway", "src"),
+    join(deployDir, "src", "gateway"),
     (text) => text.replaceAll('from "@repo/turbotunnel-protocol"', 'from "../protocol/index.js"'),
   );
   yield* assertGeneratedDeploymentIsStandalone(deployDir);
@@ -181,10 +181,10 @@ function copyFileFromTemplate(
     yield* fsOperation("create generated file parent", dirname(target), () =>
       mkdir(dirname(target), { recursive: true }),
     );
-    const text = yield* fsOperation("read relay template file", source, () =>
+    const text = yield* fsOperation("read gateway template file", source, () =>
       readFile(source, "utf8"),
     );
-    yield* fsOperation("write generated relay file", target, () =>
+    yield* fsOperation("write generated gateway file", target, () =>
       writeFile(target, transform(text)),
     );
   });
@@ -240,11 +240,12 @@ function writeGeneratedPackageJson(
       join(deployDir, "package.json"),
       `${JSON.stringify(
         {
-          name: "turbotunnel-relay-deployment",
+          name: "turbotunnel-gateway-deployment",
           version: "0.0.0",
           private: true,
           type: "module",
           dependencies: {
+            effect: "4.0.0-beta.92",
             nanoid: "^5.1.6",
             pino: "^9.14.0",
             ws: "^8.18.3",
@@ -294,7 +295,7 @@ function writeGeneratedTsconfig(
 const assertGeneratedDeploymentIsStandalone = Effect.fn("assertGeneratedDeploymentIsStandalone")(
   function* (deployDir: string): Effect.fn.Return<void, DeploymentGenerationFailed, never> {
     const offendingFiles = yield* filesContainingAny(deployDir, [
-      "@repo/turbotunnel-relay",
+      "@repo/gateway",
       "@repo/turbotunnel-protocol",
       "@repo/typescript-config",
     ]);
@@ -304,9 +305,9 @@ const assertGeneratedDeploymentIsStandalone = Effect.fn("assertGeneratedDeployme
         operation: "assert generated deployment standalone",
         path: deployDir,
         cause: offendingFiles,
-        message: `Generated relay deployment still contains workspace-only imports in ${offendingFiles.join(
+        message: `Generated gateway deployment still contains workspace-only imports in ${offendingFiles.join(
           ", ",
-        )}. No relay was deployed.`,
+        )}. No gateway was deployed.`,
       });
     }
   },
@@ -401,7 +402,7 @@ function fsOperation<A>(
         operation,
         path,
         cause,
-        message: `Unable to ${operation} at ${path}. No relay was deployed and your local tunnel config was not changed.`,
+        message: `Unable to ${operation} at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
       }),
   });
 }

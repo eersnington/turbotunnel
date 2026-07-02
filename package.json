@@ -7,7 +7,9 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev && gateway dev",
+    "gateway:dev": "bun --cwd packages/gateway run dev",
+    "tt": "bun --cwd packages/cli src/main.ts",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "format": "oxfmt --check",

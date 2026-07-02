@@ -8,7 +8,7 @@ import { isCliError, renderCliError, renderUnknownCliFailure } from "./errors.js
 
 const turbotunnel = Command.make("turbotunnel").pipe(
   Command.withDescription(
-    "Expose a localhost HTTP/WebSocket app through a user-owned Vercel relay",
+    "Expose a localhost HTTP/WebSocket app through a user-owned Vercel gateway",
   ),
   Command.withSubcommands([httpCommand, deployCommand]),
 );
