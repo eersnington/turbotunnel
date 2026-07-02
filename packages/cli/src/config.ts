@@ -65,11 +65,7 @@ export const resolveHttpTunnelConfig = Effect.fn("resolveHttpTunnelConfig")(func
     "localhost";
   const relaySecret =
     input.secret ?? env.TURBOTUNNEL_RELAY_SECRET ?? fileConfig.relaySecret ?? "dev_secret";
-  const relayUrl =
-    input.relayUrl ??
-    env.TURBOTUNNEL_RELAY_URL ??
-    fileConfig.relayUrl ??
-    defaultRelayUrl(relayDomain);
+  const relayUrl = input.relayUrl ?? env.TURBOTUNNEL_RELAY_URL ?? fileConfig.relayUrl;
   const slug = input.slug ?? env.TURBOTUNNEL_SLUG ?? fileConfig.slug ?? cleanSlug();
 
   if (!SLUG_PATTERN.test(slug)) {
@@ -169,18 +165,4 @@ function parsePoolSize(poolOption: number | undefined): Effect.Effect<number, Cl
   }
 
   return Effect.succeed(poolOption);
-}
-
-function defaultRelayUrl(relayDomain: string): string | undefined {
-  const colonIndex = relayDomain.lastIndexOf(":");
-  const host =
-    colonIndex === -1 || !/^\d+$/.test(relayDomain.slice(colonIndex + 1))
-      ? relayDomain
-      : relayDomain.slice(0, colonIndex);
-
-  if (host === "localhost") {
-    return "ws://127.0.0.1:3002/";
-  }
-
-  return undefined;
 }

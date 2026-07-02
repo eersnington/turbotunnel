@@ -250,7 +250,11 @@ function relaySocketUrl(config: HttpTunnelConfig): string {
     return url.toString();
   }
 
-  return `wss://${tunnelHost(config)}/`;
+  const host = tunnelHost(config);
+  const hostForScheme = host.replace(/:\d+$/, "");
+  const protocol =
+    hostForScheme === "localhost" || hostForScheme.endsWith(".localhost") ? "ws" : "wss";
+  return `${protocol}://${host}/`;
 }
 
 function relayHeaders(config: HttpTunnelConfig): Record<string, string> {
@@ -266,18 +270,20 @@ function relayHeaders(config: HttpTunnelConfig): Record<string, string> {
 }
 
 function publicTunnelUrl(config: HttpTunnelConfig): string {
-  const relayDomainHost = config.relayDomain.replace(/:\d+$/, "");
+  const host = tunnelHost(config);
+  const hostForScheme = host.replace(/:\d+$/, "");
+  const isLocalHost = hostForScheme === "localhost" || hostForScheme.endsWith(".localhost");
 
-  if (config.relayUrl !== undefined && relayDomainHost === "localhost") {
+  if (config.relayUrl !== undefined && isLocalHost) {
     const relayUrl = new URL(config.relayUrl);
     const protocol =
       relayUrl.protocol === "wss:" || relayUrl.protocol === "https:" ? "https" : "http";
     const port = relayUrl.port === "" ? "" : `:${relayUrl.port}`;
-    return `${protocol}://${tunnelHost(config)}${port}/`;
+    return `${protocol}://${hostForScheme}${port}/`;
   }
 
-  const protocol = relayDomainHost === "localhost" ? "http" : "https";
-  return `${protocol}://${tunnelHost(config)}/`;
+  const protocol = isLocalHost ? "http" : "https";
+  return `${protocol}://${host}/`;
 }
 
 function tunnelHost(config: HttpTunnelConfig): string {
