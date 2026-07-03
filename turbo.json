@@ -2,12 +2,6 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
   "tasks": {
-    "//#check": {
-      "dependsOn": ["//#lint", "//#format"]
-    },
-    "//#check:fix": {
-      "dependsOn": ["//#lint:fix", "//#format:fix"]
-    },
     "//#lint": {},
     "//#lint:fix": {
       "cache": false
