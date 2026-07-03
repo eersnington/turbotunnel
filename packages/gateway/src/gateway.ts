@@ -12,6 +12,7 @@ import {
   httpResponseTopic,
   isTunnelRequestFrame,
   LOCAL_CLIENT_ACK_TIMEOUT_MS,
+  LOCAL_CLIENT_CAPACITY,
   LOCAL_CLIENT_SUBPROTOCOL,
   localConsumerGroup,
   MAX_PUBLIC_WEBSOCKETS_PER_TUNNEL,
@@ -20,9 +21,13 @@ import {
   parseProtocolFramePayload,
   PROTOCOL_VERSION,
   PUBLIC_HTTP_TIMEOUT_MS,
+  QUEUE_RECEIVE_COLD_AFTER_EMPTY,
+  QUEUE_RECEIVE_COLD_DELAY_MS,
+  QUEUE_RECEIVE_HOT_DELAY_MS,
   QUEUE_RECEIVE_LIMIT,
   QUEUE_REQUEST_TTL_SECONDS,
   QUEUE_RESPONSE_TTL_SECONDS,
+  QUEUE_RECEIVE_WARM_DELAY_MS,
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   requestTopic,
   type Frame,
@@ -81,18 +86,34 @@ type LocalClientSocket = {
   readonly slug: string;
   readonly ws: WebSocket;
   readonly clientId: string;
+  readonly sessionId: string;
+  readonly generation: number;
   readonly target: LocalTarget;
   readonly pendingDeliveryAcks: Map<string, PendingDeliveryAck>;
+  readonly pendingDirectHttpRequests: Set<string>;
   inFlight: number;
   capacity: number;
   draining: boolean;
+  emptyQueueReceives: number;
 };
 
 type PendingHttpRequest = {
   readonly requestId: string;
   readonly responseTopic: string;
   readonly response: ServerResponse;
+  readonly localClientId: string;
   readonly timeout: NodeJS.Timeout;
+};
+
+type GatewayStats = {
+  startedAt: number;
+  directHttpRequests: number;
+  queuedHttpRequests: number;
+  directWebSocketOpens: number;
+  queuedWebSocketOpens: number;
+  queueReceives: number;
+  queueSends: number;
+  queueAcks: number;
 };
 
 type PublicWsConnection = {
@@ -132,6 +153,16 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
   const pendingHttpRequests = new Map<string, PendingHttpRequest>();
   const publicWebSockets = new Map<string, PublicWsConnection>();
   const publicWebSocketCountsBySlug = new Map<string, number>();
+  const stats: GatewayStats = {
+    startedAt: Date.now(),
+    directHttpRequests: 0,
+    queuedHttpRequests: 0,
+    directWebSocketOpens: 0,
+    queuedWebSocketOpens: 0,
+    queueReceives: 0,
+    queueSends: 0,
+    queueAcks: 0,
+  };
 
   const webSocketServer = new WebSocketServer({
     noServer: true,
@@ -208,6 +239,10 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       }
       const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
       if (slugResult._tag === "err") {
+        if (isGatewayRootHost(headers.host, config.baseDomain)) {
+          writeGatewayStatus(response, config, localClients, stats);
+          return;
+        }
         writePlainResponse(response, 404, "Tunnel host was not recognized for this relay domain.");
         return;
       }
@@ -256,10 +291,12 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       };
 
       if (localClient !== undefined) {
+        stats.directHttpRequests += 1;
         forwardHttpDirect(localClient, frame, response);
         return;
       }
 
+      stats.queuedHttpRequests += 1;
       let cancelled = false;
       response.on("close", () => {
         cancelled = !response.writableEnded;
@@ -269,6 +306,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         idempotencyKey: frame.frameId,
         ttlSeconds: QUEUE_REQUEST_TTL_SECONDS,
       });
+      stats.queueSends += 1;
 
       const result = yield* waitForHttpResponseFromQueue({
         queue,
@@ -299,7 +337,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
     response: ServerResponse,
   ): void {
     const timeout = setTimeout(() => {
-      pendingHttpRequests.delete(frame.requestId);
+      releaseDirectHttpRequest(localClient, frame.requestId);
       writePlainResponse(
         response,
         504,
@@ -311,18 +349,21 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       requestId: frame.requestId,
       responseTopic: frame.responseTopic,
       response,
+      localClientId: localClient.clientId,
       timeout,
     });
+    localClient.inFlight += 1;
+    localClient.pendingDirectHttpRequests.add(frame.requestId);
     response.on("close", () => {
       if (!response.writableEnded) {
         clearTimeout(timeout);
-        pendingHttpRequests.delete(frame.requestId);
+        releaseDirectHttpRequest(localClient, frame.requestId);
       }
     });
 
     if (!sendFrame(localClient.ws, frame)) {
       clearTimeout(timeout);
-      pendingHttpRequests.delete(frame.requestId);
+      releaseDirectHttpRequest(localClient, frame.requestId);
       writePlainResponse(response, 502, "Local tunnel client disconnected before forwarding.");
     }
   }
@@ -429,6 +470,20 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         pending.resolve(false);
       }
       registered.pendingDeliveryAcks.clear();
+      for (const requestId of registered.pendingDirectHttpRequests) {
+        const pending = pendingHttpRequests.get(requestId);
+        if (pending !== undefined) {
+          clearTimeout(pending.timeout);
+          writePlainResponse(
+            pending.response,
+            502,
+            "Local tunnel client disconnected before the local app responded.",
+          );
+        }
+        pendingHttpRequests.delete(requestId);
+      }
+      registered.pendingDirectHttpRequests.clear();
+      registered.inFlight = 0;
       registered = undefined;
     });
 
@@ -462,13 +517,18 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
               slug: frame.slug,
               ws,
               clientId: frame.localClientId,
+              sessionId: frame.sessionId,
+              generation: frame.generation,
               target: frame.target,
               pendingDeliveryAcks: new Map(),
+              pendingDirectHttpRequests: new Set(),
               inFlight: 0,
-              capacity: 32,
+              capacity: Math.min(frame.capacity, LOCAL_CLIENT_CAPACITY),
               draining: false,
+              emptyQueueReceives: 0,
             };
 
+            drainOlderLocalClients(localClient);
             registered = localClient;
             localClients.set(localClient.clientId, localClient);
             const clientIds = localClientIdsBySlug.get(localClient.slug) ?? new Set<string>();
@@ -496,6 +556,8 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
               Effect.annotateLogs({
                 slug: localClient.slug,
                 localClientId: localClient.clientId,
+                sessionId: localClient.sessionId,
+                generation: localClient.generation,
               }),
             );
             return;
@@ -505,6 +567,8 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
             if (
               registered === undefined ||
               registered.clientId !== frame.localClientId ||
+              registered.sessionId !== frame.sessionId ||
+              registered.generation !== frame.generation ||
               registered.slug !== frame.slug
             ) {
               ws.close(1008, "invalid local client heartbeat");
@@ -573,22 +637,27 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           limit: QUEUE_RECEIVE_LIMIT,
           visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
         });
+        stats.queueReceives += 1;
 
         if (messages.length === 0) {
-          yield* Effect.sleep("100 millis");
+          localClient.emptyQueueReceives += 1;
+          yield* Effect.sleep(queueReceiveDelay(localClient.emptyQueueReceives));
           continue;
         }
+        localClient.emptyQueueReceives = 0;
 
         for (const message of messages) {
           const frameResult = parseProtocolFramePayload(message.payload);
           if (Result.isFailure(frameResult) || isExpired(frameResult.success)) {
             yield* message.ack;
+            stats.queueAcks += 1;
             continue;
           }
 
           const frame = frameResult.success;
           if (!isTunnelRequestFrame(frame)) {
             yield* message.ack;
+            stats.queueAcks += 1;
             continue;
           }
 
@@ -597,6 +666,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           );
           if (accepted) {
             yield* message.ack;
+            stats.queueAcks += 1;
             if (frame.type === "ws.open") {
               let interrupt: CallbackInterrupt | undefined;
               interrupt = Effect.runCallback(
@@ -637,22 +707,27 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           limit: QUEUE_RECEIVE_LIMIT,
           visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
         });
+        stats.queueReceives += 1;
 
         if (messages.length === 0) {
-          yield* Effect.sleep("100 millis");
+          localClient.emptyQueueReceives += 1;
+          yield* Effect.sleep(queueReceiveDelay(localClient.emptyQueueReceives));
           continue;
         }
+        localClient.emptyQueueReceives = 0;
 
         for (const message of messages) {
           const frameResult = parseProtocolFramePayload(message.payload);
           if (Result.isFailure(frameResult) || isExpired(frameResult.success)) {
             yield* message.ack;
+            stats.queueAcks += 1;
             continue;
           }
 
           const frame = frameResult.success;
           if (frame.type !== "ws.data" && frame.type !== "ws.close") {
             yield* message.ack;
+            stats.queueAcks += 1;
             continue;
           }
 
@@ -661,6 +736,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           );
           if (accepted) {
             yield* message.ack;
+            stats.queueAcks += 1;
           }
           if (frame.type === "ws.close") {
             return;
@@ -795,10 +871,12 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       };
 
       if (localClient !== undefined) {
+        stats.directWebSocketOpens += 1;
         sendFrame(localClient.ws, openFrame);
         return;
       }
 
+      stats.queuedWebSocketOpens += 1;
       let interrupt: CallbackInterrupt | undefined;
       interrupt = Effect.runCallback(
         startPublicWsOutputPump(publicConnection).pipe(
@@ -821,6 +899,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         idempotencyKey: openFrame.frameId,
         ttlSeconds: QUEUE_REQUEST_TTL_SECONDS,
       });
+      stats.queueSends += 1;
     });
   }
 
@@ -840,6 +919,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         idempotencyKey: frame.frameId,
         ttlSeconds: QUEUE_REQUEST_TTL_SECONDS,
       });
+      stats.queueSends += 1;
     });
   }
 
@@ -856,9 +936,10 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           limit: QUEUE_RECEIVE_LIMIT,
           visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
         });
+        stats.queueReceives += 1;
 
         if (messages.length === 0) {
-          yield* Effect.sleep("100 millis");
+          yield* Effect.sleep(QUEUE_RECEIVE_WARM_DELAY_MS);
           continue;
         }
 
@@ -866,17 +947,20 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           const frameResult = parseProtocolFramePayload(message.payload);
           if (Result.isFailure(frameResult)) {
             yield* message.ack;
+            stats.queueAcks += 1;
             continue;
           }
 
           const frame = frameResult.success;
           if (frame.type !== "ws.data" && frame.type !== "ws.close") {
             yield* message.ack;
+            stats.queueAcks += 1;
             continue;
           }
 
           routeWebSocketFrameToBrowser(connection, frame);
           yield* message.ack;
+          stats.queueAcks += 1;
           if (frame.type === "ws.close") {
             return;
           }
@@ -892,7 +976,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       const pending = pendingHttpRequests.get(frame.requestId);
       if (pending !== undefined) {
         clearTimeout(pending.timeout);
-        pendingHttpRequests.delete(frame.requestId);
+        releaseDirectHttpRequestById(pending.localClientId, frame.requestId);
         writeHttpResponse(pending.response, frame);
         return;
       }
@@ -901,6 +985,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         idempotencyKey: frame.frameId,
         ttlSeconds: QUEUE_RESPONSE_TTL_SECONDS,
       });
+      stats.queueSends += 1;
     });
   }
 
@@ -917,6 +1002,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           idempotencyKey: frame.frameId,
           ttlSeconds: QUEUE_RESPONSE_TTL_SECONDS,
         });
+        stats.queueSends += 1;
       }
     });
   }
@@ -934,6 +1020,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
           idempotencyKey: frame.frameId,
           ttlSeconds: QUEUE_RESPONSE_TTL_SECONDS,
         });
+        stats.queueSends += 1;
       }
     });
   }
@@ -974,6 +1061,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         client !== undefined &&
         !client.draining &&
         client.ws.readyState === WebSocket.OPEN &&
+        isCurrentLocalClient(client) &&
         client.inFlight < client.capacity
       ) {
         return client;
@@ -981,6 +1069,64 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
     }
 
     return undefined;
+  }
+
+  function drainOlderLocalClients(nextClient: LocalClientSocket): void {
+    const clientIds = localClientIdsBySlug.get(nextClient.slug);
+    if (clientIds === undefined) {
+      return;
+    }
+
+    for (const clientId of clientIds) {
+      const existing = localClients.get(clientId);
+      if (
+        existing !== undefined &&
+        existing.sessionId === nextClient.sessionId &&
+        existing.generation < nextClient.generation
+      ) {
+        existing.draining = true;
+      }
+    }
+  }
+
+  function isCurrentLocalClient(client: LocalClientSocket): boolean {
+    const clientIds = localClientIdsBySlug.get(client.slug);
+    if (clientIds === undefined) {
+      return false;
+    }
+
+    for (const clientId of clientIds) {
+      const existing = localClients.get(clientId);
+      if (
+        existing !== undefined &&
+        existing.sessionId === client.sessionId &&
+        existing.generation > client.generation &&
+        !existing.draining
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function releaseDirectHttpRequest(localClient: LocalClientSocket, requestId: string): void {
+    if (!localClient.pendingDirectHttpRequests.delete(requestId)) {
+      return;
+    }
+
+    pendingHttpRequests.delete(requestId);
+    localClient.inFlight = Math.max(0, localClient.inFlight - 1);
+  }
+
+  function releaseDirectHttpRequestById(localClientId: string, requestId: string): void {
+    const localClient = localClients.get(localClientId);
+    if (localClient === undefined) {
+      pendingHttpRequests.delete(requestId);
+      return;
+    }
+
+    releaseDirectHttpRequest(localClient, requestId);
   }
 
   function decrementPublicWebSocketCount(slug: string): void {
@@ -1037,6 +1183,64 @@ function writePlainResponse(response: ServerResponse, status: number, message: s
 
   response.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
   response.end(`${message}\n`);
+}
+
+function writeGatewayStatus(
+  response: ServerResponse,
+  config: {
+    readonly brokerKind: string;
+    readonly queueRegion: string;
+    readonly baseDomain: string;
+  },
+  localClients: ReadonlyMap<string, LocalClientSocket>,
+  stats: GatewayStats,
+): void {
+  const activeClients = Array.from(localClients.values()).filter(
+    (client) => !client.draining && client.ws.readyState === WebSocket.OPEN,
+  );
+  const body = [
+    "Turbotunnel gateway is running.",
+    "",
+    `Base domain: ${config.baseDomain}`,
+    `Broker: ${config.brokerKind}`,
+    `Queue region: ${config.queueRegion}`,
+    `Uptime: ${formatDurationSeconds(Math.round((Date.now() - stats.startedAt) / 1000))}`,
+    `Active local clients on this instance: ${activeClients.length}`,
+    `Direct HTTP requests on this instance: ${stats.directHttpRequests}`,
+    `Queued HTTP requests on this instance: ${stats.queuedHttpRequests}`,
+    `Direct WebSocket opens on this instance: ${stats.directWebSocketOpens}`,
+    `Queued WebSocket opens on this instance: ${stats.queuedWebSocketOpens}`,
+    `Queue sends on this instance: ${stats.queueSends}`,
+    `Queue receives on this instance: ${stats.queueReceives}`,
+    `Queue acks on this instance: ${stats.queueAcks}`,
+    "",
+    "Connect a local app with: tt http <port>",
+  ].join("\n");
+
+  response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+  response.end(`${body}\n`);
+}
+
+function formatDurationSeconds(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) {
+    return `${seconds}s`;
+  }
+
+  return `${minutes}m ${seconds}s`;
+}
+
+function queueReceiveDelay(emptyReceives: number): number {
+  if (emptyReceives <= 1) {
+    return QUEUE_RECEIVE_HOT_DELAY_MS;
+  }
+
+  if (emptyReceives < QUEUE_RECEIVE_COLD_AFTER_EMPTY) {
+    return QUEUE_RECEIVE_WARM_DELAY_MS;
+  }
+
+  return QUEUE_RECEIVE_COLD_DELAY_MS;
 }
 
 type ReadLimitedBodyResult =
@@ -1302,6 +1506,16 @@ function extractSlugFromHost(
   }
 
   return { _tag: "ok", value: slug };
+}
+
+function isGatewayRootHost(hostHeader: string | undefined, baseDomain: string): boolean {
+  if (hostHeader === undefined || hostHeader.trim() === "") {
+    return true;
+  }
+
+  const host = hostHeader.trim().toLowerCase().replace(/:\d+$/, "");
+  const baseHost = baseDomain.trim().toLowerCase().replace(/:\d+$/, "");
+  return !baseHost.includes(SLUG_TOKEN) && host === baseHost;
 }
 
 function extractSlugFromPattern(host: string, pattern: string): ExtractSlugResult {

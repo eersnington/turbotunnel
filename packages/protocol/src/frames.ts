@@ -24,6 +24,9 @@ export const localClientHelloSchema = Schema.Struct({
   frameId: Schema.NonEmptyString,
   slug: Schema.NonEmptyString,
   localClientId: Schema.NonEmptyString,
+  sessionId: Schema.NonEmptyString,
+  generation: positiveIntSchema,
+  capacity: positiveIntSchema,
   target: Schema.Struct({
     protocol: Schema.Literal("http"),
     host: Schema.NonEmptyString,
@@ -36,6 +39,8 @@ export const localClientHeartbeatSchema = Schema.Struct({
   protocolVersion: Schema.Literal(PROTOCOL_VERSION),
   frameId: Schema.NonEmptyString,
   localClientId: Schema.NonEmptyString,
+  sessionId: Schema.NonEmptyString,
+  generation: positiveIntSchema,
   slug: Schema.NonEmptyString,
   lastSeen: nonNegativeIntSchema,
 });

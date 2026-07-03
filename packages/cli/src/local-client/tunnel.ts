@@ -4,10 +4,11 @@ import {
   type Frame,
   HEARTBEAT_INTERVAL_MS,
   LOCAL_CLIENT_SUBPROTOCOL,
+  LOCAL_CLIENT_CAPACITY,
   parseProtocolFrameJson,
   PROTOCOL_VERSION,
 } from "@repo/turbotunnel-protocol";
-import { Console, Effect, Exit, Redacted, Result } from "effect";
+import { Cause, Console, Effect, Exit, Redacted, Result } from "effect";
 import kleur from "kleur";
 import { nanoid } from "nanoid";
 import { WebSocket, type RawData } from "ws";
@@ -18,18 +19,59 @@ import { type LocalWebSocketHandle, openLocalWebSocket } from "./forward-ws.js";
 
 type CallbackInterrupt = (interruptor?: number | undefined) => void;
 
+type TunnelSessionStats = {
+  readonly startedAtMs: number;
+  relayConnects: number;
+  relayCloses: number;
+  relayErrors: number;
+  reconnects: number;
+  framesReceived: number;
+  framesSent: number;
+  invalidFrames: number;
+  httpRequests: number;
+  httpResponses: number;
+  webSocketsOpened: number;
+  webSocketsClosed: number;
+};
+
 /** Start a local tunnel process and keep it alive until interrupted. */
 export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   config: HttpTunnelConfig,
 ): Effect.fn.Return<never, never, never> {
   return yield* Effect.scoped(
     Effect.gen(function* () {
+      const stats: TunnelSessionStats = {
+        startedAtMs: Date.now(),
+        relayConnects: 0,
+        relayCloses: 0,
+        relayErrors: 0,
+        reconnects: 0,
+        framesReceived: 0,
+        framesSent: 0,
+        invalidFrames: 0,
+        httpRequests: 0,
+        httpResponses: 0,
+        webSocketsOpened: 0,
+        webSocketsClosed: 0,
+      };
+
       yield* printTunnelReady(config);
+      yield* Effect.addFinalizer(() =>
+        Console.log(
+          `\n${kleur.bold("Tunnel session ended:")}\n\n` +
+            `  duration: ${Math.max(0, Math.round((Date.now() - stats.startedAtMs) / 1000))}s\n` +
+            `  relay sockets: ${stats.relayConnects} connected, ${stats.relayCloses} closed, ${stats.reconnects} reconnects, ${stats.relayErrors} errors\n` +
+            `  frames: ${stats.framesReceived} received, ${stats.framesSent} sent, ${stats.invalidFrames} invalid\n` +
+            `  http: ${stats.httpRequests} requests, ${stats.httpResponses} responses\n` +
+            `  websockets: ${stats.webSocketsOpened} opened, ${stats.webSocketsClosed} closed\n`,
+        ),
+      );
       yield* Effect.acquireRelease(
         Effect.sync(() => {
           const connections: Array<RelayConnection> = [];
+          const sessionId = `ses_${nanoid(12)}`;
           for (let index = 0; index < config.poolSize; index += 1) {
-            const connection = new RelayConnection(config, index);
+            const connection = new RelayConnection(config, index, sessionId, stats);
             connections.push(connection);
             connection.start();
           }
@@ -54,6 +96,8 @@ class RelayConnection {
   private heartbeat: NodeJS.Timeout | undefined;
   private reconnectTimer: NodeJS.Timeout | undefined;
   private reconnectDelayMs = 1_000;
+  private generation = 0;
+  private relayCloseRecorded = false;
   private stopped = false;
   private localClientId = "";
   private readonly activeEffects = new Set<CallbackInterrupt>();
@@ -62,6 +106,8 @@ class RelayConnection {
   constructor(
     private readonly config: HttpTunnelConfig,
     private readonly index: number,
+    private readonly sessionId: string,
+    private readonly stats: TunnelSessionStats,
   ) {}
 
   start(): void {
@@ -85,12 +131,16 @@ class RelayConnection {
     for (const socket of this.localWebSockets.values()) {
       socket.dispose();
     }
+    this.stats.webSocketsClosed += this.localWebSockets.size;
 
     this.localWebSockets.clear();
+    this.recordRelayClose();
     this.ws?.close(1001, "turbotunnel process stopped");
   }
 
   private connect(): void {
+    this.generation += 1;
+    this.relayCloseRecorded = false;
     this.localClientId = `client_${nanoid(12)}`;
     const url = relaySocketUrl(this.config);
     const ws = new WebSocket(url, LOCAL_CLIENT_SUBPROTOCOL, {
@@ -100,6 +150,8 @@ class RelayConnection {
     this.ws = ws;
 
     ws.on("open", () => {
+      this.stats.relayConnects += 1;
+      console.log(kleur.dim(`relay socket ${this.index} connected, generation ${this.generation}`));
       this.reconnectDelayMs = 1_000;
       this.send({
         type: "local.hello",
@@ -107,6 +159,9 @@ class RelayConnection {
         frameId: `frm_${nanoid(12)}`,
         slug: this.config.slug,
         localClientId: this.localClientId,
+        sessionId: this.sessionId,
+        generation: this.generation,
+        capacity: LOCAL_CLIENT_CAPACITY,
         target: this.config.target,
       });
 
@@ -117,12 +172,15 @@ class RelayConnection {
           frameId: `frm_${nanoid(12)}`,
           slug: this.config.slug,
           localClientId: this.localClientId,
+          sessionId: this.sessionId,
+          generation: this.generation,
           lastSeen: Date.now(),
         });
       }, HEARTBEAT_INTERVAL_MS);
     });
 
     ws.on("message", (data) => {
+      this.stats.framesReceived += 1;
       let interrupt: CallbackInterrupt | undefined;
       interrupt = Effect.runCallback(this.handleRelayMessage(data), {
         onExit: (exit) => {
@@ -130,7 +188,7 @@ class RelayConnection {
             this.activeEffects.delete(interrupt);
           }
 
-          if (Exit.isSuccess(exit)) {
+          if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) {
             return;
           }
 
@@ -141,6 +199,7 @@ class RelayConnection {
     });
 
     ws.on("close", () => {
+      this.recordRelayClose();
       if (this.heartbeat !== undefined) {
         clearInterval(this.heartbeat);
         this.heartbeat = undefined;
@@ -149,6 +208,7 @@ class RelayConnection {
       for (const socket of this.localWebSockets.values()) {
         socket.dispose();
       }
+      this.stats.webSocketsClosed += this.localWebSockets.size;
       this.localWebSockets.clear();
 
       for (const interrupt of this.activeEffects) {
@@ -162,12 +222,15 @@ class RelayConnection {
     });
 
     ws.on("error", (cause) => {
+      this.stats.relayErrors += 1;
       console.error(kleur.yellow(`relay socket ${this.index} error: ${cause.message}`));
     });
   }
 
   private scheduleReconnect(): void {
     const delay = this.reconnectDelayMs;
+    this.stats.reconnects += 1;
+    console.log(kleur.dim(`relay socket ${this.index} reconnecting in ${delay}ms`));
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 30_000);
     this.reconnectTimer = setTimeout(() => {
       this.connect();
@@ -179,6 +242,7 @@ class RelayConnection {
     const send = (frame: Frame): void => this.send(frame);
     const config = this.config;
     const localWebSockets = this.localWebSockets;
+    const stats = this.stats;
     return Effect.gen(function* () {
       const parsed = parseProtocolFrameJson(
         (Buffer.isBuffer(data)
@@ -189,6 +253,7 @@ class RelayConnection {
         ).toString("utf8"),
       );
       if (Result.isFailure(parsed)) {
+        stats.invalidFrames += 1;
         yield* Console.error(
           kleur.yellow(`discarded invalid relay frame: ${parsed.failure.reason}`),
         );
@@ -198,17 +263,22 @@ class RelayConnection {
       const frame = parsed.success;
       switch (frame.type) {
         case "http.request": {
+          stats.httpRequests += 1;
           ack(frame.frameId);
           const response = yield* forwardHttpToLocalAppEffect(frame, config.target);
+          stats.httpResponses += 1;
           send(response);
           return;
         }
 
         case "ws.open": {
+          stats.webSocketsOpened += 1;
           ack(frame.frameId);
           const handle = openLocalWebSocket(frame, config.target, (relayFrame) => {
             if (relayFrame.type === "ws.close") {
-              localWebSockets.delete(relayFrame.connId);
+              if (localWebSockets.delete(relayFrame.connId)) {
+                stats.webSocketsClosed += 1;
+              }
             }
             send(relayFrame);
           });
@@ -227,6 +297,7 @@ class RelayConnection {
           const handle = localWebSockets.get(frame.connId);
           if (handle !== undefined) {
             localWebSockets.delete(frame.connId);
+            stats.webSocketsClosed += 1;
             handle.close(frame);
           }
           return;
@@ -254,7 +325,17 @@ class RelayConnection {
       return;
     }
 
+    this.stats.framesSent += 1;
     this.ws.send(JSON.stringify(frame));
+  }
+
+  private recordRelayClose(): void {
+    if (this.relayCloseRecorded) {
+      return;
+    }
+
+    this.relayCloseRecorded = true;
+    this.stats.relayCloses += 1;
   }
 
   private ack(frameId: string): void {
