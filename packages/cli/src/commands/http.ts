@@ -12,7 +12,7 @@ export const httpCommand = Command.make(
     slug: Flag.string("slug").pipe(Flag.withDescription("tunnel slug to use"), Flag.optional),
     host: Flag.string("host").pipe(
       Flag.withDescription("local host to connect to"),
-      Flag.withDefault("127.0.0.1"),
+      Flag.withDefault("localhost"),
     ),
     pool: Flag.integer("pool").pipe(
       Flag.withDescription("number of hidden local client sockets"),

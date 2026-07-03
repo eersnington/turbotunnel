@@ -89,7 +89,7 @@ export function openLocalWebSocket(
       connId: frame.connId,
       browserOutTopic: frame.browserOutTopic,
       code: 1011,
-      reason: "local websocket connection failed",
+      reason: `local websocket connection failed at ws://${target.host}:${target.port}`,
     });
   });
 

@@ -10,6 +10,8 @@
     "dev": "turbo run dev && gateway dev",
     "gateway:dev": "bun --cwd packages/gateway run dev",
     "tt": "bun --cwd packages/cli src/main.ts",
+    "tt:deploy": "bun --cwd packages/cli src/main.ts -- deploy",
+    "tt:http": "bun --cwd packages/cli src/main.ts -- http",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "format": "oxfmt --check",

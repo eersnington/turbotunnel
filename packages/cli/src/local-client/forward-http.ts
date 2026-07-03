@@ -148,7 +148,7 @@ function requestFailureFromCause(
       host: target.host,
       port: target.port,
       cause,
-      message: "Local app did not respond before the tunnel timeout.",
+      message: `Local app at http://${target.host}:${target.port} did not respond before the tunnel timeout. Confirm the app is responsive there, or restart the tunnel with --host <host>.`,
     });
   }
 
@@ -156,7 +156,6 @@ function requestFailureFromCause(
     host: target.host,
     port: target.port,
     cause,
-    message:
-      "Local app request failed. Confirm the app is listening on the configured host and port.",
+    message: `Local app request failed at http://${target.host}:${target.port}. Confirm the app is listening there, or restart the tunnel with --host <host>.`,
   });
 }
