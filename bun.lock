@@ -12,25 +12,8 @@
         "typescript": "catalog:",
       },
     },
-    "apps/docs": {
+    "docs": {
       "name": "docs",
-      "version": "0.1.0",
-      "dependencies": {
-        "@repo/ui": "*",
-        "next": "16.2.0",
-        "react": "^19.2.0",
-        "react-dom": "^19.2.0",
-      },
-      "devDependencies": {
-        "@repo/typescript-config": "*",
-        "@types/node": "^22.15.3",
-        "@types/react": "19.2.2",
-        "@types/react-dom": "19.2.2",
-        "typescript": "catalog:",
-      },
-    },
-    "apps/web": {
-      "name": "web",
       "version": "0.1.0",
       "dependencies": {
         "@repo/ui": "*",
@@ -371,7 +354,7 @@
 
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
 
-    "docs": ["docs@workspace:apps/docs"],
+    "docs": ["docs@workspace:docs"],
 
     "effect": ["effect@4.0.0-beta.92", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "fast-check": "^4.8.0", "find-my-way-ts": "^0.1.6", "ini": "^7.0.0", "kubernetes-types": "^1.30.0", "msgpackr": "^2.0.1", "multipasta": "^0.2.7", "toml": "^4.1.1", "uuid": "^14.0.0", "yaml": "^2.9.0" } }, "sha512-et6Fy8X9cxhzV/w4U372lB7YCP/B9a8FYVxlx9UMzSgnmwWKxpldnaHz7mHpZHh+OU+ENhU9DO/rTAakmT0sEA=="],
 
@@ -438,8 +421,6 @@
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
 
     "uuid": ["uuid@14.0.1", "", { "bin": { "uuid": "dist-node/bin/uuid" } }, "sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew=="],
-
-    "web": ["web@workspace:apps/web"],
 
     "ws": ["ws@8.21.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="],
 

@@ -2,7 +2,7 @@
   "name": "turbotunnel",
   "private": true,
   "workspaces": [
-    "apps/*",
+    "docs",
     "packages/*"
   ],
   "scripts": {
