@@ -11,17 +11,16 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@effect/platform-bun": "catalog:",
     "@repo/turbotunnel-protocol": "*",
     "effect": "catalog:",
-    "nanoid": "^5.1.6",
-    "pino": "^9.14.0",
-    "ws": "^8.18.3",
-    "zod": "^4.2.1"
+    "nanoid": "catalog:",
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
     "@types/node": "^22.15.3",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "catalog:",
     "typescript": "5.9.2"
   }
 }

@@ -8,7 +8,7 @@ import {
   type WsOpen,
 } from "@repo/turbotunnel-protocol";
 import { nanoid } from "nanoid";
-import { WebSocket, type RawData } from "ws";
+import { WebSocket } from "ws";
 
 import type { LocalTarget } from "../config.js";
 
@@ -48,7 +48,12 @@ export function openLocalWebSocket(
       connId: frame.connId,
       browserOutTopic: frame.browserOutTopic,
       seq: nextLocalSeq,
-      data: rawDataToBytes(data).toString("base64"),
+      data: (Buffer.isBuffer(data)
+        ? data
+        : data instanceof ArrayBuffer
+          ? Buffer.from(data)
+          : Buffer.concat(data)
+      ).toString("base64"),
       binary: isBinary,
     });
     nextLocalSeq += 1;
@@ -146,20 +151,4 @@ function headersRecord(headers: ReadonlyArray<HeaderPair>): Record<string, strin
   }
 
   return output;
-}
-
-function rawDataToBytes(data: RawData): Buffer {
-  if (typeof data === "string") {
-    return Buffer.from(data, "utf8");
-  }
-
-  if (Buffer.isBuffer(data)) {
-    return data;
-  }
-
-  if (data instanceof ArrayBuffer) {
-    return Buffer.from(data);
-  }
-
-  return Buffer.concat(data);
 }

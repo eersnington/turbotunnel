@@ -247,9 +247,7 @@ function writeGeneratedPackageJson(
           dependencies: {
             effect: "4.0.0-beta.92",
             nanoid: "^5.1.6",
-            pino: "^9.14.0",
             ws: "^8.18.3",
-            zod: "^4.2.1",
           },
           devDependencies: {
             "@types/node": "^22.15.3",

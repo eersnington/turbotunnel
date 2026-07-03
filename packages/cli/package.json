@@ -11,13 +11,13 @@
     "@repo/turbotunnel-protocol": "*",
     "effect": "catalog:",
     "kleur": "^4.1.5",
-    "nanoid": "^5.1.6",
-    "ws": "^8.18.3"
+    "nanoid": "catalog:",
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
     "@types/node": "^22.15.3",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "catalog:",
     "typescript": "5.9.2"
   }
 }

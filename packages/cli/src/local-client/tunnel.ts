@@ -16,6 +16,8 @@ import type { HttpTunnelConfig } from "../config.js";
 import { forwardHttpToLocalAppEffect } from "./forward-http.js";
 import { type LocalWebSocketHandle, openLocalWebSocket } from "./forward-ws.js";
 
+type CallbackInterrupt = (interruptor?: number | undefined) => void;
+
 /** Start a local tunnel process and keep it alive until interrupted. */
 export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   config: HttpTunnelConfig,
@@ -54,6 +56,7 @@ class RelayConnection {
   private reconnectDelayMs = 1_000;
   private stopped = false;
   private localClientId = "";
+  private readonly activeEffects = new Set<CallbackInterrupt>();
   private readonly localWebSockets = new Map<string, LocalWebSocketHandle>();
 
   constructor(
@@ -73,6 +76,11 @@ class RelayConnection {
     if (this.heartbeat !== undefined) {
       clearInterval(this.heartbeat);
     }
+
+    for (const interrupt of this.activeEffects) {
+      interrupt();
+    }
+    this.activeEffects.clear();
 
     for (const socket of this.localWebSockets.values()) {
       socket.dispose();
@@ -115,7 +123,21 @@ class RelayConnection {
     });
 
     ws.on("message", (data) => {
-      observeEffect(this.handleRelayMessage(data), `relay message ${this.index}`);
+      let interrupt: CallbackInterrupt | undefined;
+      interrupt = Effect.runCallback(this.handleRelayMessage(data), {
+        onExit: (exit) => {
+          if (interrupt !== undefined) {
+            this.activeEffects.delete(interrupt);
+          }
+
+          if (Exit.isSuccess(exit)) {
+            return;
+          }
+
+          console.error(kleur.yellow(`relay message ${this.index} failed.`));
+        },
+      });
+      this.activeEffects.add(interrupt);
     });
 
     ws.on("close", () => {
@@ -128,6 +150,11 @@ class RelayConnection {
         socket.dispose();
       }
       this.localWebSockets.clear();
+
+      for (const interrupt of this.activeEffects) {
+        interrupt();
+      }
+      this.activeEffects.clear();
 
       if (!this.stopped) {
         this.scheduleReconnect();
@@ -153,8 +180,14 @@ class RelayConnection {
     const config = this.config;
     const localWebSockets = this.localWebSockets;
     return Effect.gen(function* () {
-      const text = rawDataToText(data);
-      const parsed = parseProtocolFrameJson(text);
+      const parsed = parseProtocolFrameJson(
+        (Buffer.isBuffer(data)
+          ? data
+          : data instanceof ArrayBuffer
+            ? Buffer.from(data)
+            : Buffer.concat(data)
+        ).toString("utf8"),
+      );
       if (Result.isFailure(parsed)) {
         yield* Console.error(
           kleur.yellow(`discarded invalid relay frame: ${parsed.failure.reason}`),
@@ -294,36 +327,8 @@ function tunnelHost(config: HttpTunnelConfig): string {
   return `${config.slug}.${config.relayDomain}`;
 }
 
-function rawDataToText(data: RawData): string {
-  if (typeof data === "string") {
-    return data;
-  }
-
-  if (Buffer.isBuffer(data)) {
-    return data.toString("utf8");
-  }
-
-  if (data instanceof ArrayBuffer) {
-    return Buffer.from(data).toString("utf8");
-  }
-
-  return Buffer.concat(data).toString("utf8");
-}
-
 function printTunnelReady(config: HttpTunnelConfig): Effect.Effect<void> {
   return Console.log(
     `\n${kleur.bold("Tunnel ready:")}\n\n  ${kleur.cyan(publicTunnelUrl(config))}\n    ${kleur.dim("->")} http://${config.target.host}:${config.target.port}\n`,
   );
-}
-
-function observeEffect(effect: Effect.Effect<unknown>, operation: string): void {
-  Effect.runCallback(effect, {
-    onExit(exit) {
-      if (Exit.isSuccess(exit)) {
-        return;
-      }
-
-      console.error(kleur.yellow(`${operation} failed.`));
-    },
-  });
 }

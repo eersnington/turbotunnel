@@ -1,14 +1,25 @@
-import pino from "pino";
+import { BunRuntime } from "@effect/platform-bun";
+import { Effect } from "effect";
 
-import { parseGatewayConfig } from "./src/config.js";
-import { createGatewayServer } from "./src/gateway-server.js";
+import { GatewayConfig } from "./src/gateway-config.js";
+import { GatewayLive, makeGatewayServer } from "./src/gateway.js";
 
-const logger = pino({ name: "turbotunnel-gateway" });
-const config = parseGatewayConfig(process.env);
-const server = await createGatewayServer({ config, logger });
+const program = Effect.gen(function* () {
+  const config = yield* GatewayConfig;
+  const server = yield* makeGatewayServer();
 
-server.listen(config.port, () => {
-  logger.info({ port: config.port, baseDomain: config.baseDomain }, "gateway listening");
-});
+  yield* Effect.promise(
+    () =>
+      new Promise<void>((resolve) => {
+        server.listen(config.port, resolve);
+      }),
+  );
 
-export default server;
+  yield* Effect.logInfo("gateway listening").pipe(
+    Effect.annotateLogs({ port: config.port, baseDomain: config.baseDomain }),
+  );
+
+  yield* Effect.never;
+}).pipe(Effect.provide(GatewayLive(process.env)));
+
+BunRuntime.runMain(program, { disableErrorReporting: true });
