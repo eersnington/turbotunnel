@@ -7,7 +7,7 @@ import {
   MAX_RESPONSE_BODY_BYTES,
   PUBLIC_HTTP_TIMEOUT_MS,
   PROTOCOL_VERSION,
-} from "@repo/turbotunnel-protocol";
+} from "@turbotunnel/protocol";
 import { Effect } from "effect";
 import { nanoid } from "nanoid";
 

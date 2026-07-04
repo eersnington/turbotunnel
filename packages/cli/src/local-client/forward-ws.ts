@@ -6,7 +6,7 @@ import {
   type WsClose,
   type WsData,
   type WsOpen,
-} from "@repo/turbotunnel-protocol";
+} from "@turbotunnel/protocol";
 import { nanoid } from "nanoid";
 import { WebSocket } from "ws";
 
