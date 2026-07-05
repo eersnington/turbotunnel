@@ -1,3 +1,5 @@
+export const TURBOTUNNEL_VERSION = "0.1.0";
+
 export const PROTOCOL_VERSION = 1;
 
 export const LOCAL_CLIENT_SUBPROTOCOL = "turbotunnel-local-client-v1";
