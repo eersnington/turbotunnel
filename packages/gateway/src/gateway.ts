@@ -19,6 +19,7 @@ import {
   MAX_REQUEST_BODY_BYTES,
   parseProtocolFrameJson,
   parseProtocolFramePayload,
+  parseTunnelRequestTarget,
   PROTOCOL_VERSION,
   PUBLIC_HTTP_TIMEOUT_MS,
   QUEUE_RECEIVE_COLD_AFTER_EMPTY,
@@ -34,6 +35,7 @@ import {
   type HeaderPair,
   type HttpRequest,
   type HttpResponse,
+  TURBOTUNNEL_VERSION,
   type TunnelRequestFrame,
   type WsClose,
   type WsData,
@@ -42,7 +44,7 @@ import {
   wsBrowserOutTopic,
   wsLocalInConsumerGroup,
   wsLocalInTopic,
-} from "@repo/turbotunnel-protocol";
+} from "@turbotunnel/protocol";
 import { Effect, Layer, Result } from "effect";
 import { nanoid } from "nanoid";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -237,6 +239,11 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       if (headers.oidcToken !== undefined) {
         yield* oidcToken.set(headers.oidcToken);
       }
+      if (request.url === "/_turbotunnel/status") {
+        writeGatewayStatus(response, config, localClients, stats);
+        return;
+      }
+
       const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
       if (slugResult._tag === "err") {
         if (isGatewayRootHost(headers.host, config.baseDomain)) {
@@ -262,6 +269,12 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       }
 
       const slug = slugResult.value;
+      const requestTarget = parseTunnelRequestTarget(request.url);
+      if (Result.isFailure(requestTarget)) {
+        writePlainResponse(response, 400, requestTarget.failure.message);
+        return;
+      }
+
       const requestId = `req_${nanoid(12)}`;
       const responseTopicName = httpResponseTopic(requestId);
       const localClient = pickLocalClientOnThisInstance(slug);
@@ -277,7 +290,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         responseTopic: responseTopicName,
         deadlineAt: Date.now() + PUBLIC_HTTP_TIMEOUT_MS,
         method: request.method ?? "GET",
-        path: request.url?.startsWith("/") === true ? request.url : "/",
+        path: requestTarget.success.path,
         headers: [
           ...requestHeadersForLocalApp({
             rawHeaders: request.rawHeaders,
@@ -631,7 +644,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       const consumerGroup = localConsumerGroup(localClient.slug);
 
       while (localClient.ws.readyState === WebSocket.OPEN && !localClient.draining) {
-        const messages = yield* queue.receive<unknown>({
+        const messages = yield* queue.receive({
           topic,
           consumerGroup,
           limit: QUEUE_RECEIVE_LIMIT,
@@ -701,7 +714,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       const consumerGroup = wsLocalInConsumerGroup(openFrame.connId);
 
       while (localClient.ws.readyState === WebSocket.OPEN && !localClient.draining) {
-        const messages = yield* queue.receive<unknown>({
+        const messages = yield* queue.receive({
           topic: openFrame.localInTopic,
           consumerGroup,
           limit: QUEUE_RECEIVE_LIMIT,
@@ -766,6 +779,12 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       }
 
       const connId = `ws_${nanoid(12)}`;
+      const requestTarget = parseTunnelRequestTarget(request.url);
+      if (Result.isFailure(requestTarget)) {
+        ws.close(1008, requestTarget.failure.message);
+        return;
+      }
+
       const browserOutTopicName = wsBrowserOutTopic(connId);
       const localInTopicName = wsLocalInTopic(connId);
       const localClient = pickLocalClientOnThisInstance(slug);
@@ -866,7 +885,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         browserOutTopic: browserOutTopicName,
         localInTopic: localInTopicName,
         deadlineAt: Date.now() + PUBLIC_HTTP_TIMEOUT_MS,
-        path: request.url?.startsWith("/") === true ? request.url : "/",
+        path: requestTarget.success.path,
         headers: [...publicWebSocketHeaders(request.rawHeaders)],
       };
 
@@ -930,7 +949,7 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
       const consumerGroup = wsBrowserOutConsumerGroup(connection.connId);
 
       while (connection.ws.readyState === WebSocket.OPEN) {
-        const messages = yield* queue.receive<unknown>({
+        const messages = yield* queue.receive({
           topic: connection.browserOutTopic,
           consumerGroup,
           limit: QUEUE_RECEIVE_LIMIT,
@@ -1201,6 +1220,7 @@ function writeGatewayStatus(
   const body = [
     "Turbotunnel gateway is running.",
     "",
+    `Version: ${TURBOTUNNEL_VERSION}`,
     `Base domain: ${config.baseDomain}`,
     `Broker: ${config.brokerKind}`,
     `Queue region: ${config.queueRegion}`,
