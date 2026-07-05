@@ -1,6 +1,6 @@
 {
-  "name": "@repo/gateway",
-  "version": "0.0.0",
+  "name": "@turbotunnel/gateway",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -12,13 +12,13 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:",
-    "@repo/turbotunnel-protocol": "*",
+    "@turbotunnel/protocol": "*",
     "effect": "catalog:",
     "nanoid": "catalog:",
     "ws": "catalog:"
   },
   "devDependencies": {
-    "@repo/typescript-config": "*",
+    "@turbotunnel/typescript-config": "*",
     "@types/node": "^22.15.3",
     "@types/ws": "catalog:",
     "typescript": "catalog:"

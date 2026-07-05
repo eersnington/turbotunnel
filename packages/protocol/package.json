@@ -1,6 +1,6 @@
 {
-  "name": "@repo/turbotunnel-protocol",
-  "version": "0.0.0",
+  "name": "@turbotunnel/protocol",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
@@ -13,7 +13,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@repo/typescript-config": "*",
+    "@turbotunnel/typescript-config": "*",
     "@types/node": "^22.15.3",
     "typescript": "catalog:"
   }

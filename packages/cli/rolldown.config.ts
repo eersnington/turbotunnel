@@ -1,8 +1,10 @@
-import { defineConfig } from 'rolldown';
+import { defineConfig } from "rolldown";
 
 export default defineConfig({
-  input: 'src/main.ts',
+  input: "src/main.ts",
+  platform: "node",
   output: {
-    file: 'dist/index.js',
+    file: "dist/main.js",
+    format: "esm",
   },
 });
