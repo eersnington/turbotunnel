@@ -1,8 +1,8 @@
 import { Context, Effect, Schema } from "effect";
 
-export type QueueMessage<T> = {
+export type QueueMessage = {
   readonly id: string;
-  readonly payload: T;
+  readonly payload: unknown;
   readonly ack: Effect.Effect<void, QueueAckError | QueueAuthError>;
 };
 
@@ -54,8 +54,8 @@ export class Queue extends Context.Service<
       payload: T,
       options?: SendOptions,
     ): Effect.Effect<void, QueueSendError | QueueAuthError>;
-    receive<T>(
+    receive(
       options: ReceiveOptions,
-    ): Effect.Effect<Array<QueueMessage<T>>, QueueReceiveError | QueueAuthError>;
+    ): Effect.Effect<Array<QueueMessage>, QueueReceiveError | QueueAuthError>;
   }
 >()("turbotunnel/gateway/Queue") {}

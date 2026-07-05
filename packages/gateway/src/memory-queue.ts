@@ -55,7 +55,7 @@ class MemoryQueueLive {
     });
   }
 
-  receive<T>(options: ReceiveOptions): Effect.Effect<Array<QueueMessage<T>>> {
+  receive(options: ReceiveOptions): Effect.Effect<Array<QueueMessage>> {
     return Effect.sync(() => {
       const now = Date.now();
       const messages = this.state.topics.get(options.topic) ?? [];
@@ -70,7 +70,7 @@ class MemoryQueueLive {
         message.leasedUntil = now + options.visibilityTimeoutSeconds * 1000;
         return {
           id: message.id,
-          payload: message.payload as T,
+          payload: message.payload,
           ack: Effect.sync(() => {
             message.acknowledgedBy.add(options.consumerGroup);
           }),

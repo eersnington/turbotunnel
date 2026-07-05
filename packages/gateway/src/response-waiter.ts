@@ -6,7 +6,7 @@ import {
   QUEUE_RECEIVE_LIMIT,
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   type HttpResponse,
-} from "@repo/turbotunnel-protocol";
+} from "@turbotunnel/protocol";
 import { Effect, Result } from "effect";
 
 import type { Queue, QueueAckError, QueueAuthError, QueueReceiveError } from "./queue.js";
@@ -36,7 +36,7 @@ export function waitForHttpResponseFromQueue(
         return { _tag: "cancelled" };
       }
 
-      const messages = yield* input.queue.receive<unknown>({
+      const messages = yield* input.queue.receive({
         topic: input.responseTopic,
         consumerGroup,
         limit: QUEUE_RECEIVE_LIMIT,

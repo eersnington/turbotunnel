@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 
 import { GatewayConfig } from "./gateway-config.js";
 import { OidcToken } from "./oidc-token.js";
@@ -15,11 +15,13 @@ import {
   type SendOptions,
 } from "./queue.js";
 
-type NdjsonQueueMessage = {
-  readonly messageId: string;
-  readonly receiptHandle: string;
-  readonly body: string;
-};
+const ndjsonQueueMessageSchema = Schema.Struct({
+  messageId: Schema.NonEmptyString,
+  receiptHandle: Schema.NonEmptyString,
+  body: Schema.NonEmptyString,
+});
+
+type NdjsonQueueMessage = typeof ndjsonQueueMessageSchema.Type;
 
 class VercelQueueLive {
   constructor(
@@ -72,9 +74,9 @@ class VercelQueueLive {
     });
   }
 
-  receive<T>(
+  receive(
     options: ReceiveOptions,
-  ): Effect.Effect<Array<QueueMessage<T>>, QueueReceiveError | QueueAuthError> {
+  ): Effect.Effect<Array<QueueMessage>, QueueReceiveError | QueueAuthError> {
     const region = this.region;
     const oidcToken = this.oidcToken;
     return Effect.gen(function* () {
@@ -123,43 +125,66 @@ class VercelQueueLive {
             message: "Unable to read Vercel Queue response body.",
           }),
       });
-      const messages = yield* Effect.try({
-        try: () =>
-          text
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-            .map((line) => JSON.parse(line) as NdjsonQueueMessage),
-        catch: (cause) =>
-          new QueueReceiveError({
-            operation: "parse Vercel Queue response body",
-            topic: options.topic,
-            cause,
-            message: "Vercel Queue response body was not valid NDJSON.",
-          }),
-      });
+      const messages: Array<NdjsonQueueMessage> = [];
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) {
+          continue;
+        }
 
-      return yield* Effect.try({
-        try: () =>
-          messages.map((message) => ({
-            id: message.messageId,
-            payload: JSON.parse(Buffer.from(message.body, "base64").toString("utf8")) as T,
-            ack: ackMessage({
-              region,
-              oidcToken,
+        const rawEnvelope = yield* Effect.try({
+          try: (): unknown => JSON.parse(trimmed),
+          catch: (cause) =>
+            new QueueReceiveError({
+              operation: "parse Vercel Queue envelope JSON",
               topic: options.topic,
-              consumerGroup: options.consumerGroup,
-              receiptHandle: message.receiptHandle,
+              cause,
+              message: "Vercel Queue response line was not valid JSON.",
             }),
-          })),
-        catch: (cause) =>
-          new QueueReceiveError({
-            operation: "parse Vercel Queue message payload",
+        });
+        const envelope = yield* Schema.decodeUnknownEffect(ndjsonQueueMessageSchema)(
+          rawEnvelope,
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new QueueReceiveError({
+                operation: "parse Vercel Queue envelope",
+                topic: options.topic,
+                cause,
+                message: "Vercel Queue response line did not match the expected envelope shape.",
+              }),
+          ),
+        );
+        messages.push(envelope);
+      }
+
+      const received: Array<QueueMessage> = [];
+      for (const message of messages) {
+        const payload = yield* Effect.try({
+          try: (): unknown => JSON.parse(Buffer.from(message.body, "base64").toString("utf8")),
+          catch: (cause) =>
+            new QueueReceiveError({
+              operation: "parse Vercel Queue message payload",
+              topic: options.topic,
+              cause,
+              message: "Vercel Queue message payload was not valid JSON.",
+            }),
+        });
+
+        received.push({
+          id: message.messageId,
+          payload,
+          ack: ackMessage({
+            region,
+            oidcToken,
             topic: options.topic,
-            cause,
-            message: "Vercel Queue message payload was not valid JSON.",
+            consumerGroup: options.consumerGroup,
+            receiptHandle: message.receiptHandle,
           }),
-      });
+        });
+      }
+
+      return received;
     });
   }
 }
