@@ -1,12 +1,17 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_LOCAL_CLIENT_POOL_SIZE } from "@repo/turbotunnel-protocol";
+import { DEFAULT_LOCAL_CLIENT_POOL_SIZE } from "@turbotunnel/protocol";
 import { Effect, Redacted, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { customAlphabet } from "nanoid";
 
-import { CliConfigError, ConfigFileParseError, ConfigFileReadError } from "./errors.js";
+import {
+  CliConfigError,
+  ConfigFileParseError,
+  ConfigFileReadError,
+  NoGatewayConfigured,
+} from "./errors.js";
 
 export type HttpCommandInput = {
   readonly slug?: string;
@@ -50,13 +55,32 @@ export const resolveHttpTunnelConfig = Effect.fn("resolveHttpTunnelConfig")(func
   input: HttpCommandInput,
 ): Effect.fn.Return<
   HttpTunnelConfig,
-  CliConfigError | ConfigFileParseError | ConfigFileReadError,
+  CliConfigError | ConfigFileParseError | ConfigFileReadError | NoGatewayConfigured,
   FileSystem
 > {
   const fileConfig = yield* readLocalConfig();
   const port = yield* parsePort(input.port);
   const poolSize = yield* parsePoolSize(input.pool);
   const env = process.env;
+  const hasExplicitGatewayInput =
+    input.domain !== undefined ||
+    input.secret !== undefined ||
+    input.relayUrl !== undefined ||
+    env.TURBOTUNNEL_BASE_DOMAIN !== undefined ||
+    env.TURBOTUNNEL_RELAY_DOMAIN !== undefined ||
+    env.TURBOTUNNEL_RELAY_SECRET !== undefined ||
+    env.TURBOTUNNEL_RELAY_URL !== undefined;
+  const hasSavedGateway =
+    (fileConfig.relayDomain !== undefined && fileConfig.relaySecret !== undefined) ||
+    fileConfig.relayUrl !== undefined;
+
+  if (!hasExplicitGatewayInput && !hasSavedGateway) {
+    return yield* new NoGatewayConfigured({
+      message:
+        "No Turbotunnel gateway is configured yet.\n\nRun:\n  tt deploy\n\nThen expose your local app:\n  tt http 5173\n\nNo local tunnel was started.",
+    });
+  }
+
   const relayDomain =
     input.domain ??
     env.TURBOTUNNEL_BASE_DOMAIN ??

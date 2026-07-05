@@ -79,6 +79,50 @@ export class DeploymentGenerationFailed extends Schema.TaggedErrorClass<Deployme
   },
 ) {}
 
+export class DeployOutputParseError extends Schema.TaggedErrorClass<DeployOutputParseError>()(
+  "DeployOutputParseError",
+  {
+    message: Schema.String,
+    stdout: Schema.String,
+  },
+) {}
+
+export class DeploymentVerificationFailed extends Schema.TaggedErrorClass<DeploymentVerificationFailed>()(
+  "DeploymentVerificationFailed",
+  {
+    reason: Schema.Literals([
+      "request-failed",
+      "timeout",
+      "bad-status",
+      "body-mismatch",
+      "unknown",
+    ]),
+    url: Schema.String,
+    message: Schema.String,
+    status: Schema.optional(Schema.Number),
+    missingLine: Schema.optional(Schema.String),
+    bodyExcerpt: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export class NoGatewayConfigured extends Schema.TaggedErrorClass<NoGatewayConfigured>()(
+  "NoGatewayConfigured",
+  {
+    message: Schema.String,
+  },
+) {}
+
+export class LocalTargetNotReachable extends Schema.TaggedErrorClass<LocalTargetNotReachable>()(
+  "LocalTargetNotReachable",
+  {
+    host: Schema.String,
+    port: Schema.Number,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
 export type CliError =
   | CliConfigError
   | ConfigFileReadError
@@ -88,7 +132,11 @@ export type CliError =
   | LocalHttpResponseTooLarge
   | VercelCommandNotFound
   | VercelCommandFailed
-  | DeploymentGenerationFailed;
+  | DeploymentGenerationFailed
+  | DeployOutputParseError
+  | DeploymentVerificationFailed
+  | NoGatewayConfigured
+  | LocalTargetNotReachable;
 
 export function renderCliError(error: CliError): string {
   return kleur.red(error.message);
@@ -104,7 +152,11 @@ export function isCliError(error: unknown): error is CliError {
     error instanceof LocalHttpResponseTooLarge ||
     error instanceof VercelCommandNotFound ||
     error instanceof VercelCommandFailed ||
-    error instanceof DeploymentGenerationFailed
+    error instanceof DeploymentGenerationFailed ||
+    error instanceof DeployOutputParseError ||
+    error instanceof DeploymentVerificationFailed ||
+    error instanceof NoGatewayConfigured ||
+    error instanceof LocalTargetNotReachable
   );
 }
 

@@ -1,7 +1,8 @@
 import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { resolveHttpTunnelConfig } from "../config.js";
+import { type LocalTarget, resolveHttpTunnelConfig } from "../config.js";
+import { LocalTargetNotReachable } from "../errors.js";
 import { startHttpTunnel } from "../local-client/tunnel.js";
 import { deployGateway } from "./deploy.js";
 
@@ -39,6 +40,7 @@ export const httpCommand = Command.make(
       relayUrl: Option.getOrUndefined(relayUrl),
     });
 
+    yield* assertLocalTargetReachable(config.target);
     yield* startHttpTunnel(config);
   }),
 ).pipe(
@@ -89,3 +91,36 @@ export const deployCommand = Command.make(
     });
   }),
 ).pipe(Command.withDescription("Deploy the Turbotunnel gateway to Vercel"));
+
+const LOCAL_TARGET_PREFLIGHT_TIMEOUT_MS = 3_000;
+
+const assertLocalTargetReachable = Effect.fn("assertLocalTargetReachable")(function* (
+  target: LocalTarget,
+): Effect.fn.Return<void, LocalTargetNotReachable> {
+  yield* Effect.tryPromise({
+    try: (signal) =>
+      globalThis.fetch(`http://${target.host}:${target.port}/`, {
+        signal,
+      }),
+    catch: (cause) =>
+      new LocalTargetNotReachable({
+        host: target.host,
+        port: target.port,
+        cause,
+        message: `Local app is not reachable at http://${target.host}:${target.port}.\nStart the app first, or pass --host if it is listening on a different interface.\nNo tunnel was started.`,
+      }),
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: LOCAL_TARGET_PREFLIGHT_TIMEOUT_MS,
+      orElse: () =>
+        Effect.fail(
+          new LocalTargetNotReachable({
+            host: target.host,
+            port: target.port,
+            cause: { timeoutMs: LOCAL_TARGET_PREFLIGHT_TIMEOUT_MS },
+            message: `Local app is not reachable at http://${target.host}:${target.port}.\nStart the app first, or pass --host if it is listening on a different interface.\nNo tunnel was started.`,
+          }),
+        ),
+    }),
+  );
+});

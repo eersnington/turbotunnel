@@ -2,11 +2,14 @@ import { Buffer } from "node:buffer";
 
 import {
   type HeaderPair,
+  localUrlFromTunnelRequestTarget,
+  parseTunnelRequestTarget,
   PROTOCOL_VERSION,
   type WsClose,
   type WsData,
   type WsOpen,
 } from "@turbotunnel/protocol";
+import { Result } from "effect";
 import { nanoid } from "nanoid";
 import { WebSocket } from "ws";
 
@@ -26,7 +29,31 @@ export function openLocalWebSocket(
   target: LocalTarget,
   sendRelayFrame: SendRelayFrame,
 ): LocalWebSocketHandle {
-  const url = new URL(frame.path, `ws://${target.host}:${target.port}`);
+  const requestTarget = parseTunnelRequestTarget(frame.path);
+  if (Result.isFailure(requestTarget)) {
+    sendRelayFrame({
+      protocolVersion: PROTOCOL_VERSION,
+      type: "ws.close",
+      frameId: `frm_${nanoid(12)}`,
+      connId: frame.connId,
+      browserOutTopic: frame.browserOutTopic,
+      code: 1008,
+      reason: requestTarget.failure.message,
+    });
+
+    return {
+      sendData() {},
+      close() {},
+      dispose() {},
+    };
+  }
+
+  const url = localUrlFromTunnelRequestTarget({
+    protocol: "ws",
+    host: target.host,
+    port: target.port,
+    requestTarget: requestTarget.success,
+  });
   const queuedFrames: Array<WsData> = [];
   let nextLocalSeq = 0;
   let closeSent = false;

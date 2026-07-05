@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { TURBOTUNNEL_VERSION } from "@turbotunnel/protocol";
 import { Console, Effect } from "effect";
 import { Command } from "effect/unstable/cli";
 
@@ -14,7 +15,7 @@ const turbotunnel = Command.make("turbotunnel").pipe(
 );
 
 turbotunnel.pipe(
-  Command.run({ version: "0.0.0" }),
+  Command.run({ version: TURBOTUNNEL_VERSION }),
   Effect.catch((cause) =>
     Effect.sync(() => {
       process.exitCode = 1;

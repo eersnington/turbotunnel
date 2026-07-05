@@ -7,7 +7,7 @@ import {
   LOCAL_CLIENT_CAPACITY,
   parseProtocolFrameJson,
   PROTOCOL_VERSION,
-} from "@repo/turbotunnel-protocol";
+} from "@turbotunnel/protocol";
 import { Cause, Console, Effect, Exit, Redacted, Result } from "effect";
 import kleur from "kleur";
 import { nanoid } from "nanoid";
@@ -400,6 +400,29 @@ function publicTunnelUrl(config: HttpTunnelConfig): string {
   return `${protocol}://${host}/`;
 }
 
+function gatewayUrl(config: HttpTunnelConfig): string {
+  if (config.relayUrl !== undefined) {
+    const url = new URL(config.relayUrl);
+    if (url.protocol === "ws:") {
+      url.protocol = "http:";
+    } else if (url.protocol === "wss:") {
+      url.protocol = "https:";
+    }
+
+    if (url.pathname === "") {
+      url.pathname = "/";
+    }
+
+    return url.toString();
+  }
+
+  const host = tunnelHost(config);
+  const hostForScheme = host.replace(/:\d+$/, "");
+  const protocol =
+    hostForScheme === "localhost" || hostForScheme.endsWith(".localhost") ? "http" : "https";
+  return `${protocol}://${host}/`;
+}
+
 function tunnelHost(config: HttpTunnelConfig): string {
   if (config.relayDomain.includes("{slug}")) {
     return config.relayDomain.replaceAll("{slug}", config.slug);
@@ -410,6 +433,10 @@ function tunnelHost(config: HttpTunnelConfig): string {
 
 function printTunnelReady(config: HttpTunnelConfig): Effect.Effect<void> {
   return Console.log(
-    `\n${kleur.bold("Tunnel ready:")}\n\n  ${kleur.cyan(publicTunnelUrl(config))}\n    ${kleur.dim("->")} http://${config.target.host}:${config.target.port}\n`,
+    `\n${kleur.bold("Tunnel starting")}\n\n` +
+      `  Public URL: ${kleur.cyan(publicTunnelUrl(config))}\n` +
+      `  Local app:  http://${config.target.host}:${config.target.port}\n` +
+      `  Gateway:    ${gatewayUrl(config)}\n\n` +
+      "Press Ctrl-C to stop the tunnel.\n",
   );
 }
