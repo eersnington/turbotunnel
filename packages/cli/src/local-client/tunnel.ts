@@ -9,11 +9,11 @@ import {
   PROTOCOL_VERSION,
 } from "@turbotunnel/protocol";
 import { Cause, Console, Effect, Exit, Redacted, Result } from "effect";
-import kleur from "kleur";
 import { nanoid } from "nanoid";
 import { WebSocket, type RawData } from "ws";
 
 import type { HttpTunnelConfig } from "../config.js";
+import { bold, formatRows, url, writeHuman, writeHumanSync } from "../output.js";
 import { forwardHttpToLocalAppEffect } from "./forward-http.js";
 import { type LocalWebSocketHandle, openLocalWebSocket } from "./forward-ws.js";
 
@@ -32,6 +32,7 @@ type TunnelSessionStats = {
   httpResponses: number;
   webSocketsOpened: number;
   webSocketsClosed: number;
+  readyPrinted: boolean;
 };
 
 /** Start a local tunnel process and keep it alive until interrupted. */
@@ -53,17 +54,23 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
         httpResponses: 0,
         webSocketsOpened: 0,
         webSocketsClosed: 0,
+        readyPrinted: false,
       };
 
-      yield* printTunnelReady(config);
+      yield* printTunnelStarting(config);
       yield* Effect.addFinalizer(() =>
-        Console.log(
-          `\n${kleur.bold("Tunnel session ended:")}\n\n` +
-            `  duration: ${Math.max(0, Math.round((Date.now() - stats.startedAtMs) / 1000))}s\n` +
-            `  relay sockets: ${stats.relayConnects} connected, ${stats.relayCloses} closed, ${stats.reconnects} reconnects, ${stats.relayErrors} errors\n` +
-            `  frames: ${stats.framesReceived} received, ${stats.framesSent} sent, ${stats.invalidFrames} invalid\n` +
-            `  http: ${stats.httpRequests} requests, ${stats.httpResponses} responses\n` +
-            `  websockets: ${stats.webSocketsOpened} opened, ${stats.webSocketsClosed} closed\n`,
+        writeHuman(
+          `\n${formatRows([
+            { glyph: "✓", label: "Tunnel", value: "stopped" },
+            {
+              label: "Duration",
+              value: `${Math.max(0, Math.round((Date.now() - stats.startedAtMs) / 1000))}s`,
+            },
+            {
+              label: "Requests",
+              value: `${stats.httpRequests} HTTP, ${stats.webSocketsOpened} WebSocket`,
+            },
+          ])}\n`,
         ),
       );
       yield* Effect.acquireRelease(
@@ -151,7 +158,6 @@ class RelayConnection {
 
     ws.on("open", () => {
       this.stats.relayConnects += 1;
-      console.log(kleur.dim(`relay socket ${this.index} connected, generation ${this.generation}`));
       this.reconnectDelayMs = 1_000;
       this.send({
         type: "local.hello",
@@ -164,6 +170,16 @@ class RelayConnection {
         capacity: LOCAL_CLIENT_CAPACITY,
         target: this.config.target,
       });
+
+      if (!this.stats.readyPrinted) {
+        this.stats.readyPrinted = true;
+        writeHumanSync(
+          `\n${formatRows([
+            { glyph: "✓", label: "Tunnel", value: "ready" },
+            { label: "Stop", value: "Ctrl-C" },
+          ])}\n`,
+        );
+      }
 
       this.heartbeat = setInterval(() => {
         this.send({
@@ -192,7 +208,7 @@ class RelayConnection {
             return;
           }
 
-          console.error(kleur.yellow(`relay message ${this.index} failed.`));
+          writeHumanSync(`! Relay message ${this.index} failed.`);
         },
       });
       this.activeEffects.add(interrupt);
@@ -223,14 +239,15 @@ class RelayConnection {
 
     ws.on("error", (cause) => {
       this.stats.relayErrors += 1;
-      console.error(kleur.yellow(`relay socket ${this.index} error: ${cause.message}`));
+      if (!this.stats.readyPrinted) {
+        writeHumanSync(`! Relay socket ${this.index} failed to connect. ${cause.message}`);
+      }
     });
   }
 
   private scheduleReconnect(): void {
     const delay = this.reconnectDelayMs;
     this.stats.reconnects += 1;
-    console.log(kleur.dim(`relay socket ${this.index} reconnecting in ${delay}ms`));
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 30_000);
     this.reconnectTimer = setTimeout(() => {
       this.connect();
@@ -254,9 +271,7 @@ class RelayConnection {
       );
       if (Result.isFailure(parsed)) {
         stats.invalidFrames += 1;
-        yield* Console.error(
-          kleur.yellow(`discarded invalid relay frame: ${parsed.failure.reason}`),
-        );
+        yield* Console.error(`! Discarded invalid relay frame: ${parsed.failure.reason}`);
         return;
       }
 
@@ -304,7 +319,7 @@ class RelayConnection {
         }
 
         case "error": {
-          yield* Console.error(kleur.yellow(frame.message));
+          yield* Console.error(`! ${frame.message}`);
           return;
         }
 
@@ -313,7 +328,7 @@ class RelayConnection {
         case "delivery.ack":
         case "delivery.reject":
         case "http.response": {
-          yield* Console.error(kleur.yellow(`discarded unexpected relay frame: ${frame.type}`));
+          yield* Console.error(`! Discarded unexpected relay frame: ${frame.type}`);
           return;
         }
       }
@@ -431,12 +446,12 @@ function tunnelHost(config: HttpTunnelConfig): string {
   return `${config.slug}.${config.relayDomain}`;
 }
 
-function printTunnelReady(config: HttpTunnelConfig): Effect.Effect<void> {
-  return Console.log(
-    `\n${kleur.bold("Tunnel starting")}\n\n` +
-      `  Public URL: ${kleur.cyan(publicTunnelUrl(config))}\n` +
-      `  Local app:  http://${config.target.host}:${config.target.port}\n` +
-      `  Gateway:    ${gatewayUrl(config)}\n\n` +
-      "Press Ctrl-C to stop the tunnel.\n",
+function printTunnelStarting(config: HttpTunnelConfig): Effect.Effect<void> {
+  return writeHuman(
+    `\n${bold("Starting tunnel")}\n\n${formatRows([
+      { label: "Public URL", value: url(publicTunnelUrl(config)) },
+      { label: "Local app", value: `http://${config.target.host}:${config.target.port}` },
+      { label: "Gateway", value: gatewayUrl(config) },
+    ])}\n\nConnecting relay sockets…\n`,
   );
 }

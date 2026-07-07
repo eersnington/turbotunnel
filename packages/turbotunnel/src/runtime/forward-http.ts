@@ -13,7 +13,7 @@ import {
 import { Effect, Result } from "effect";
 import { nanoid } from "nanoid";
 
-import type { LocalTarget } from "../config.js";
+import type { LocalTarget } from "../domain/tunnel-config.js";
 import {
   LocalHttpRequestFailed,
   LocalHttpRequestTimedOut,
@@ -22,15 +22,13 @@ import {
 
 const RESPONSE_HEADERS_DROPPED_BY_TUNNEL = new Set(["content-encoding", "content-length"]);
 
-export const forwardHttpToLocalAppEffect = Effect.fn("forwardHttpToLocalAppEffect")(function* (
+export const forwardHttpToLocalApp = Effect.fn("forwardHttpToLocalApp")(function* (
   frame: HttpRequest,
   target: LocalTarget,
 ): Effect.fn.Return<HttpResponse, never, never> {
   return yield* fetchLocalHttp(frame, target).pipe(
     Effect.catch((error) =>
-      Effect.succeed(
-        textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
-      ),
+      Effect.succeed(textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error))),
     ),
   );
 });
@@ -59,11 +57,7 @@ const fetchLocalHttp = Effect.fn("fetchLocalHttp")(function* (
     port: target.port,
     requestTarget: requestTarget.success,
   });
-  const requestHeaders: Array<[string, string]> = [];
-  for (const [name, value] of frame.headers) {
-    requestHeaders.push([name, value]);
-  }
-
+  const requestHeaders = frame.headers.map(([name, value]) => [name, value] as [string, string]);
   const forwarded = yield* Effect.tryPromise({
     try: async (signal) => {
       const response = await globalThis.fetch(url, {
@@ -72,11 +66,18 @@ const fetchLocalHttp = Effect.fn("fetchLocalHttp")(function* (
         body: requestBody(frame),
         signal,
       });
-      const body = Buffer.from(await response.arrayBuffer());
-
+      const body = await readLimitedResponseBody(response);
       return { response, body };
     },
-    catch: (cause) => requestFailureFromCause(cause, target),
+    catch: (cause) =>
+      cause instanceof LocalHttpResponseTooLarge
+        ? cause
+        : new LocalHttpRequestFailed({
+            host: target.host,
+            port: target.port,
+            cause,
+            message: `Local app request failed at http://${target.host}:${target.port}. Confirm the app is listening there, or restart the tunnel with --host <host>.`,
+          }),
   }).pipe(
     Effect.timeoutOrElse({
       duration: PUBLIC_HTTP_TIMEOUT_MS,
@@ -111,17 +112,47 @@ const fetchLocalHttp = Effect.fn("fetchLocalHttp")(function* (
   };
 });
 
-function responseHeadersToPairs(headers: globalThis.Headers): Array<HeaderPair> {
+function responseHeadersToPairs(headers: Headers): Array<HeaderPair> {
   const pairs: Array<HeaderPair> = [];
   headers.forEach((value, name) => {
-    if (RESPONSE_HEADERS_DROPPED_BY_TUNNEL.has(name.toLowerCase())) {
-      return;
+    if (!RESPONSE_HEADERS_DROPPED_BY_TUNNEL.has(name.toLowerCase())) {
+      pairs.push([name, value]);
+    }
+  });
+  return pairs;
+}
+
+/**
+ * Throws `LocalHttpResponseTooLarge` inside the Fetch promise so the stream
+ * reader can cancel as soon as the response crosses the size limit. The
+ * surrounding Effect.tryPromise classifier preserves that typed failure instead
+ * of wrapping it as a generic local request failure.
+ */
+async function readLimitedResponseBody(response: Response): Promise<Buffer> {
+  if (response.body === null) {
+    return Buffer.alloc(0);
+  }
+
+  const chunks: Array<Buffer> = [];
+  let bytesRead = 0;
+  const reader = response.body.getReader();
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      return Buffer.concat(chunks);
     }
 
-    pairs.push([name, value]);
-  });
+    bytesRead += chunk.value.byteLength;
+    if (bytesRead > MAX_RESPONSE_BODY_BYTES) {
+      await reader.cancel();
+      throw new LocalHttpResponseTooLarge({
+        limitBytes: MAX_RESPONSE_BODY_BYTES,
+        message: "Local app response exceeded the tunnel response size limit.",
+      });
+    }
 
-  return pairs;
+    chunks.push(Buffer.from(chunk.value));
+  }
 }
 
 function requestBody(frame: HttpRequest): BodyInit | undefined {
@@ -161,13 +192,4 @@ function publicHttpError(
     case "LocalHttpRequestTimedOut":
       return "Tunnel could not reach the local app. Check the local Turbotunnel process.";
   }
-}
-
-function requestFailureFromCause(cause: unknown, target: LocalTarget): LocalHttpRequestFailed {
-  return new LocalHttpRequestFailed({
-    host: target.host,
-    port: target.port,
-    cause,
-    message: `Local app request failed at http://${target.host}:${target.port}. Confirm the app is listening there, or restart the tunnel with --host <host>.`,
-  });
 }

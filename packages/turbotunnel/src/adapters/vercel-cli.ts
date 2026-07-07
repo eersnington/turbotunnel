@@ -1,0 +1,230 @@
+import { Context, Effect, Layer, Redacted, Stream } from "effect";
+import type { PlatformError } from "effect/PlatformError";
+import { ChildProcess } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
+
+import { DeployOutputParseError, VercelCliFailed, VercelCliNotFound } from "../errors.js";
+
+export type VercelCliShape = {
+  readonly requireInstalled: Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
+  readonly currentAccount: Effect.Effect<string, VercelCliNotFound | VercelCliFailed>;
+  readonly linkProject: (
+    cwd: string,
+    project: string,
+  ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
+  readonly setProductionEnv: (
+    cwd: string,
+    name: string,
+    value: string | Redacted.Redacted<string>,
+  ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
+  readonly addDomain: (
+    cwd: string,
+    domain: string,
+    project: string,
+  ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
+  readonly deployProduction: (
+    cwd: string,
+  ) => Effect.Effect<string, VercelCliNotFound | VercelCliFailed | DeployOutputParseError>;
+};
+
+export class VercelCli extends Context.Service<VercelCli, VercelCliShape>()(
+  "turbotunnel/effect/VercelCli",
+) {
+  static readonly live = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner;
+      const run = (args: ReadonlyArray<string>, options?: VercelCommandOptions) =>
+        runVercelCommand(spawner, args, options);
+
+      return VercelCli.of({
+        requireInstalled: run(["--version"], {
+          commandNotFoundMessage: VERCEL_CLI_MISSING_MESSAGE,
+        }).pipe(Effect.asVoid),
+        currentAccount: run(["whoami"], {
+          commandNotFoundMessage: VERCEL_CLI_MISSING_MESSAGE,
+          failureMessage:
+            "Vercel CLI is installed, but `vercel whoami` failed. Run `vercel login`, confirm the account can create projects, then retry `tt deploy`. No gateway was deployed and your local tunnel config was not changed.",
+        }).pipe(Effect.map((output) => output.stdout.trim())),
+        linkProject: (cwd, project) => run(["link", "--yes", "--project", project], { cwd }).pipe(Effect.asVoid),
+        setProductionEnv: (cwd, name, value) =>
+          Effect.gen(function* () {
+            const update = yield* run(["env", "update", name, "production"], {
+              cwd,
+              stdin: value,
+              allowNonZeroExit: true,
+            });
+            if (update.exitCode === 0) {
+              return;
+            }
+
+            yield* run(["env", "add", name, "production"], {
+              cwd,
+              stdin: value,
+              failureMessage: `Failed to set ${name} for the Production environment. No local tunnel config was changed. Open the Vercel project Environment Variables, fix the value, then run \`tt deploy\` again.`,
+            });
+          }),
+        addDomain: (cwd, domain, project) =>
+          run(["domains", "add", domain, project], {
+            cwd,
+            includeOutputOnFailure: true,
+            failureMessage:
+              "Failed to add the gateway domain. No gateway was deployed and your local tunnel config was not changed. Review the Vercel output, fix domain ownership or DNS, then run `tt deploy` again.",
+          }).pipe(Effect.asVoid),
+        deployProduction: (cwd) =>
+          run(["deploy", "--prod", "--yes"], {
+            cwd,
+            includeOutputOnFailure: true,
+            failureMessage:
+              "Vercel deployment failed before local config was updated. Your previous Turbotunnel config is still intact. Review the Vercel output, then retry `tt deploy`.",
+          }).pipe(Effect.andThen((output) => parseDeploymentUrl(output.stdout))),
+      });
+    }),
+  );
+}
+
+type VercelCommandResult = {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+};
+
+type VercelCommandOptions = {
+  readonly cwd?: string;
+  readonly stdin?: string | Redacted.Redacted<string>;
+  readonly allowNonZeroExit?: boolean;
+  readonly includeOutputOnFailure?: boolean;
+  readonly commandNotFoundMessage?: string;
+  readonly failureMessage?: string;
+};
+
+const VERCEL_CLI_MISSING_MESSAGE =
+  "Vercel CLI is required to deploy Turbotunnel, but no `vercel` executable was found in PATH. Install it, run `vercel login`, and retry `tt deploy`. No gateway was deployed and your local tunnel config was not changed.";
+
+const textEncoder = new TextEncoder();
+
+/**
+ * Runs Vercel once and collects stdout, stderr, and the exit code together.
+ * Effect's `spawner.string` is useful when output is enough, but Vercel failures
+ * need both stderr and the real exit code for actionable typed CLI errors.
+ */
+function runVercelCommand(
+  spawner: ChildProcessSpawner["Service"],
+  args: ReadonlyArray<string>,
+  options: VercelCommandOptions = {},
+): Effect.Effect<VercelCommandResult, VercelCliNotFound | VercelCliFailed> {
+  return Effect.gen(function* () {
+    const command = ["vercel", ...args].join(" ");
+    const stdin = options.stdin === undefined ? undefined : stdinText(options.stdin);
+    const child = ChildProcess.make("vercel", args, {
+      cwd: options.cwd,
+      stdin:
+        stdin === undefined
+          ? "inherit"
+          : { stream: Stream.make(textEncoder.encode(stdin)), endOnDone: true },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const handle = yield* child.pipe(
+          Effect.provideService(ChildProcessSpawner, spawner),
+          Effect.mapError((cause) => classifySpawnFailure(command, cause, options)),
+        );
+        const [stdout, stderr, exitCode] = yield* Effect.all(
+          [
+            collectText(handle.stdout, command),
+            collectText(handle.stderr, command),
+            handle.exitCode.pipe(
+              Effect.mapError((cause) => classifySpawnFailure(command, cause, options)),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        return { stdout, stderr, exitCode };
+      }),
+    );
+
+    if (output.exitCode !== 0 && options.allowNonZeroExit !== true) {
+      const excerpt = options.includeOutputOnFailure === true ? commandOutputExcerpt(output) : "";
+      return yield* new VercelCliFailed({
+        command,
+        exitCode: output.exitCode,
+        message: `${options.failureMessage ?? `${command} failed with exit code ${output.exitCode}.`}${excerpt}`,
+      });
+    }
+
+    return output;
+  });
+}
+
+function stdinText(value: string | Redacted.Redacted<string>): string {
+  return `${typeof value === "string" ? value : Redacted.value(value)}\n`;
+}
+
+function parseDeploymentUrl(stdout: string): Effect.Effect<string, DeployOutputParseError> {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const parsed = trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`;
+    if (URL.canParse(parsed)) {
+      return Effect.succeed(parsed.endsWith("/") ? parsed : `${parsed}/`);
+    }
+  }
+
+  return new DeployOutputParseError({
+    stdout,
+    message:
+      "Vercel deployment completed, but Turbotunnel could not read the deployment URL from Vercel output. Local config was not changed. Retry `tt deploy`; if this continues, inspect Vercel deployment stdout.",
+  });
+}
+
+function collectText(
+  stream: Stream.Stream<Uint8Array, PlatformError>,
+  command: string,
+): Effect.Effect<string, VercelCliFailed> {
+  return Stream.mkString(Stream.decodeText(stream)).pipe(
+    Effect.mapError(
+      (cause) =>
+        new VercelCliFailed({
+          command,
+          exitCode: 1,
+          message: `Failed to read output from ${command}. ${cause.message}`,
+        }),
+    ),
+  );
+}
+
+function classifySpawnFailure(
+  command: string,
+  cause: PlatformError,
+  options: VercelCommandOptions,
+): VercelCliNotFound | VercelCliFailed {
+  if (cause.reason._tag === "NotFound") {
+    return new VercelCliNotFound({
+      command: "vercel",
+      cause,
+      message:
+        options.commandNotFoundMessage ??
+        "Required executable `vercel` was not found in PATH. Install it and retry.",
+    });
+  }
+
+  return new VercelCliFailed({
+    command,
+    exitCode: 1,
+    message: options.failureMessage ?? `${command} could not be started. ${cause.message}`,
+  });
+}
+
+function commandOutputExcerpt(output: VercelCommandResult): string {
+  const text = output.stderr.trim() || output.stdout.trim();
+  if (text.length === 0) {
+    return "";
+  }
+
+  return `\n\nVercel output:\n${text.length <= 2_000 ? text : `${text.slice(0, 2_000)}...`}`;
+}

@@ -1,5 +1,7 @@
 import kleur from "kleur";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
+
+import { wantsJsonOutput, writeHuman, writeMachineJson } from "./output.js";
 
 export class CliConfigError extends Schema.TaggedErrorClass<CliConfigError>()("CliConfigError", {
   message: Schema.String,
@@ -138,8 +140,37 @@ export type CliError =
   | NoGatewayConfigured
   | LocalTargetNotReachable;
 
-export function renderCliError(error: CliError): string {
-  return kleur.red(error.message);
+export function renderCliFailure(cause: unknown): void {
+  const error = isCliError(cause) ? cause : undefined;
+  if (wantsJsonOutput(process.argv)) {
+    const payload =
+      error === undefined
+        ? {
+            status: "error",
+            reason: "unexpected_failure",
+            message:
+              "Unexpected CLI failure. No gateway was deployed and no local tunnel was started.",
+          }
+        : {
+            status: "error",
+            reason: error._tag,
+            message: error.message,
+          };
+    Effect.runSync(writeMachineJson(payload));
+    return;
+  }
+
+  Effect.runSync(writeHuman(renderCliError(error ?? cause)));
+}
+
+export function renderCliError(error: CliError | unknown): string {
+  if (isCliError(error)) {
+    return kleur.red(error.message);
+  }
+
+  return kleur.red(
+    "Unexpected CLI failure. No gateway was deployed and no local tunnel was started.",
+  );
 }
 
 export function isCliError(error: unknown): error is CliError {
@@ -157,15 +188,5 @@ export function isCliError(error: unknown): error is CliError {
     error instanceof DeploymentVerificationFailed ||
     error instanceof NoGatewayConfigured ||
     error instanceof LocalTargetNotReachable
-  );
-}
-
-export function renderUnknownCliFailure(cause: unknown): string {
-  if (cause instanceof Error) {
-    return kleur.red(cause.message);
-  }
-
-  return kleur.red(
-    "Unexpected CLI failure. No gateway was deployed and no local tunnel was started.",
   );
 }

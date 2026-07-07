@@ -19,6 +19,7 @@ export type RunCommandOptions = {
 export type CommandOutput = {
   readonly stdout: string;
   readonly stderr: string;
+  readonly exitCode: number;
 };
 
 export const runCommand = Effect.fn("runCommand")(function* (
@@ -32,7 +33,7 @@ export const runCommand = Effect.fn("runCommand")(function* (
   ChildProcessSpawner
 > {
   const displayCommand = [command, ...args].join(" ");
-  const output = options.output ?? "inherit";
+  const output = options.output ?? "capture";
   const child = ChildProcess.make(command, args, {
     cwd,
     stdin:
@@ -81,7 +82,7 @@ export const runCommand = Effect.fn("runCommand")(function* (
     });
   }
 
-  return { stdout: result.stdout, stderr: result.stderr };
+  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
 });
 
 function commandOutputExcerpt(stderr: string, stdout: string): string {
@@ -90,7 +91,7 @@ function commandOutputExcerpt(stderr: string, stdout: string): string {
     return "";
   }
 
-  const excerpt = text.length <= 2_000 ? text : `${text.slice(0, 2_000)}...`;
+  const excerpt = text.length <= 2_000 ? text : `${text.slice(0, 2_000)}…`;
   return `\n\nVercel output:\n${excerpt}`;
 }
 
@@ -104,7 +105,7 @@ function collectText(
         new VercelCommandFailed({
           command,
           exitCode: 1,
-          message: `Unable to read output from ${command}. ${cause.message}`,
+          message: `Failed to read output from ${command}. ${cause.message}`,
         }),
     ),
   );

@@ -240,14 +240,14 @@ export const makeGatewayServer = Effect.fn("makeGatewayServer")(function* () {
         yield* oidcToken.set(headers.oidcToken);
       }
       if (request.url === "/_turbotunnel/status") {
-        writeGatewayStatus(response, config, localClients, stats);
+        writeGatewayStatus(response, config, localClients, stats, request);
         return;
       }
 
       const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
       if (slugResult._tag === "err") {
         if (isGatewayRootHost(headers.host, config.baseDomain)) {
-          writeGatewayStatus(response, config, localClients, stats);
+          writeGatewayStatus(response, config, localClients, stats, request);
           return;
         }
         writePlainResponse(response, 404, "Tunnel host was not recognized for this relay domain.");
@@ -1213,32 +1213,69 @@ function writeGatewayStatus(
   },
   localClients: ReadonlyMap<string, LocalClientSocket>,
   stats: GatewayStats,
+  request?: IncomingMessage,
 ): void {
   const activeClients = Array.from(localClients.values()).filter(
     (client) => !client.draining && client.ws.readyState === WebSocket.OPEN,
   );
-  const body = [
+  const body = gatewayStatus(config, activeClients.length, stats);
+  if (request?.headers.accept?.includes("application/json")) {
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(`${JSON.stringify(body)}\n`);
+    return;
+  }
+
+  const text = [
     "Turbotunnel gateway is running.",
     "",
-    `Version: ${TURBOTUNNEL_VERSION}`,
-    `Base domain: ${config.baseDomain}`,
-    `Broker: ${config.brokerKind}`,
-    `Queue region: ${config.queueRegion}`,
-    `Uptime: ${formatDurationSeconds(Math.round((Date.now() - stats.startedAt) / 1000))}`,
-    `Active local clients on this instance: ${activeClients.length}`,
-    `Direct HTTP requests on this instance: ${stats.directHttpRequests}`,
-    `Queued HTTP requests on this instance: ${stats.queuedHttpRequests}`,
-    `Direct WebSocket opens on this instance: ${stats.directWebSocketOpens}`,
-    `Queued WebSocket opens on this instance: ${stats.queuedWebSocketOpens}`,
-    `Queue sends on this instance: ${stats.queueSends}`,
-    `Queue receives on this instance: ${stats.queueReceives}`,
-    `Queue acks on this instance: ${stats.queueAcks}`,
+    `Version: ${body.version}`,
+    `Base domain: ${body.baseDomain}`,
+    `Broker: ${body.broker}`,
+    `Queue region: ${body.queueRegion}`,
+    `Uptime: ${formatDurationSeconds(body.uptimeSeconds)}`,
+    `Active local clients on this instance: ${body.activeLocalClients}`,
+    `Direct HTTP requests on this instance: ${body.directHttpRequests}`,
+    `Queued HTTP requests on this instance: ${body.queuedHttpRequests}`,
+    `Direct WebSocket opens on this instance: ${body.directWebSocketOpens}`,
+    `Queued WebSocket opens on this instance: ${body.queuedWebSocketOpens}`,
+    `Queue sends on this instance: ${body.queueSends}`,
+    `Queue receives on this instance: ${body.queueReceives}`,
+    `Queue acks on this instance: ${body.queueAcks}`,
     "",
     "Connect a local app with: tt http <port>",
   ].join("\n");
 
   response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-  response.end(`${body}\n`);
+  response.end(`${text}\n`);
+}
+
+function gatewayStatus(
+  config: {
+    readonly brokerKind: string;
+    readonly queueRegion: string;
+    readonly baseDomain: string;
+  },
+  activeLocalClients: number,
+  stats: GatewayStats,
+) {
+  const body = [
+    ["status", "running"],
+    ["version", TURBOTUNNEL_VERSION],
+    ["baseDomain", config.baseDomain],
+    ["broker", config.brokerKind],
+    ["queueRegion", config.queueRegion],
+    ["uptimeSeconds", Math.round((Date.now() - stats.startedAt) / 1000)],
+    ["activeLocalClients", activeLocalClients],
+    ["directHttpRequests", stats.directHttpRequests],
+    ["queuedHttpRequests", stats.queuedHttpRequests],
+    ["directWebSocketOpens", stats.directWebSocketOpens],
+    ["queuedWebSocketOpens", stats.queuedWebSocketOpens],
+    ["queueSends", stats.queueSends],
+    ["queueReceives", stats.queueReceives],
+    ["queueAcks", stats.queueAcks],
+  ] as const;
+
+  return Object.fromEntries(body);
 }
 
 function formatDurationSeconds(totalSeconds: number): string {

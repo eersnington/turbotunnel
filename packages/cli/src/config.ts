@@ -44,10 +44,12 @@ const cleanSlug = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 5);
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 const LocalConfigSchema = Schema.Struct({
+  project: Schema.optional(Schema.String),
   slug: Schema.optional(Schema.String),
   relayDomain: Schema.optional(Schema.String),
   relaySecret: Schema.optional(Schema.String),
   relayUrl: Schema.optional(Schema.String),
+  queueRegion: Schema.optional(Schema.String),
 });
 
 /** Resolve CLI/env/file inputs into the local tunnel runtime config. */
@@ -113,7 +115,7 @@ export const resolveHttpTunnelConfig = Effect.fn("resolveHttpTunnelConfig")(func
   };
 });
 
-const readLocalConfig = Effect.fn("readLocalConfig")(function* (): Effect.fn.Return<
+export const readLocalConfig = Effect.fn("readLocalConfig")(function* (): Effect.fn.Return<
   LocalConfig,
   ConfigFileParseError | ConfigFileReadError,
   FileSystem
@@ -127,7 +129,7 @@ const readLocalConfig = Effect.fn("readLocalConfig")(function* (): Effect.fn.Ret
           path,
           cause,
           message:
-            "Unable to check ~/.turbotunnel/config.json. Confirm the file permissions and retry. No local tunnel was started.",
+            "Couldn't check ~/.turbotunnel/config.json. Confirm the file permissions and retry. No local tunnel was started.",
         }),
     ),
   );
@@ -143,7 +145,7 @@ const readLocalConfig = Effect.fn("readLocalConfig")(function* (): Effect.fn.Ret
           path,
           cause,
           message:
-            "Unable to read ~/.turbotunnel/config.json. Fix the file permissions or remove the file, then retry. No local tunnel was started.",
+            "Couldn't read ~/.turbotunnel/config.json. Fix the file permissions or remove the file, then retry. No local tunnel was started.",
         }),
     ),
   );

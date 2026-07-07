@@ -1,41 +1,32 @@
-import { randomBytes } from "node:crypto";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { TURBOTUNNEL_VERSION } from "@turbotunnel/protocol";
-import kleur from "kleur";
-import { Console, Effect, Redacted } from "effect";
+import { Effect, Option, Redacted, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
-import { customAlphabet } from "nanoid";
 
+import { readLocalConfig } from "../config.js";
+import {
+  domainToAdd,
+  type DeployCommandOptions,
+  type DeployPlan,
+  makeDeployPlan,
+} from "../deploy-plan.js";
 import {
   CliConfigError,
+  ConfigFileParseError,
+  ConfigFileReadError,
   DeploymentGenerationFailed,
   DeploymentVerificationFailed,
   DeployOutputParseError,
   VercelCommandFailed,
   VercelCommandNotFound,
 } from "../errors.js";
+import { bold, formatRows, url, writeHuman, writeMachineJson } from "../output.js";
 import { runCommand } from "../process.js";
 
-export type DeployCommandOptions = {
-  readonly project?: string;
-  readonly domain?: string;
-  readonly region: string;
-};
-
-type DeployPlan = {
-  readonly slug: string;
-  readonly project: string;
-  readonly baseDomain: string;
-  readonly publicHost: string;
-  readonly queueRegion: string;
-  readonly relaySecret: Redacted.Redacted<string>;
-  readonly deployDir: string;
-  readonly configPath: string;
-};
+export type DeployOutputFormat = "human" | "json";
 
 type DeployedGateway = DeployPlan & {
   readonly deploymentUrl: string;
@@ -43,44 +34,82 @@ type DeployedGateway = DeployPlan & {
 
 type DeployError =
   | CliConfigError
+  | ConfigFileParseError
+  | ConfigFileReadError
   | DeploymentGenerationFailed
   | DeploymentVerificationFailed
   | DeployOutputParseError
   | VercelCommandFailed
   | VercelCommandNotFound;
 
-const cleanSlug = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
-const PROJECT_SUFFIX = "-turbotunnel";
 const GATEWAY_VERIFICATION_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
 const VERCEL_CLI_MISSING_MESSAGE =
   "Vercel CLI is required to deploy Turbotunnel, but no `vercel` executable was found in PATH. Install it with `bun add --global vercel` or `npm install --global vercel`, then run `vercel login` and retry `tt deploy`. No gateway was deployed and your local tunnel config was not changed.";
 
+const GatewayStatusJsonSchema = Schema.Struct({
+  status: Schema.Literals(["running"]),
+  version: Schema.String,
+  baseDomain: Schema.String,
+  broker: Schema.String,
+  queueRegion: Schema.String,
+});
+
+type GatewayStatusJson = typeof GatewayStatusJsonSchema.Type;
+
 export const deployGateway = Effect.fn("deployGateway")(function* (
-  options: DeployCommandOptions,
+  options: DeployCommandOptions & { readonly format: DeployOutputFormat },
 ): Effect.fn.Return<DeployedGateway, DeployError, ChildProcessSpawner | FileSystem> {
-  const plan = yield* makeDeployPlan(options);
+  const savedConfig = yield* readLocalConfig();
+  const planResult = makeDeployPlan(options, {
+    project: savedConfig.project,
+    slug: savedConfig.slug,
+    relayDomain: savedConfig.relayDomain,
+    relaySecret: savedConfig.relaySecret,
+    queueRegion: savedConfig.queueRegion,
+  });
+  if (planResult._tag === "err") {
+    return yield* planResult.error;
+  }
+
+  const plan = planResult.value;
 
   yield* runCommand("vercel", ["--version"], undefined, {
     commandNotFoundMessage: VERCEL_CLI_MISSING_MESSAGE,
   });
-  yield* runCommand("vercel", ["whoami"], undefined, {
+  const account = yield* runCommand("vercel", ["whoami"], undefined, {
+    output: "capture",
     failureMessage:
       "Vercel CLI is installed, but `vercel whoami` failed. Run `vercel login`, confirm the account has access to create projects, then retry `tt deploy`. No gateway was deployed and your local tunnel config was not changed.",
   });
+
+  if (options.format === "human") {
+    yield* printDeployPreview(plan, account.stdout.trim());
+  }
+
+  yield* writeHuman("Generating gateway files…");
   yield* generateGatewayDeployment(plan.deployDir);
+  yield* writeHuman("Linking Vercel project…");
   yield* runCommand("vercel", ["link", "--yes", "--project", plan.project], plan.deployDir);
+  yield* writeHuman("Setting gateway Environment Variables…");
   yield* setVercelEnv(plan.deployDir, "TURBOTUNNEL_BASE_DOMAIN", plan.baseDomain);
   yield* setVercelEnv(plan.deployDir, "TURBOTUNNEL_RELAY_SECRET", Redacted.value(plan.relaySecret));
   yield* setVercelEnv(plan.deployDir, "TURBOTUNNEL_QUEUE_REGION", plan.queueRegion);
 
   if (!plan.publicHost.endsWith(".vercel.app")) {
+    yield* writeHuman("Adding gateway domain…");
     yield* runCommand(
       "vercel",
       ["domains", "add", domainToAdd(plan.baseDomain, plan.slug), plan.project],
       plan.deployDir,
+      {
+        includeOutputOnFailure: true,
+        failureMessage:
+          "Failed to add the gateway domain. No gateway was deployed and your local tunnel config was not changed. Review the Vercel output below, fix domain ownership or DNS, then run `tt deploy` again.",
+      },
     );
   }
 
+  yield* writeHuman("Deploying gateway…");
   const deployOutput = yield* runCommand("vercel", ["deploy", "--prod", "--yes"], plan.deployDir, {
     output: "capture",
     includeOutputOnFailure: true,
@@ -88,102 +117,20 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
       "Vercel deployment failed before local config was updated. Your previous Turbotunnel config is still intact. Review the Vercel output below, then retry `tt deploy`.",
   });
   const deploymentUrl = yield* parseDeploymentUrl(deployOutput.stdout);
+  yield* writeHuman("Verifying gateway…");
   yield* verifyGatewayDeployment(plan);
   yield* writeLocalConfig(plan);
-  yield* printDeploymentSummary(plan, deploymentUrl);
+  yield* printDeploymentSummary(plan, deploymentUrl, options.format);
 
   return { ...plan, deploymentUrl };
 });
-
-function makeDeployPlan(options: DeployCommandOptions): Effect.Effect<DeployPlan, CliConfigError> {
-  const slugResult = resolveDeploySlug(options);
-  if (slugResult._tag === "err") {
-    return slugResult.error;
-  }
-
-  const slug = slugResult.value;
-  const project = options.project ?? `${slug}${PROJECT_SUFFIX}`;
-  const baseDomain = options.domain ?? "{slug}-turbotunnel.vercel.app";
-  const publicHost = deployPublicHost(baseDomain, slug);
-  const queueRegion = options.region;
-  const relaySecret = Redacted.make(`ttsec_${randomBytes(24).toString("base64url")}`, {
-    label: "relay-secret",
-  });
-  const deployDir = join(homedir(), ".turbotunnel", "relay");
-  const configPath = join(homedir(), ".turbotunnel", "config.json");
-
-  return Effect.succeed({
-    slug,
-    project,
-    baseDomain,
-    publicHost,
-    queueRegion,
-    relaySecret,
-    deployDir,
-    configPath,
-  });
-}
-
-function deployPublicHost(baseDomain: string, slug: string): string {
-  if (baseDomain.includes("{slug}")) {
-    return baseDomain.replaceAll("{slug}", slug);
-  }
-
-  return `${slug}.${baseDomain}`;
-}
-
-function resolveDeploySlug(
-  options: DeployCommandOptions,
-):
-  | { readonly _tag: "ok"; readonly value: string }
-  | { readonly _tag: "err"; readonly error: CliConfigError } {
-  if (options.project === undefined) {
-    return { _tag: "ok", value: `tt${cleanSlug()}` };
-  }
-
-  if (options.project.endsWith(PROJECT_SUFFIX)) {
-    const slug = options.project.slice(0, -PROJECT_SUFFIX.length);
-    if (slug.length > 0) {
-      return { _tag: "ok", value: slug };
-    }
-  }
-
-  if (options.domain !== undefined) {
-    return { _tag: "ok", value: `tt${cleanSlug()}` };
-  }
-
-  return {
-    _tag: "err",
-    error: new CliConfigError({
-      message: "--project without --domain must use the <slug>-turbotunnel format.",
-    }),
-  };
-}
-
-function domainToAdd(baseDomain: string, slug: string): string {
-  if (baseDomain.includes("{slug}")) {
-    return baseDomain.replaceAll("{slug}", slug);
-  }
-
-  return `*.${baseDomain}`;
-}
 
 const generateGatewayDeployment = Effect.fn("generateGatewayDeployment")(function* (
   deployDir: string,
 ): Effect.fn.Return<void, DeploymentGenerationFailed, FileSystem> {
   const fs = yield* FileSystem;
   const source = yield* resolveGatewayDeploymentSource();
-  yield* fs.remove(deployDir, { recursive: true, force: true }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new DeploymentGenerationFailed({
-          operation: "remove generated gateway directory",
-          path: deployDir,
-          cause,
-          message: `Unable to remove generated gateway directory at ${deployDir}. No gateway was deployed and your local tunnel config was not changed.`,
-        }),
-    ),
-  );
+  yield* cleanGeneratedDeploymentDirectory(deployDir);
   yield* fs.makeDirectory(deployDir, { recursive: true }).pipe(
     Effect.mapError(
       (cause) =>
@@ -191,7 +138,7 @@ const generateGatewayDeployment = Effect.fn("generateGatewayDeployment")(functio
           operation: "create generated gateway directory",
           path: deployDir,
           cause,
-          message: `Unable to create generated gateway directory at ${deployDir}. No gateway was deployed and your local tunnel config was not changed.`,
+          message: `Failed to create the generated gateway directory at ${deployDir}. No gateway was deployed and your local tunnel config was not changed.`,
         }),
     ),
   );
@@ -207,6 +154,88 @@ const generateGatewayDeployment = Effect.fn("generateGatewayDeployment")(functio
   );
   yield* assertGeneratedDeploymentIsStandalone(deployDir);
 });
+
+function cleanGeneratedDeploymentDirectory(
+  deployDir: string,
+): Effect.Effect<void, DeploymentGenerationFailed, FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    yield* assertDeploymentDirectoryIsNotSymlink(deployDir);
+    const exists = yield* fs.exists(deployDir).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DeploymentGenerationFailed({
+            operation: "check generated gateway directory",
+            path: deployDir,
+            cause,
+            message: `Failed to check the generated gateway directory at ${deployDir}. No gateway was deployed and your local tunnel config was not changed.`,
+          }),
+      ),
+    );
+    if (!exists) {
+      return;
+    }
+
+    const entries = yield* fs.readDirectory(deployDir).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DeploymentGenerationFailed({
+            operation: "read generated gateway directory",
+            path: deployDir,
+            cause,
+            message: `Failed to read the generated gateway directory at ${deployDir}. No gateway was deployed and your local tunnel config was not changed.`,
+          }),
+      ),
+    );
+    for (const entry of entries) {
+      if (entry === ".vercel") {
+        continue;
+      }
+
+      const path = join(deployDir, entry);
+      yield* fs.remove(path, { recursive: true, force: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DeploymentGenerationFailed({
+              operation: "remove stale generated gateway path",
+              path,
+              cause,
+              message: `Failed to remove stale generated gateway path at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
+            }),
+        ),
+      );
+    }
+  });
+}
+
+function assertDeploymentDirectoryIsNotSymlink(
+  deployDir: string,
+): Effect.Effect<void, DeploymentGenerationFailed, FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem;
+    const linkTarget = yield* fs.readLink(deployDir).pipe(
+      Effect.asSome,
+      Effect.catchTag("PlatformError", (cause) => {
+        if (cause.reason._tag === "NotFound") {
+          return Effect.succeed(Option.none<string>());
+        }
+
+        return Effect.succeed(Option.none<string>());
+      }),
+    );
+
+    if (linkTarget._tag === "None") {
+      return;
+    }
+
+    return yield* new DeploymentGenerationFailed({
+      operation: "check generated gateway directory symlink",
+      path: deployDir,
+      cause: { linkTarget: linkTarget.value },
+      message: `Refusing to clean generated gateway directory at ${deployDir} because it is a symbolic link. Replace it with a real directory, then run \`tt deploy\` again. No gateway was deployed and your local tunnel config was not changed.`,
+    });
+  });
+}
 
 type GatewayDeploymentSource = {
   readonly templateDir: string;
@@ -263,7 +292,7 @@ function directoryExists(
             operation: "stat deployment source directory",
             path,
             cause,
-            message: `Unable to inspect deployment source directory at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to inspect the deployment source directory at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
         );
       }),
@@ -288,7 +317,7 @@ function copyFileFromTemplate(
             operation: "create generated file parent",
             path: dirname(target),
             cause,
-            message: `Unable to create generated file parent at ${dirname(target)}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to create the generated file parent at ${dirname(target)}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
       ),
     );
@@ -299,7 +328,7 @@ function copyFileFromTemplate(
             operation: "read gateway template file",
             path: source,
             cause,
-            message: `Unable to read gateway template file at ${source}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to read the gateway template file at ${source}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
       ),
     );
@@ -310,7 +339,7 @@ function copyFileFromTemplate(
             operation: "write generated gateway file",
             path: target,
             cause,
-            message: `Unable to write generated gateway file at ${target}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to write the generated gateway file at ${target}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
       ),
     );
@@ -331,7 +360,7 @@ function copyDirectory(
             operation: "create generated directory",
             path: target,
             cause,
-            message: `Unable to create generated directory at ${target}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to create the generated directory at ${target}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
       ),
     );
@@ -342,7 +371,7 @@ function copyDirectory(
             operation: "read source directory",
             path: source,
             cause,
-            message: `Unable to read source directory at ${source}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to read the source directory at ${source}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
       ),
     );
@@ -360,7 +389,7 @@ function copyDirectory(
               operation: "stat source path",
               path: sourcePath,
               cause,
-              message: `Unable to stat source path at ${sourcePath}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to inspect the source path at ${sourcePath}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -376,7 +405,7 @@ function copyDirectory(
               operation: "create generated file parent",
               path: dirname(targetPath),
               cause,
-              message: `Unable to create generated file parent at ${dirname(targetPath)}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to create the generated file parent at ${dirname(targetPath)}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -388,7 +417,7 @@ function copyDirectory(
                 operation: "read source TypeScript file",
                 path: sourcePath,
                 cause,
-                message: `Unable to read source TypeScript file at ${sourcePath}. No gateway was deployed and your local tunnel config was not changed.`,
+                message: `Failed to read the source TypeScript file at ${sourcePath}. No gateway was deployed and your local tunnel config was not changed.`,
               }),
           ),
         );
@@ -399,7 +428,7 @@ function copyDirectory(
                 operation: "write generated TypeScript file",
                 path: targetPath,
                 cause,
-                message: `Unable to write generated TypeScript file at ${targetPath}. No gateway was deployed and your local tunnel config was not changed.`,
+                message: `Failed to write the generated TypeScript file at ${targetPath}. No gateway was deployed and your local tunnel config was not changed.`,
               }),
           ),
         );
@@ -413,7 +442,7 @@ function copyDirectory(
               operation: "read source file",
               path: sourcePath,
               cause,
-              message: `Unable to read source file at ${sourcePath}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to read the source file at ${sourcePath}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -424,7 +453,7 @@ function copyDirectory(
               operation: "write generated file",
               path: targetPath,
               cause,
-              message: `Unable to write generated file at ${targetPath}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to write the generated file at ${targetPath}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -470,7 +499,7 @@ function writeGeneratedPackageJson(
               operation: "write generated package.json",
               path,
               cause,
-              message: `Unable to write generated package.json at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to write generated package.json at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -512,7 +541,7 @@ function writeGeneratedTsconfig(
               operation: "write generated tsconfig.json",
               path,
               cause,
-              message: `Unable to write generated tsconfig.json at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to write generated tsconfig.json at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -554,7 +583,7 @@ function filesContainingAny(
             operation: "read generated deployment directory",
             path: directory,
             cause,
-            message: `Unable to read generated deployment directory at ${directory}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Failed to read the generated deployment directory at ${directory}. No gateway was deployed and your local tunnel config was not changed.`,
           }),
       ),
     );
@@ -571,7 +600,7 @@ function filesContainingAny(
               operation: "stat generated deployment path",
               path,
               cause,
-              message: `Unable to stat generated deployment path at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to inspect the generated deployment path at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -591,7 +620,7 @@ function filesContainingAny(
               operation: "read generated deployment file",
               path,
               cause,
-              message: `Unable to read generated deployment file at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Failed to read the generated deployment file at ${path}. No gateway was deployed and your local tunnel config was not changed.`,
             }),
         ),
       );
@@ -610,12 +639,18 @@ function setVercelEnv(
   value: string,
 ): Effect.Effect<void, VercelCommandFailed | VercelCommandNotFound, ChildProcessSpawner> {
   return Effect.gen(function* () {
-    yield* runCommand("vercel", ["env", "rm", name, "production", "--yes"], cwd, {
+    const update = yield* runCommand("vercel", ["env", "update", name, "production"], cwd, {
+      stdin: `${value}\n`,
       allowFailure: true,
       output: "capture",
     });
+    if (update.exitCode === 0) {
+      return;
+    }
+
     yield* runCommand("vercel", ["env", "add", name, "production"], cwd, {
       stdin: `${value}\n`,
+      failureMessage: `Failed to set ${name} for the Production environment. No local tunnel config was changed. Open the Vercel project Environment Variables, fix the value, then run \`tt deploy\` again.`,
     });
   });
 }
@@ -632,7 +667,7 @@ function writeLocalConfig(
             operation: "create local config directory",
             path: dirname(plan.configPath),
             cause,
-            message: `Unable to create local config directory at ${dirname(plan.configPath)}. No gateway was deployed and your local tunnel config was not changed.`,
+            message: `Gateway was deployed at https://${plan.publicHost}/, but Turbotunnel could not create the local config directory at ${dirname(plan.configPath)}. Fix local file permissions, then run \`tt deploy\` again to save the config.`,
           }),
       ),
     );
@@ -658,7 +693,7 @@ function writeLocalConfig(
               operation: "write local tunnel config",
               path: plan.configPath,
               cause,
-              message: `Unable to write local tunnel config at ${plan.configPath}. No gateway was deployed and your local tunnel config was not changed.`,
+              message: `Gateway was deployed at https://${plan.publicHost}/, but Turbotunnel could not write the local config at ${plan.configPath}. Fix local file permissions, then run \`tt deploy\` again to save the config.`,
             }),
         ),
       );
@@ -731,7 +766,10 @@ function verifyGatewayStatus(
     const statusUrl = new URL("/_turbotunnel/status", baseUrl).toString();
     const verified = yield* Effect.tryPromise({
       try: async (signal) => {
-        const response = await globalThis.fetch(statusUrl, { signal });
+        const response = await globalThis.fetch(statusUrl, {
+          headers: { accept: "application/json" },
+          signal,
+        });
         const body = await response.text();
         return { response, body };
       },
@@ -767,23 +805,52 @@ function verifyGatewayStatus(
       });
     }
 
-    const expectedLines = [
-      "Turbotunnel gateway is running.",
-      `Version: ${TURBOTUNNEL_VERSION}`,
-      `Base domain: ${plan.baseDomain}`,
-      `Queue region: ${plan.queueRegion}`,
-    ];
-    for (const expectedLine of expectedLines) {
-      if (!verified.body.includes(expectedLine)) {
-        return yield* new DeploymentVerificationFailed({
+    const json = yield* Effect.try({
+      try: (): unknown => JSON.parse(verified.body),
+      catch: (cause) =>
+        new DeploymentVerificationFailed({
           reason: "body-mismatch",
           url: statusUrl,
-          missingLine: expectedLine,
+          cause,
           bodyExcerpt: statusBodyExcerpt(verified.body),
-          message: `Deployment was created, but Turbotunnel could not verify the public gateway URL. Checked: ${statusUrl}. Expected the status body to include: ${expectedLine}. Received: ${statusBodyExcerpt(verified.body)}. Your previous Turbotunnel config is still intact. Retry \`tt deploy\` after the gateway finishes deploying, or open the Vercel deployment logs if this continues.`,
-        });
-      }
-    }
+          message: `Deployment was created, but the gateway status endpoint did not return JSON. Checked: ${statusUrl}. Your previous Turbotunnel config is still intact. Open the Vercel deployment logs if this continues.`,
+        }),
+    });
+    const status = yield* Schema.decodeUnknownEffect(GatewayStatusJsonSchema)(json).pipe(
+      Effect.mapError(
+        (cause) =>
+          new DeploymentVerificationFailed({
+            reason: "body-mismatch",
+            url: statusUrl,
+            cause,
+            bodyExcerpt: statusBodyExcerpt(verified.body),
+            message: `Deployment was created, but the gateway status JSON had an unsupported shape. Checked: ${statusUrl}. Your previous Turbotunnel config is still intact. Open the Vercel deployment logs if this continues.`,
+          }),
+      ),
+    );
+
+    yield* assertGatewayStatusField(statusUrl, "version", status.version, TURBOTUNNEL_VERSION);
+    yield* assertGatewayStatusField(statusUrl, "baseDomain", status.baseDomain, plan.baseDomain);
+    yield* assertGatewayStatusField(statusUrl, "queueRegion", status.queueRegion, plan.queueRegion);
+  });
+}
+
+function assertGatewayStatusField(
+  statusUrl: string,
+  field: keyof GatewayStatusJson,
+  actual: string,
+  expected: string,
+): Effect.Effect<void, DeploymentVerificationFailed> {
+  if (actual === expected) {
+    return Effect.void;
+  }
+
+  return new DeploymentVerificationFailed({
+    reason: "body-mismatch",
+    url: statusUrl,
+    missingLine: `${field}: ${expected}`,
+    bodyExcerpt: `${field}: ${actual}`,
+    message: `Deployment was created, but the gateway status JSON did not match the expected ${field}. Expected ${expected}, received ${actual}. Your previous Turbotunnel config is still intact. Open the Vercel deployment logs if this continues.`,
   });
 }
 
@@ -801,19 +868,56 @@ function statusBodyExcerpt(body: string): string {
     return firstLine;
   }
 
-  return `${firstLine.slice(0, 160)}...`;
+  return `${firstLine.slice(0, 160)}…`;
 }
 
-function printDeploymentSummary(plan: DeployPlan, deploymentUrl: string): Effect.Effect<void> {
+function printDeployPreview(plan: DeployPlan, account: string): Effect.Effect<void> {
   const gatewayUrl = `https://${plan.publicHost}/`;
-  const deploymentLine = deploymentUrl === gatewayUrl ? "" : `  Deployment:    ${deploymentUrl}\n`;
-  return Console.log(
-    `\n${kleur.green(kleur.bold("Gateway deployed"))}\n\n` +
-      `  Gateway:       ${gatewayUrl}\n` +
-      deploymentLine +
-      `  Tunnel domain: ${plan.baseDomain}\n` +
-      `  Queue region:  ${plan.queueRegion}\n` +
-      `  Local config:  ${plan.configPath}\n\n` +
-      `Next:\n  tt http 5173\n`,
+  const rows = [
+    ...(account.length > 0 ? [{ label: "Vercel", value: account }] : []),
+    { label: "Project", value: plan.project },
+    { label: "Gateway", value: url(gatewayUrl) },
+    { label: "Tunnel domain", value: plan.baseDomain },
+    { label: "Queue region", value: plan.queueRegion },
+    { label: "Config", value: plan.configPath },
+  ];
+  const heading = plan.reusedSavedTarget
+    ? "Redeploying Turbotunnel gateway"
+    : "Deploying Turbotunnel gateway";
+  return writeHuman(`\n${bold(heading)}\n\n${formatRows(rows)}\n`);
+}
+
+function printDeploymentSummary(
+  plan: DeployPlan,
+  deploymentUrl: string,
+  format: DeployOutputFormat,
+): Effect.Effect<void> {
+  const gatewayUrl = `https://${plan.publicHost}/`;
+  if (format === "json") {
+    return writeMachineJson({
+      status: "success",
+      reason: "gateway_deployed",
+      data: {
+        gatewayUrl,
+        deploymentUrl,
+        project: plan.project,
+        tunnelDomain: plan.baseDomain,
+        queueRegion: plan.queueRegion,
+        configPath: plan.configPath,
+      },
+      next: [{ command: "tt http 5173", argv: ["tt", "http", "5173"] }],
+    });
+  }
+
+  return writeHuman(
+    `\n${formatRows([
+      { glyph: "✓", label: "Gateway", value: "deployed" },
+      { label: "Gateway", value: url(gatewayUrl) },
+      ...(deploymentUrl === gatewayUrl ? [] : [{ label: "Deployment", value: url(deploymentUrl) }]),
+      { label: "Tunnel domain", value: plan.baseDomain },
+      { label: "Queue region", value: plan.queueRegion },
+      { label: "Config", value: plan.configPath },
+      { label: "Next", value: "tt http 5173" },
+    ])}\n`,
   );
 }

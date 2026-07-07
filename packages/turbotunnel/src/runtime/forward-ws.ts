@@ -13,7 +13,7 @@ import { Result } from "effect";
 import { nanoid } from "nanoid";
 import { WebSocket } from "ws";
 
-import type { LocalTarget } from "../config.js";
+import type { LocalTarget } from "../domain/tunnel-config.js";
 
 type SendRelayFrame = (frame: WsData | WsClose) => void;
 
@@ -23,12 +23,11 @@ export type LocalWebSocketHandle = {
   readonly dispose: () => void;
 };
 
-/** Open and bind a local WebSocket for one public WebSocket connection. */
 export function openLocalWebSocket(
   frame: WsOpen,
   target: LocalTarget,
   sendRelayFrame: SendRelayFrame,
-): LocalWebSocketHandle {
+): LocalWebSocketHandle | undefined {
   const requestTarget = parseTunnelRequestTarget(frame.path);
   if (Result.isFailure(requestTarget)) {
     sendRelayFrame({
@@ -41,11 +40,7 @@ export function openLocalWebSocket(
       reason: requestTarget.failure.message,
     });
 
-    return {
-      sendData() {},
-      close() {},
-      dispose() {},
-    };
+    return undefined;
   }
 
   const url = localUrlFromTunnelRequestTarget({
@@ -67,7 +62,8 @@ export function openLocalWebSocket(
     }
   });
 
-  socket.on("message", (data, isBinary) => {
+  // `ws` emits complete messages as Buffer in its default nodebuffer mode.
+  socket.on("message", (data: Buffer, isBinary) => {
     sendRelayFrame({
       protocolVersion: PROTOCOL_VERSION,
       type: "ws.data",
@@ -75,12 +71,7 @@ export function openLocalWebSocket(
       connId: frame.connId,
       browserOutTopic: frame.browserOutTopic,
       seq: nextLocalSeq,
-      data: (Buffer.isBuffer(data)
-        ? data
-        : data instanceof ArrayBuffer
-          ? Buffer.from(data)
-          : Buffer.concat(data)
-      ).toString("base64"),
+      data: data.toString("base64"),
       binary: isBinary,
     });
     nextLocalSeq += 1;
@@ -149,7 +140,6 @@ function sendDataToLocalSocket(socket: WebSocket, frame: WsData): void {
 
 function extractSubprotocols(headers: ReadonlyArray<HeaderPair>): Array<string> {
   const protocols: Array<string> = [];
-
   for (const [name, value] of headers) {
     if (name.toLowerCase() !== "sec-websocket-protocol") {
       continue;
@@ -169,12 +159,9 @@ function extractSubprotocols(headers: ReadonlyArray<HeaderPair>): Array<string> 
 function headersRecord(headers: ReadonlyArray<HeaderPair>): Record<string, string> {
   const output: Record<string, string> = {};
   for (const [name, value] of headers) {
-    const lowerName = name.toLowerCase();
-    if (lowerName === "sec-websocket-protocol") {
-      continue;
+    if (name.toLowerCase() !== "sec-websocket-protocol") {
+      output[name] = value;
     }
-
-    output[name] = value;
   }
 
   return output;

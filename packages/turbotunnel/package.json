@@ -1,10 +1,10 @@
 {
-  "name": "turbotunnel-cli",
+  "name": "turbotunnel",
   "version": "0.1.0",
   "private": false,
   "type": "module",
   "engines": {
-    "bun": ">=1.3.14"
+    "node": ">=22"
   },
   "bin": {
     "tt": "./dist/main.js",
@@ -15,13 +15,17 @@
     "gateway-template"
   ],
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "build": "rolldown -c",
+    "prepack": "bun run build && bun ./scripts/prepare-package.ts"
   },
   "dependencies": {
-    "@effect/platform-bun": "catalog:",
+    "@effect/platform-node": "catalog:",
     "effect": "catalog:",
-    "kleur": "^4.1.5",
     "nanoid": "catalog:",
+    "picocolors": "^1.1.1",
     "ws": "catalog:"
   },
   "devDependencies": {
