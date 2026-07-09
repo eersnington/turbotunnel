@@ -48,6 +48,7 @@
         "@turbotunnel/typescript-config": "*",
         "@types/node": "^22.15.3",
         "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/gateway": {
