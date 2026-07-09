@@ -9,7 +9,7 @@ import {
   parseTunnelRequestTarget,
   PUBLIC_HTTP_TIMEOUT_MS,
   PROTOCOL_VERSION,
-} from "@turbotunnel/protocol";
+} from "@turbotunnel/contracts";
 import { Effect, Result } from "effect";
 import { nanoid } from "nanoid";
 

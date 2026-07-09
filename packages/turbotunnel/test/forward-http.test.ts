@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import type { HttpRequest } from "@turbotunnel/protocol";
+import type { HttpRequest } from "@turbotunnel/contracts";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 

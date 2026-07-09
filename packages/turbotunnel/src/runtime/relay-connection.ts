@@ -5,7 +5,7 @@ import {
   LOCAL_CLIENT_SUBPROTOCOL,
   parseProtocolFrameJson,
   PROTOCOL_VERSION,
-} from "@turbotunnel/protocol";
+} from "@turbotunnel/contracts";
 import { Cause, Console, Effect, Exit, Result } from "effect";
 import { nanoid } from "nanoid";
 import { WebSocket } from "ws";

@@ -8,7 +8,7 @@ import {
   type WsClose,
   type WsData,
   type WsOpen,
-} from "@turbotunnel/protocol";
+} from "@turbotunnel/contracts";
 import { Result } from "effect";
 import { nanoid } from "nanoid";
 import { WebSocket } from "ws";

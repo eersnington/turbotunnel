@@ -6,7 +6,7 @@ import {
   QUEUE_RECEIVE_LIMIT,
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   type HttpResponse,
-} from "@turbotunnel/protocol";
+} from "@turbotunnel/contracts";
 import { Effect, Result } from "effect";
 
 import type { Queue, QueueAckError, QueueAuthError, QueueReceiveError } from "./queue.js";

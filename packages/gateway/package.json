@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:",
-    "@turbotunnel/protocol": "*",
+    "@turbotunnel/contracts": "*",
     "effect": "catalog:",
     "nanoid": "catalog:",
     "ws": "catalog:"

@@ -1,4 +1,4 @@
-import { DEFAULT_LOCAL_CLIENT_POOL_SIZE } from "@turbotunnel/protocol";
+import { DEFAULT_LOCAL_CLIENT_POOL_SIZE } from "@turbotunnel/contracts";
 import { Redacted } from "effect";
 
 import { CliConfigError, NoGatewayConfigured } from "../errors.js";

@@ -28,10 +28,12 @@ describe("GatewayWorkspace", () => {
 
     const server = await readFile(join(deployDir, "api", "server.ts"), "utf8");
     const gateway = await readFile(join(deployDir, "src", "gateway", "index.ts"), "utf8");
+    const contracts = await readFile(join(deployDir, "src", "contracts", "index.ts"), "utf8");
     const generatedPackage = JSON.parse(await readFile(join(deployDir, "package.json"), "utf8"));
 
     expect(server).toContain('from "../src/gateway/index.js"');
-    expect(gateway).not.toContain("@turbotunnel/protocol");
+    expect(gateway).not.toContain("@turbotunnel/contracts");
+    expect(contracts).toContain("./frames.js");
     expect(generatedPackage.name).toBe("turbotunnel-gateway-deployment");
   });
 

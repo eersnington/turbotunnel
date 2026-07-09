@@ -1,7 +1,7 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { TURBOTUNNEL_VERSION } from "@turbotunnel/protocol";
+import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
 import { Context, Effect, Layer } from "effect";
 import { FileSystem } from "effect/FileSystem";
 
@@ -26,7 +26,7 @@ export class GatewayWorkspace extends Context.Service<GatewayWorkspace, GatewayW
 type GatewayDeploymentSource = {
   readonly templateDir: string;
   readonly gatewaySrcDir: string;
-  readonly protocolSrcDir: string;
+  readonly contractsSrcDir: string;
 };
 
 function generateWorkspace(
@@ -43,9 +43,9 @@ function generateWorkspace(
     );
     yield* writeGeneratedTsconfig(fs, deployDir);
     yield* copyFileFromTemplate(fs, source.templateDir, deployDir, "vercel.json");
-    yield* copyDirectory(fs, source.protocolSrcDir, join(deployDir, "src", "protocol"));
+    yield* copyDirectory(fs, source.contractsSrcDir, join(deployDir, "src", "contracts"));
     yield* copyDirectory(fs, source.gatewaySrcDir, join(deployDir, "src", "gateway"), (text) =>
-      text.replaceAll('from "@turbotunnel/protocol"', 'from "../protocol/index.js"'),
+      text.replaceAll('from "@turbotunnel/contracts"', 'from "../contracts/index.js"'),
     );
     yield* assertStandalone(fs, deployDir);
   });
@@ -66,7 +66,7 @@ function resolveGatewayDeploymentSource(
         return {
           templateDir: candidate,
           gatewaySrcDir: join(candidate, "src", "gateway"),
-          protocolSrcDir: join(candidate, "src", "protocol"),
+          contractsSrcDir: join(candidate, "src", "contracts"),
         };
       }
     }
@@ -75,7 +75,7 @@ function resolveGatewayDeploymentSource(
     return {
       templateDir: join(repoRoot, "packages", "gateway", "vercel"),
       gatewaySrcDir: join(repoRoot, "packages", "gateway", "src"),
-      protocolSrcDir: join(repoRoot, "packages", "protocol", "src"),
+      contractsSrcDir: join(repoRoot, "packages", "contracts", "src"),
     };
   });
 }
@@ -253,7 +253,7 @@ function assertStandalone(
   return Effect.gen(function* () {
     const matches = yield* filesContainingAny(fs, deployDir, [
       "@turbotunnel/gateway",
-      "@turbotunnel/protocol",
+      "@turbotunnel/contracts",
       "@turbotunnel/typescript-config",
     ]);
     if (matches.length > 0) {

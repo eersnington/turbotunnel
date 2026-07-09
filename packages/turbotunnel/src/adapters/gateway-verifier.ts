@@ -1,4 +1,4 @@
-import { TURBOTUNNEL_VERSION } from "@turbotunnel/protocol";
+import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 
 import type { DeployPlan } from "../domain/deploy-plan.js";
