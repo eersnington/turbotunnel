@@ -1,13 +1,14 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-<g clip-path="url(#clip0_215_3)">
-<rect width="512" height="512" fill="white" style="fill:white;fill-opacity:1;"/>
-<path d="M456.918 423H55.082L256 75L456.918 423Z" stroke="#FF1E56" style="stroke:#FF1E56;stroke:color(display-p3 1.0000 0.1176 0.3373);stroke-opacity:1;" stroke-width="24"/>
-<path d="M361.281 367.784H150.719L256 185.43L361.281 367.784Z" stroke="#0196FF" style="stroke:#0196FF;stroke:color(display-p3 0.0039 0.5882 1.0000);stroke-opacity:1;" stroke-width="24"/>
-<path d="M274.339 317.588H237.66L255.999 285.823L274.339 317.588Z" stroke="black" style="stroke:black;stroke-opacity:1;" stroke-width="24"/>
-</g>
-<defs>
-<clipPath id="clip0_215_3">
-<rect width="512" height="512" fill="white" style="fill:white;fill-opacity:1;"/>
-</clipPath>
-</defs>
+<style>
+  .logo-surface { fill: white; }
+  .vercel-mark { fill: black; stroke: black; }
+
+  @media (prefers-color-scheme: dark) {
+    .logo-surface { fill: black; }
+    .vercel-mark { fill: white; stroke: white; }
+  }
+</style>
+<path class="logo-surface" d="M456.918 423H55.082L256 75L456.918 423Z" stroke="#FF1E56" style="stroke:#FF1E56;stroke:color(display-p3 1.0000 0.1176 0.3373);stroke-opacity:1;" stroke-width="28" stroke-linejoin="miter" stroke-miterlimit="20"/>
+<path d="M361.281 367.784H150.719L256 185.43L361.281 367.784Z" stroke="#0196FF" style="stroke:#0196FF;stroke:color(display-p3 0.0039 0.5882 1.0000);stroke-opacity:1;" stroke-width="28" stroke-linejoin="miter" stroke-miterlimit="20"/>
+<path class="vercel-mark" d="M274.339 317.588H237.66L255.999 285.823L274.339 317.588Z" stroke-width="24" stroke-linejoin="miter" stroke-miterlimit="20"/>
 </svg>
