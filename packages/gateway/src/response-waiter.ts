@@ -7,7 +7,7 @@ import {
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   type HttpResponse,
 } from "@turbotunnel/contracts";
-import { Effect, Result } from "effect";
+import { Clock, Effect, Result } from "effect";
 
 import type { Queue, QueueAckError, QueueAuthError, QueueReceiveError } from "./queue.js";
 
@@ -16,26 +16,21 @@ export type WaitForHttpResponseInput = {
   readonly requestId: string;
   readonly responseTopic: string;
   readonly timeoutMs?: number;
-  readonly isCancelled?: () => boolean;
 };
 
 export type WaitForHttpResponseResult =
   | { readonly _tag: "ok"; readonly value: HttpResponse }
-  | { readonly _tag: "timeout" }
-  | { readonly _tag: "cancelled" };
+  | { readonly _tag: "timeout" };
 
+/** Polls and acknowledges a request response topic until a match, timeout, or fiber interruption. */
 export function waitForHttpResponseFromQueue(
   input: WaitForHttpResponseInput,
 ): Effect.Effect<WaitForHttpResponseResult, QueueAckError | QueueAuthError | QueueReceiveError> {
   return Effect.gen(function* () {
-    const deadline = Date.now() + (input.timeoutMs ?? PUBLIC_HTTP_TIMEOUT_MS);
+    const deadline = (yield* Clock.currentTimeMillis) + (input.timeoutMs ?? PUBLIC_HTTP_TIMEOUT_MS);
     const consumerGroup = httpResponseConsumerGroup(input.requestId);
 
-    while (Date.now() < deadline) {
-      if (input.isCancelled?.() === true) {
-        return { _tag: "cancelled" };
-      }
-
+    while ((yield* Clock.currentTimeMillis) < deadline) {
       const messages = yield* input.queue.receive({
         topic: input.responseTopic,
         consumerGroup,

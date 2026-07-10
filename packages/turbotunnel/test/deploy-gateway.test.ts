@@ -187,7 +187,7 @@ class DeployRecorder {
       Layer.succeed(
         GatewayWorkspace,
         GatewayWorkspace.of({
-          generate: (deployDir) =>
+          copyTo: (deployDir) =>
             Effect.sync(() => {
               this.workspaceGenerated = deployDir;
             }),

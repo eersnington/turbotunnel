@@ -1,8 +1,8 @@
-import { Config, ConfigProvider, Context, Effect, Layer, Option, Schema } from "effect";
+import { Config, ConfigProvider, Context, Effect, Layer, Option, Redacted, Schema } from "effect";
 
 export type GatewayConfigShape = {
   readonly baseDomain: string;
-  readonly relaySecret: string;
+  readonly relaySecret: Redacted.Redacted<string>;
   readonly queueRegion: string;
   readonly brokerKind: "memory" | "vercel";
   readonly port: number;
@@ -28,9 +28,9 @@ function loadGatewayConfig() {
       Config.withDefault("localhost"),
     );
     const relaySecret = yield* Config.schema(
-      Schema.NonEmptyString,
+      Schema.Redacted(Schema.NonEmptyString),
       "TURBOTUNNEL_RELAY_SECRET",
-    ).pipe(Config.withDefault("dev_secret"));
+    ).pipe(Config.withDefault(Redacted.make("dev_secret", { label: "relay-secret" })));
     const queueRegion = yield* Config.schema(
       Schema.NonEmptyString,
       "TURBOTUNNEL_QUEUE_REGION",

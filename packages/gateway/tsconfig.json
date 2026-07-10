@@ -5,6 +5,6 @@
     "rootDir": ".",
     "strictNullChecks": true
   },
-  "include": ["server.ts", "src", "vercel"],
+  "include": ["server.ts", "scripts", "src", "vercel", "test"],
   "exclude": ["node_modules", "dist"]
 }

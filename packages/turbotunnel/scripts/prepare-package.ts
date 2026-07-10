@@ -4,22 +4,18 @@ import { fileURLToPath } from "node:url";
 
 const cliRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const gatewayTemplateDir = join(cliRoot, "gateway-template");
+const gatewayDeploymentDir = join(cliRoot, "..", "gateway", "dist", "deployment");
 
 await rm(gatewayTemplateDir, { recursive: true, force: true });
-await mkdir(join(gatewayTemplateDir, "src"), { recursive: true });
-
-await cp(join(cliRoot, "..", "gateway", "vercel"), gatewayTemplateDir, { recursive: true });
-await cp(join(cliRoot, "..", "gateway", "src"), join(gatewayTemplateDir, "src", "gateway"), {
-  recursive: true,
-});
-await cp(join(cliRoot, "..", "contracts", "src"), join(gatewayTemplateDir, "src", "contracts"), {
-  recursive: true,
-});
+await mkdir(gatewayTemplateDir, { recursive: true });
+await cp(gatewayDeploymentDir, gatewayTemplateDir, { recursive: true });
 
 await assertFile(join(cliRoot, "dist", "main.js"));
 await assertFile(join(gatewayTemplateDir, "api", "server.ts"));
 await assertFile(join(gatewayTemplateDir, "src", "gateway", "index.ts"));
 await assertFile(join(gatewayTemplateDir, "src", "contracts", "index.ts"));
+await assertFile(join(gatewayTemplateDir, "package.json"));
+await assertFile(join(gatewayTemplateDir, "tsconfig.json"));
 
 async function assertFile(path: string): Promise<void> {
   const stats = await stat(path).catch((cause: unknown) => {
