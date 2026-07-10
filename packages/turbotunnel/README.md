@@ -1,6 +1,9 @@
 <p align="center">
   <a href="https://turbotunnel.eers.dev">
-    <img src="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/logo-512.svg" alt="Turbotunnel" height="128">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/logo-512-dark.svg?v=2">
+      <img src="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/logo-512.svg?v=2" alt="Turbotunnel" height="128">
+    </picture>
     <h1 align="center">Turbotunnel</h1>
   </a>
 </p>
