@@ -1,4 +1,18 @@
-# Turbotunnel
+<p align="center">
+  <a href="https://turbotunnel.eers.dev">
+    <img src="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/logo-512.svg" alt="Turbotunnel" height="128">
+    <h1 align="center">Turbotunnel</h1>
+  </a>
+</p>
+
+<p align="center">
+  <a aria-label="Turbotunnel npm version" href="https://www.npmjs.com/package/turbotunnel"><img alt="npm version" src="https://img.shields.io/npm/v/turbotunnel.svg?style=for-the-badge&labelColor=000000"></a>
+  <a aria-label="Turbotunnel license" href="https://github.com/eersnington/turbotunnel/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/turbotunnel.svg?style=for-the-badge&labelColor=000000"></a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/architecture.png" alt="Turbotunnel architecture" width="100%">
+</p>
 
 Turbotunnel is a localhost tunnel built on top of [Vercel WebSockets](https://vercel.com/docs/functions/websockets) and [Fluid Compute](https://vercel.com/docs/fluid-compute). It gives a local dev server a public URL, routing traffic through a gateway web server deployed to your own Vercel account. Deploy the gateway once with `tt deploy`. Run `tt http <port>` whenever you want a public URL for the app on your machine.
 
