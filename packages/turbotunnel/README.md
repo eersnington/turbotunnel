@@ -10,7 +10,7 @@
 
 <p align="center">
   <a aria-label="Turbotunnel npm version" href="https://www.npmjs.com/package/turbotunnel"><img alt="npm version" src="https://img.shields.io/npm/v/turbotunnel.svg?style=for-the-badge&labelColor=000000"></a>
-  <a aria-label="Turbotunnel license" href="https://github.com/eersnington/turbotunnel/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/turbotunnel.svg?style=for-the-badge&labelColor=000000"></a>
+  <a aria-label="Turbotunnel license" href="https://github.com/eersnington/turbotunnel/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/npm/l/turbotunnel.svg?style=for-the-badge&labelColor=000000&v=2"></a>
 </p>
 
 <p align="center">
