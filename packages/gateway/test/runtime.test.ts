@@ -21,6 +21,7 @@ type RunningGateway = {
   readonly server: Server;
   readonly openLocalClient: (slug: string) => Promise<WebSocket>;
   readonly openPublicWebSocket: (slug: string, path: string) => Promise<WebSocket>;
+  readonly dispose: () => Promise<void>;
   readonly close: () => Promise<void>;
 };
 
@@ -226,6 +227,147 @@ describe("gateway runtime", () => {
       body: expect.stringContaining("disconnected before the local app responded"),
     });
   });
+
+  test("keeps a newer local-client generation registered when the older socket closes", async () => {
+    const gateway = await startGateway();
+    const older = await gateway.openLocalClient("generation-demo");
+    older.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "local.hello",
+        frameId: "frm_generation_1",
+        slug: "generation-demo",
+        localClientId: "local_generation_test",
+        sessionId: "session_generation_test",
+        generation: 1,
+        capacity: 1,
+        target: { protocol: "http", host: "127.0.0.1", port: 4321 },
+      }),
+    );
+    await waitForActiveLocalClient(gateway.server);
+
+    const newer = await gateway.openLocalClient("generation-demo");
+    const newerFrames = new FrameRecorder(newer);
+    await sendText(
+      newer,
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "local.hello",
+        frameId: "frm_generation_2",
+        slug: "generation-demo",
+        localClientId: "local_generation_test",
+        sessionId: "session_generation_test",
+        generation: 2,
+        capacity: 1,
+        target: { protocol: "http", host: "127.0.0.1", port: 4321 },
+      }),
+    );
+
+    const beforeClose = request(gateway.server, {
+      path: "/before-old-close",
+      host: "generation-demo.tunnel.test",
+    });
+    const beforeCloseFrame = await newerFrames.take(
+      (frame): frame is HttpRequest =>
+        frame.type === "http.request" && frame.path === "/before-old-close",
+    );
+    newer.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.response",
+        frameId: "frm_before_old_close_response",
+        requestId: beforeCloseFrame.requestId,
+        responseTopic: beforeCloseFrame.responseTopic,
+        status: 200,
+        headers: [],
+        body: Buffer.from("before-close").toString("base64"),
+      }),
+    );
+    await expect(beforeClose).resolves.toMatchObject({ status: 200, body: "before-close" });
+
+    const olderClosed = waitForClose(older);
+    older.terminate();
+    await olderClosed;
+    await waitForActiveLocalClient(gateway.server);
+
+    const pendingHttp = request(gateway.server, {
+      path: "/new-generation",
+      host: "generation-demo.tunnel.test",
+    });
+    const forwarded = await newerFrames.take(
+      (frame): frame is HttpRequest =>
+        frame.type === "http.request" && frame.path === "/new-generation",
+    );
+    newer.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.response",
+        frameId: "frm_generation_response",
+        requestId: forwarded.requestId,
+        responseTopic: forwarded.responseTopic,
+        status: 200,
+        headers: [],
+        body: Buffer.from("newer-client").toString("base64"),
+      }),
+    );
+
+    await expect(pendingHttp).resolves.toMatchObject({ status: 200, body: "newer-client" });
+    const status = await request(gateway.server, {
+      path: "/_turbotunnel/status",
+      host: "tunnel.test",
+      accept: "application/json",
+    });
+    expect(JSON.parse(status.body)).toMatchObject({
+      directHttpRequests: 2,
+      queuedHttpRequests: 0,
+    });
+  });
+
+  test("suppresses duplicate local WebSocket frames and closes on a sequence gap", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("sequence-demo");
+    const localFrames = new FrameRecorder(local);
+    local.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "local.hello",
+        frameId: "frm_sequence_hello",
+        slug: "sequence-demo",
+        localClientId: "local_sequence_test",
+        sessionId: "session_sequence_test",
+        generation: 1,
+        capacity: 1,
+        target: { protocol: "http", host: "127.0.0.1", port: 4321 },
+      }),
+    );
+    await waitForActiveLocalClient(gateway.server);
+
+    const browser = await gateway.openPublicWebSocket("sequence-demo", "/sequence");
+    const open = await localFrames.take((frame): frame is WsOpen => frame.type === "ws.open");
+    const firstMessage = waitForMessage(browser);
+    local.send(localWsData(open, "frm_sequence_0", 0, "first"));
+    expect((await firstMessage).toString("utf8")).toBe("first");
+
+    local.send(localWsData(open, "frm_sequence_duplicate", 0, "duplicate"));
+    const nextMessage = waitForMessage(browser);
+    local.send(localWsData(open, "frm_sequence_1", 1, "second"));
+    expect((await nextMessage).toString("utf8")).toBe("second");
+
+    const closed = waitForClose(browser);
+    local.send(localWsData(open, "frm_sequence_gap", 3, "gap"));
+    await expect(closed).resolves.toEqual({ code: 1011, reason: "websocket queue sequence gap" });
+  });
+
+  test("disposes the scoped server while a local WebSocket remains connected", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("shutdown-demo");
+    const closed = waitForClose(local);
+
+    await gateway.dispose();
+
+    await closed;
+    expect(gateway.server.listening).toBe(false);
+  });
 });
 
 type HttpResponseResult = {
@@ -335,6 +477,14 @@ async function startGateway(): Promise<RunningGateway> {
     server.listen(0, "127.0.0.1", resolve);
   });
   const sockets = new Set<WebSocket>();
+  let disposed = false;
+  const dispose = async (): Promise<void> => {
+    if (disposed) {
+      return;
+    }
+    disposed = true;
+    await runtime.dispose();
+  };
   const gateway = {
     server,
     openLocalClient: (slug: string) =>
@@ -355,11 +505,12 @@ async function startGateway(): Promise<RunningGateway> {
         sockets.add(socket);
         return socket;
       }),
+    dispose,
     close: async () => {
       for (const socket of sockets) {
         socket.terminate();
       }
-      await runtime.dispose();
+      await dispose();
     },
   };
   running.push(gateway);
@@ -425,6 +576,29 @@ function waitForMessage(socket: WebSocket): Promise<Buffer> {
   );
 }
 
+function waitForClose(
+  socket: WebSocket,
+): Promise<{ readonly code: number; readonly reason: string }> {
+  return withTimeout(
+    new Promise((resolve) => {
+      socket.once("close", (code, reason) => resolve({ code, reason: reason.toString("utf8") }));
+    }),
+  );
+}
+
+function localWsData(open: WsOpen, frameId: string, seq: number, body: string): string {
+  return JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    type: "ws.data",
+    frameId,
+    connId: open.connId,
+    browserOutTopic: open.browserOutTopic,
+    seq,
+    data: Buffer.from(body).toString("base64"),
+    binary: false,
+  });
+}
+
 function acknowledge(socket: WebSocket, frameId: string): void {
   socket.send(
     JSON.stringify({
@@ -432,6 +606,20 @@ function acknowledge(socket: WebSocket, frameId: string): void {
       type: "delivery.ack",
       frameId: `ack_${frameId}`,
       ackFrameId: frameId,
+    }),
+  );
+}
+
+function sendText(socket: WebSocket, text: string): Promise<void> {
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      socket.send(text, (cause) => {
+        if (cause === undefined || cause === null) {
+          resolve();
+          return;
+        }
+        reject(cause);
+      });
     }),
   );
 }
