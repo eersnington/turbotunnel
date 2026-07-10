@@ -6,6 +6,7 @@ const withMDX = createMDX();
 const config = {
   serverExternalPackages: ['@takumi-rs/image-response'],
   reactStrictMode: true,
+  allowedDevOrigins: ['*.vercel.app'],
 };
 
 export default withMDX(config);
