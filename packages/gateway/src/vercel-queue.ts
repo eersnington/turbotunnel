@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Redacted, Schema } from "effect";
 
 import { GatewayConfig } from "./gateway-config.js";
 import { OidcToken } from "./oidc-token.js";
@@ -39,7 +39,7 @@ class VercelQueueLive {
     return Effect.gen(function* () {
       const headers = yield* authHeaders(oidcToken);
       const response = yield* Effect.tryPromise({
-        try: () =>
+        try: (signal) =>
           fetch(`${baseUrl(region)}/topic/${encodeURIComponent(topic)}`, {
             method: "POST",
             headers: {
@@ -53,6 +53,7 @@ class VercelQueueLive {
                 : { "vqs-idempotency-key": options.idempotencyKey }),
             },
             body: JSON.stringify(payload),
+            signal,
           }),
         catch: (cause) =>
           new QueueSendError({
@@ -83,7 +84,7 @@ class VercelQueueLive {
       const headers = yield* authHeaders(oidcToken);
       const url = `${baseUrl(region)}/topic/${encodeURIComponent(options.topic)}/consumer/${encodeURIComponent(options.consumerGroup)}`;
       const response = yield* Effect.tryPromise({
-        try: () =>
+        try: (signal) =>
           fetch(url, {
             method: "POST",
             headers: {
@@ -92,6 +93,7 @@ class VercelQueueLive {
               "vqs-max-messages": String(options.limit),
               "vqs-visibility-timeout-seconds": String(options.visibilityTimeoutSeconds),
             },
+            signal,
           }),
         catch: (cause) =>
           new QueueReceiveError({
@@ -211,7 +213,7 @@ function ackMessage(input: {
     const headers = yield* authHeaders(input.oidcToken);
     const url = `${baseUrl(input.region)}/topic/${encodeURIComponent(input.topic)}/consumer/${encodeURIComponent(input.consumerGroup)}/lease/${encodeURIComponent(input.receiptHandle)}`;
     const response = yield* Effect.tryPromise({
-      try: () => fetch(url, { method: "DELETE", headers }),
+      try: (signal) => fetch(url, { method: "DELETE", headers, signal }),
       catch: (cause) =>
         new QueueAckError({
           operation: "ack Vercel Queue message",
@@ -237,15 +239,15 @@ function authHeaders(
 ): Effect.Effect<Record<string, string>, QueueAuthError> {
   return Effect.gen(function* () {
     const token = yield* oidcToken.get;
-    const rawToken = Option.getOrUndefined(token);
-    if (rawToken === undefined || rawToken.length === 0) {
+    const redactedToken = Option.getOrUndefined(token);
+    if (redactedToken === undefined || Redacted.value(redactedToken).length === 0) {
       return yield* new QueueAuthError({
         message:
           "Vercel Queue API requires an OIDC token, but this gateway instance has not received one yet. Retry after the tunnel reconnects; if this continues, enable Vercel OIDC for the project.",
       });
     }
 
-    return { authorization: `Bearer ${rawToken}` };
+    return { authorization: `Bearer ${Redacted.value(redactedToken)}` };
   });
 }
 

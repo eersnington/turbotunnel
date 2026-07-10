@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Clock, Effect, Layer } from "effect";
 
 import { Queue, type QueueMessage, type ReceiveOptions, type SendOptions } from "./queue.js";
 
@@ -27,38 +27,40 @@ class MemoryQueueLive {
   constructor(private readonly state: SharedState = defaultState) {}
 
   send<T>(topic: string, payload: T, options: SendOptions = {}): Effect.Effect<void> {
-    return Effect.sync(() => {
-      const now = Date.now();
+    const state = this.state;
+    return Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
       const ttlMs = (options.ttlSeconds ?? 60) * 1000;
       const dedupeKey =
         options.idempotencyKey === undefined ? undefined : `${topic}:${options.idempotencyKey}`;
 
       if (dedupeKey !== undefined) {
-        const existingExpiresAt = this.state.idempotencyKeys.get(dedupeKey);
+        const existingExpiresAt = state.idempotencyKeys.get(dedupeKey);
         if (existingExpiresAt !== undefined && existingExpiresAt > now) {
           return;
         }
-        this.state.idempotencyKeys.set(dedupeKey, now + ttlMs);
+        state.idempotencyKeys.set(dedupeKey, now + ttlMs);
       }
 
-      const messages = this.state.topics.get(topic) ?? [];
+      const messages = state.topics.get(topic) ?? [];
       messages.push({
-        id: `mem_${this.state.nextId.toString(36)}`,
+        id: `mem_${state.nextId.toString(36)}`,
         payload,
         expiresAt: now + ttlMs,
         idempotencyKey: options.idempotencyKey,
         leasedUntil: 0,
         acknowledgedBy: new Set(),
       });
-      this.state.nextId += 1;
-      this.state.topics.set(topic, messages);
+      state.nextId += 1;
+      state.topics.set(topic, messages);
     });
   }
 
   receive(options: ReceiveOptions): Effect.Effect<Array<QueueMessage>> {
-    return Effect.sync(() => {
-      const now = Date.now();
-      const messages = this.state.topics.get(options.topic) ?? [];
+    const state = this.state;
+    return Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const messages = state.topics.get(options.topic) ?? [];
       const visible = messages.filter(
         (message) =>
           message.expiresAt > now &&

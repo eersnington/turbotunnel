@@ -55,10 +55,12 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   }
 
   yield* output.write(renderDeploy({ _tag: "Progress", message: "Generating gateway files..." }));
-  yield* gatewayWorkspace.generate(plan.deployDir);
+  yield* gatewayWorkspace.copyTo(plan.deployDir);
   yield* output.write(renderDeploy({ _tag: "Progress", message: "Linking Vercel project..." }));
   yield* vercel.linkProject(plan.deployDir, plan.project);
-  yield* output.write(renderDeploy({ _tag: "Progress", message: "Setting gateway Environment Variables..." }));
+  yield* output.write(
+    renderDeploy({ _tag: "Progress", message: "Setting gateway Environment Variables..." }),
+  );
   yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_BASE_DOMAIN", plan.baseDomain);
   yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_RELAY_SECRET", plan.relaySecret);
   yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_QUEUE_REGION", plan.queueRegion);
@@ -73,10 +75,12 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   yield* output.write(renderDeploy({ _tag: "Progress", message: "Verifying gateway..." }));
   yield* gatewayVerifier.verify(plan);
   yield* localConfigStore.write(toSavedDeployConfig(plan));
-  yield* output.write(renderDeploy({
-    _tag: "Summary",
-    output: input.output,
-    plan,
-    deploymentUrl,
-  }));
+  yield* output.write(
+    renderDeploy({
+      _tag: "Summary",
+      output: input.output,
+      plan,
+      deploymentUrl,
+    }),
+  );
 });

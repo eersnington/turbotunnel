@@ -2,10 +2,6 @@
   "name": "turbotunnel",
   "version": "0.1.0",
   "private": false,
-  "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
   "bin": {
     "tt": "./dist/main.js",
     "turbotunnel": "./dist/main.js"
@@ -14,12 +10,13 @@
     "dist",
     "gateway-template"
   ],
+  "type": "module",
   "scripts": {
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "build": "rolldown -c",
-    "prepack": "bun run build && bun ./scripts/prepare-package.ts"
+    "prepack": "bun run --cwd ../gateway build && bun run build && bun ./scripts/prepare-package.ts"
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
@@ -36,5 +33,8 @@
     "rolldown": "^1.1.3",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
