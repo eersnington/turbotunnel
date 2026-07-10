@@ -1,13 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "react",
-    "import",
-    "nextjs"
-  ],
+  "plugins": ["typescript", "unicorn", "oxc", "react", "import", "nextjs"],
   "categories": {
     "correctness": "error"
   },
@@ -17,18 +10,11 @@
       "version": "19.2.7"
     },
     "tailwindcss": {
-      "callees": [
-        "clsx",
-        "cva",
-        "cn"
-      ]
+      "callees": ["clsx", "cva", "cn"]
     }
   },
   "env": {
     "builtin": true
   },
-  "ignorePatterns": [
-    "node_modules/",
-    "dist/"
-  ]
+  "ignorePatterns": ["node_modules/", "dist/"]
 }
