@@ -12,14 +12,14 @@ await cp(join(cliRoot, "..", "gateway", "vercel"), gatewayTemplateDir, { recursi
 await cp(join(cliRoot, "..", "gateway", "src"), join(gatewayTemplateDir, "src", "gateway"), {
   recursive: true,
 });
-await cp(join(cliRoot, "..", "protocol", "src"), join(gatewayTemplateDir, "src", "protocol"), {
+await cp(join(cliRoot, "..", "contracts", "src"), join(gatewayTemplateDir, "src", "contracts"), {
   recursive: true,
 });
 
 await assertFile(join(cliRoot, "dist", "main.js"));
 await assertFile(join(gatewayTemplateDir, "api", "server.ts"));
 await assertFile(join(gatewayTemplateDir, "src", "gateway", "index.ts"));
-await assertFile(join(gatewayTemplateDir, "src", "protocol", "index.ts"));
+await assertFile(join(gatewayTemplateDir, "src", "contracts", "index.ts"));
 
 async function assertFile(path: string): Promise<void> {
   const stats = await stat(path).catch((cause: unknown) => {

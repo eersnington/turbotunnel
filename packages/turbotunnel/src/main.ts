@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { TURBOTUNNEL_VERSION } from "@turbotunnel/protocol";
+import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
 import { Effect, Layer } from "effect";
 import { Command } from "effect/unstable/cli";
 

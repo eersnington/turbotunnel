@@ -2,8 +2,8 @@ import { Buffer } from "node:buffer";
 import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import type { WsClose, WsData, WsOpen } from "@turbotunnel/protocol";
-import { PROTOCOL_VERSION } from "@turbotunnel/protocol";
+import type { WsClose, WsData, WsOpen } from "@turbotunnel/contracts";
+import { PROTOCOL_VERSION } from "@turbotunnel/contracts";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 

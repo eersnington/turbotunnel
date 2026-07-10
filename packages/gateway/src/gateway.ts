@@ -44,7 +44,7 @@ import {
   wsBrowserOutTopic,
   wsLocalInConsumerGroup,
   wsLocalInTopic,
-} from "@turbotunnel/protocol";
+} from "@turbotunnel/contracts";
 import { Effect, Layer, Result } from "effect";
 import { nanoid } from "nanoid";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
