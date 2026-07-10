@@ -1,6 +1,6 @@
 # Turbotunnel
 
-Turbotunnel is a localhost tunnel built on top of [Vercel WebSockets](https://vercel.com/docs/functions/websockets) and [Fluid Compute](https://vercel.com/docs/fluid-compute). It gives a local dev server a public URL, routing traffic through a relay in your own Vercel account. Deploy the relay once with `tt deploy`. Run `tt http <port>` whenever you want a public URL for the app on your machine.
+Turbotunnel is a localhost tunnel built on top of [Vercel WebSockets](https://vercel.com/docs/functions/websockets) and [Fluid Compute](https://vercel.com/docs/fluid-compute). It gives a local dev server a public URL, routing traffic through a gateway web server deployed to your own Vercel account. Deploy the gateway once with `tt deploy`. Run `tt http <port>` whenever you want a public URL for the app on your machine.
 
 ## Quick start
 
@@ -12,17 +12,17 @@ tt http 5173
 
 Starting tunnel
 
-  Public URL       https://ttdemo-turbotunnel.vercel.app/
+  Public URL       https://ttdemo123-turbotunnel.vercel.app/
   Local app        http://localhost:5173
 ```
 
 You need the Vercel CLI installed and logged in for `tt deploy`. Get it with `npm i -g vercel` or [read this](https://vercel.com/docs/cli).
 
-`tt deploy` creates a Vercel project for the relay and checks that it responds before saving anything to `~/.turbotunnel/config.json`. `tt http` prints a public URL and forwards traffic to your local app until you press `Ctrl-C`.
+`tt deploy` creates a Vercel project for the gateway and checks that it responds before saving anything to `~/.turbotunnel/config.json`. `tt http` prints a public URL and forwards traffic to your local app until you press `Ctrl-C`.
 
 ## Custom domain
 
-By default your relay lives on `{slug}-turbotunnel.vercel.app`. If you have a domain configured in your Vercel workspace, then pass `--domain` to use your own:
+By default your gateway lives on `{slug}-turbotunnel.vercel.app`. If you have a domain configured in your Vercel workspace, then pass `--domain` to use your own:
 
 ```sh
 tt deploy --domain tunnel.example.com
@@ -40,18 +40,9 @@ This exposes `https://demo.dev.example.com/`.
 
 ## How it works
 
-```
-  Browser            Relay (Vercel)            Local client            Your app
-  ────────           ──────────────            ────────────            ────────
+`tt deploy` creates the gateway web server and supporting queue in your Vercel deployment. When you run `tt http`, it opens a persistent WebSocket connection to the gateway. Browser requests enter through the gateway and travel over that connection to `tt http`, which forwards them to your local app.
 
-                      ┌──────────┐   open WS    ┌─────────┐
-── HTTP/WS ─────────▶ │  relay   │◀─────────────│ tt http │────────▶ localhost:5173
-                      └──────────┘              └─────────┘
-```
-
-The relay is a Vercel WebSocket Function you deploy with `tt deploy`. `tt http` opens a WebSocket to the relay and keeps it alive. When a browser hits your tunnel URL, the relay forwards the request to your local app over that socket.
-
-Vercel can run multiple instances of the relay. Only one of them holds your WebSocket connection. When a request lands on a different instance, it routes through a Vercel Queue to reach the right one.
+Vercel may run multiple instances of the gateway web server. If a request reaches an instance that does not hold your `tt http` connection, the Vercel Queue provides a cross-instance fallback to the instance that does. Responses return along the same path to the browser.
 
 ## Limits
 
@@ -60,9 +51,9 @@ Vercel can run multiple instances of the relay. Only one of them holds your WebS
 - Request and response bodies are limited to 4 MB
 - Each tunnel supports up to 32 concurrent public WebSocket connections
 
-The relay exposes a status endpoint at `/_turbotunnel/status`. It reports version, base domain, queue region, uptime, and live counters for the current instance.
+The gateway exposes a status endpoint at `/_turbotunnel/status`. It reports version, base domain, queue region, uptime, and live counters for the current instance.
 
-## CLI Reference
+## CLI reference
 
 The CLI is available as `tt` and `turbotunnel`.
 
@@ -77,8 +68,9 @@ Flags:
 - **`--project <name>`**: Vercel project name. Defaults to a generated `<slug>-turbotunnel`.
 - **`--domain <domain>`**: base tunnel domain or `{slug}` host pattern. Defaults to `{slug}-turbotunnel.vercel.app`.
 - **`--region <region>`**: Vercel Queue region. Defaults to `iad1`.
+- **`--format json`**: print the deployment result as JSON.
 
-Generates deployment files into `~/.turbotunnel/relay` and writes local settings to `~/.turbotunnel/config.json` after the relay verifies.
+Generates deployment files into `~/.turbotunnel/relay` and writes local settings to `~/.turbotunnel/config.json` after the gateway verifies.
 
 ### `tt http <port>`
 
@@ -90,8 +82,9 @@ Flags:
 
 - **`--slug <slug>`**: tunnel slug for this session. Defaults to a random slug, or the saved one.
 - **`--host <host>`**: local host to connect to. Defaults to `localhost`.
-- **`--pool <count>`**: number of local client sockets. Defaults to `2`.
+- **`--pool <count>`**: number of local client sockets, from `1` to `16`. Defaults to `2`.
 - **`--domain <domain>`**: override the tunnel domain for this session.
+- **`--secret <secret>`**: use a relay secret for local gateway development.
 - **`--relay-url <url>`**: connect to an explicit relay origin, such as `ws://127.0.0.1:3002`.
 
 Checks that the local app is reachable before opening the tunnel. Start your app first.
@@ -110,10 +103,10 @@ For normal use, prefer `tt deploy` and the saved config file.
 
 ## Develop
 
-Prerequisites: 
+Prerequisites:
+
 - Bun 1.3.14+
 - Node.js 22+
-
 
 Run the CLI from the repo during development:
 
@@ -129,6 +122,10 @@ bun run tt:deploy
 bun run tt:http 5173
 ```
 
-# Author
+## License
+
+MIT
+
+## Author
 
 Sree Narayanan ([@eersnington](https://x.com/eersnington))

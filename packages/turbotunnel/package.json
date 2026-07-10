@@ -1,7 +1,25 @@
 {
   "name": "turbotunnel",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": false,
+  "description": "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
+  "homepage": "https://github.com/eersnington/turbotunnel#readme",
+  "bugs": {
+    "url": "https://github.com/eersnington/turbotunnel/issues"
+  },
+  "license": "MIT",
+  "author": "Eersnington",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eersnington/turbotunnel.git"
+  },
+  "keywords": [
+    "localhost",
+    "tunnel",
+    "vercel",
+    "websocket",
+    "cli"
+  ],
   "bin": {
     "tt": "./dist/main.js",
     "turbotunnel": "./dist/main.js"
