@@ -46,7 +46,7 @@
   "devDependencies": {
     "@turbotunnel/contracts": "*",
     "@turbotunnel/typescript-config": "*",
-    "@types/node": "^22.15.3",
+    "@types/node": "^26.1.1",
     "@types/ws": "catalog:",
     "rolldown": "^1.1.3",
     "typescript": "catalog:",
