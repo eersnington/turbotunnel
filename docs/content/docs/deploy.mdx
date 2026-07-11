@@ -1,0 +1,87 @@
+---
+title: tt deploy
+description: Deploy and configure a Turbotunnel gateway on Vercel.
+---
+
+```sh
+tt deploy [--project <name>] [--domain <domain>] [--region <region>] [--format json]
+```
+
+`tt deploy` copies the gateway artifact to `~/.turbotunnel/relay`, links a Vercel project, sets its production environment variables, deploys it, and verifies the public status endpoint. It writes `~/.turbotunnel/config.json` only after verification succeeds.
+
+## Options
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--project <name>` | Vercel project name. Without `--domain`, the name must use the `<slug>-turbotunnel` form. | Generated `<slug>-turbotunnel` |
+| `--domain <domain>` | Base tunnel domain or a host pattern containing `{slug}`. | `{slug}-turbotunnel.vercel.app` |
+| `--region <region>` | Vercel Queue region. | `iad1` |
+| `--format json` | Print the final result as JSON. No other format is accepted. | Terminal output |
+
+Running the command again without options reuses the saved project, slug, domain, region, and relay secret.
+
+## Default Vercel domain
+
+```sh
+tt deploy
+```
+
+A generated slug such as `ttabc123` produces the project `ttabc123-turbotunnel` and gateway URL:
+
+```text
+https://ttabc123-turbotunnel.vercel.app/
+```
+
+## Custom domains
+
+Pass a base domain to create a wildcard gateway domain:
+
+```sh
+tt deploy --domain tunnel.example.com
+```
+
+A tunnel with the slug `demo` is available at `https://demo.tunnel.example.com/`. Turbotunnel asks Vercel to add `*.tunnel.example.com` to the project.
+
+Use `{slug}` when the slug belongs elsewhere in the hostname:
+
+```sh
+tt deploy --domain "{slug}.dev.example.com"
+```
+
+The same slug is then available at `https://demo.dev.example.com/`.
+
+Your domain must already be available to the active Vercel account. Vercel may ask you to configure DNS or prove ownership.
+
+## JSON output
+
+```sh
+tt deploy --format json
+```
+
+A successful deployment writes one JSON value:
+
+```json
+{
+  "status": "success",
+  "reason": "gateway_deployed",
+  "data": {
+    "gatewayUrl": "https://ttabc123-turbotunnel.vercel.app/",
+    "deploymentUrl": "https://ttabc123-turbotunnel.vercel.app/",
+    "project": "ttabc123-turbotunnel",
+    "tunnelDomain": "{slug}-turbotunnel.vercel.app",
+    "queueRegion": "iad1",
+    "configPath": "/Users/you/.turbotunnel/config.json"
+  },
+  "next": [{ "command": "tt http 5173", "argv": ["tt", "http", "5173"] }]
+}
+```
+
+Expected failures use this shape and exit with status 1:
+
+```json
+{
+  "status": "error",
+  "reason": "CliConfigError",
+  "message": "Format must be `json`."
+}
+```

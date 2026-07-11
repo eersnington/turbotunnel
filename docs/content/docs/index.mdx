@@ -1,13 +1,51 @@
 ---
-title: Hello World
-description: Your first document
+title: Get started
+description: Deploy a gateway and give your local app a public URL.
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+Turbotunnel forwards HTTP and WebSocket traffic from a public URL to an app running on your machine. The gateway runs in your Vercel account.
 
-## What is Next?
+## Prerequisites
+
+- Node.js 22 or newer
+- A Vercel account
+- The Vercel CLI, installed and logged in
+
+```sh
+npm i -g turbotunnel vercel
+vercel login
+```
+
+## Deploy your gateway
+
+Run this once:
+
+```sh
+tt deploy
+```
+
+Turbotunnel creates a Vercel project, deploys the gateway, verifies its status endpoint, and saves the connection settings in `~/.turbotunnel/config.json`.
+
+## Open a tunnel
+
+Start your local app, then pass its port to `tt http`:
+
+```sh
+tt http 5173
+```
+
+```text
+Starting tunnel
+
+  Public URL       https://ttdemo123-turbotunnel.vercel.app/
+  Local app        http://localhost:5173
+```
+
+The public URL works until you press `Ctrl-C` or the process exits.
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
+  <Card title="Deploy command" href="/docs/deploy" description="Projects, domains, regions, and JSON output." />
+  <Card title="HTTP command" href="/docs/http" description="Slugs, local hosts, socket pools, and development overrides." />
+  <Card title="Configuration" href="/docs/configuration" description="Saved settings and environment variables." />
+  <Card title="How it works" href="/docs/how-it-works" description="Gateway, queue, and relay architecture." />
 </Cards>

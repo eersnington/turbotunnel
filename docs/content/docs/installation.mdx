@@ -1,0 +1,39 @@
+---
+title: Installation
+description: Install Turbotunnel and the tools needed to deploy a gateway.
+---
+
+## Requirements
+
+Turbotunnel requires Node.js 22 or newer. Deploying a gateway also requires the Vercel CLI and a Vercel account that can create projects.
+
+## Install globally
+
+```sh
+npm i -g turbotunnel vercel
+vercel login
+```
+
+Both `tt` and `turbotunnel` run the same CLI:
+
+```sh
+tt --help
+turbotunnel --help
+```
+
+## Run from the repository
+
+The repository uses Bun 1.3.14 or newer:
+
+```sh
+bun install
+bun run tt -- deploy
+bun run tt -- http 5173
+```
+
+The shorter workspace commands are also available:
+
+```sh
+bun run tt:deploy
+bun run tt:http 5173
+```

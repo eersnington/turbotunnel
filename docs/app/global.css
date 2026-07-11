@@ -2,6 +2,46 @@
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 
+@theme {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-fd-primary: #2563eb;
+}
+
+:root {
+  --fd-layout-width: 1400px;
+}
+
+body {
+  font-family: var(--font-sans), sans-serif;
+  background-image: radial-gradient(
+    circle at 50% -10%,
+    color-mix(in oklab, #3b82f6 12%, transparent),
+    transparent 32rem
+  );
+}
+
+code,
+.font-mono {
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+  font-variant-ligatures: none;
+}
+
+.dot-grid {
+  background-image: radial-gradient(
+    color-mix(in oklab, currentColor 14%, transparent) 0.75px,
+    transparent 0.75px
+  );
+  background-size: 18px 18px;
+}
+
+.dotted-divider {
+  border-color: color-mix(in oklab, currentColor 18%, transparent);
+  border-style: dotted;
+}
+
 html {
   scrollbar-gutter: stable;
 }
