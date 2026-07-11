@@ -246,6 +246,7 @@ describe("gateway runtime", () => {
     );
     await waitForActiveLocalClient(gateway.server);
 
+    const olderFrames = new FrameRecorder(older);
     const newer = await gateway.openLocalClient("generation-demo");
     const newerFrames = new FrameRecorder(newer);
     await sendText(
@@ -263,27 +264,45 @@ describe("gateway runtime", () => {
       }),
     );
 
-    const beforeClose = request(gateway.server, {
-      path: "/before-old-close",
-      host: "generation-demo.tunnel.test",
-    });
-    const beforeCloseFrame = await newerFrames.take(
-      (frame): frame is HttpRequest =>
-        frame.type === "http.request" && frame.path === "/before-old-close",
-    );
-    newer.send(
-      JSON.stringify({
-        protocolVersion: PROTOCOL_VERSION,
-        type: "http.response",
-        frameId: "frm_before_old_close_response",
-        requestId: beforeCloseFrame.requestId,
-        responseTopic: beforeCloseFrame.responseTopic,
-        status: 200,
-        headers: [],
-        body: Buffer.from("before-close").toString("base64"),
-      }),
-    );
-    await expect(beforeClose).resolves.toMatchObject({ status: 200, body: "before-close" });
+    const maximumProbeAttempts = 5;
+    let probeAttempts = 0;
+    let routedToNewer = false;
+    while (probeAttempts < maximumProbeAttempts && !routedToNewer) {
+      probeAttempts += 1;
+      const path = `/generation-probe-${probeAttempts}`;
+      const pendingProbe = request(gateway.server, {
+        path,
+        host: "generation-demo.tunnel.test",
+      });
+      const predicate = (frame: Frame): frame is HttpRequest =>
+        frame.type === "http.request" && frame.path === path;
+      const olderTake = olderFrames.takeCancellable(predicate);
+      const newerTake = newerFrames.takeCancellable(predicate);
+      const routed = await Promise.race([
+        olderTake.promise.then((frame) => ({ socket: older, frame, newer: false as const })),
+        newerTake.promise.then((frame) => ({ socket: newer, frame, newer: true as const })),
+      ]);
+      if (routed.newer) {
+        olderTake.cancel();
+      } else {
+        newerTake.cancel();
+      }
+      routed.socket.send(
+        JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION,
+          type: "http.response",
+          frameId: `frm_generation_probe_${probeAttempts}_response`,
+          requestId: routed.frame.requestId,
+          responseTopic: routed.frame.responseTopic,
+          status: 200,
+          headers: [],
+          body: Buffer.from("probe").toString("base64"),
+        }),
+      );
+      await expect(pendingProbe).resolves.toMatchObject({ status: 200, body: "probe" });
+      routedToNewer = routed.newer;
+    }
+    expect(routedToNewer).toBe(true);
 
     const olderClosed = waitForClose(older);
     older.terminate();
@@ -318,7 +337,7 @@ describe("gateway runtime", () => {
       accept: "application/json",
     });
     expect(JSON.parse(status.body)).toMatchObject({
-      directHttpRequests: 2,
+      directHttpRequests: probeAttempts + 1,
       queuedHttpRequests: 0,
     });
   });
@@ -442,23 +461,70 @@ class FrameRecorder {
   }
 
   take<A extends Frame>(predicate: (frame: Frame) => frame is A): Promise<A> {
+    return this.takeCancellable(predicate).promise;
+  }
+
+  takeCancellable<A extends Frame>(
+    predicate: (frame: Frame) => frame is A,
+  ): {
+    readonly promise: Promise<A>;
+    readonly cancel: () => void;
+  } {
     const existing = this.frames.find(predicate);
     if (existing !== undefined) {
-      return Promise.resolve(existing);
+      return { promise: Promise.resolve(existing), cancel: () => undefined };
     }
-    return withTimeout(
-      new Promise<Frame>((resolve) => {
-        this.waiters.push({
-          predicate,
-          resolve,
-        });
-      }),
-    ).then((frame) => {
+
+    let waiter: (typeof this.waiters)[number] | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let rejectWait: (cause: Error) => void = () => undefined;
+    const promise = new Promise<Frame>((resolve, reject) => {
+      rejectWait = reject;
+      waiter = {
+        predicate,
+        resolve: (frame) => {
+          if (timeout !== undefined) {
+            clearTimeout(timeout);
+          }
+          resolve(frame);
+        },
+      };
+      this.waiters.push(waiter);
+      timeout = setTimeout(() => {
+        this.removeWaiter(waiter);
+        reject(new Error("Timed out waiting for gateway test operation."));
+      }, 2_000);
+    }).then((frame) => {
       if (!predicate(frame)) {
         throw new Error("Gateway test frame no longer matched its waiter predicate.");
       }
       return frame;
     });
+
+    return {
+      promise,
+      cancel: () => {
+        if (waiter === undefined || !this.removeWaiter(waiter)) {
+          return;
+        }
+        if (timeout !== undefined) {
+          clearTimeout(timeout);
+        }
+        rejectWait(new Error("Gateway test frame wait was cancelled."));
+      },
+    };
+  }
+
+  private removeWaiter(waiter: (typeof this.waiters)[number] | undefined): boolean {
+    if (waiter === undefined) {
+      return false;
+    }
+    const index = this.waiters.indexOf(waiter);
+    if (index === -1) {
+      return false;
+    }
+    this.waiters.splice(index, 1);
+    return true;
   }
 }
 
