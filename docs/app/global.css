@@ -1,11 +1,56 @@
 @import "tailwindcss";
-@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/black.css";
 @import "fumadocs-ui/css/preset.css";
 
+/* Near-black/white OKLCH palette + blocky radii on top of fumadocs black. */
 @theme {
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --color-fd-primary: #2563eb;
+
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.125rem;
+  --radius-md: 0.125rem;
+  --radius-lg: 0.125rem;
+  --radius-xl: 0.125rem;
+  --radius-2xl: 0.125rem;
+  --radius-3xl: 0.25rem;
+  --radius-4xl: 0.25rem;
+
+  --color-fd-background: oklch(1 0 0);
+  --color-fd-foreground: oklch(0.145 0 0);
+  --color-fd-muted: oklch(0.965 0 0);
+  --color-fd-muted-foreground: oklch(0.54 0 0);
+  --color-fd-popover: oklch(1 0 0);
+  --color-fd-popover-foreground: oklch(0.145 0 0);
+  --color-fd-card: oklch(1 0 0);
+  --color-fd-card-foreground: oklch(0.145 0 0);
+  --color-fd-border: oklch(0.88 0.006 260 / 0.72);
+  --color-fd-primary: oklch(0.145 0 0);
+  --color-fd-primary-foreground: oklch(1 0 0);
+  --color-fd-secondary: oklch(0.965 0 0);
+  --color-fd-secondary-foreground: oklch(0.145 0 0);
+  --color-fd-accent: oklch(0.965 0 0);
+  --color-fd-accent-foreground: oklch(0.145 0 0);
+  --color-fd-ring: oklch(0.62 0.16 250);
+}
+
+.dark {
+  --color-fd-background: oklch(0.085 0 0);
+  --color-fd-foreground: oklch(0.96 0 0);
+  --color-fd-muted: oklch(0.16 0 0);
+  --color-fd-muted-foreground: oklch(0.68 0 0);
+  --color-fd-popover: oklch(0.085 0 0);
+  --color-fd-popover-foreground: oklch(0.96 0 0);
+  --color-fd-card: oklch(0.085 0 0);
+  --color-fd-card-foreground: oklch(0.96 0 0);
+  --color-fd-border: oklch(0.24 0 0 / 0.8);
+  --color-fd-primary: oklch(0.96 0 0);
+  --color-fd-primary-foreground: oklch(0.085 0 0);
+  --color-fd-secondary: oklch(0.16 0 0);
+  --color-fd-secondary-foreground: oklch(0.96 0 0);
+  --color-fd-accent: oklch(0.16 0 0);
+  --color-fd-accent-foreground: oklch(0.96 0 0);
+  --color-fd-ring: oklch(0.62 0.16 250);
 }
 
 :root {
@@ -13,12 +58,9 @@
 }
 
 body {
-  font-family: var(--font-sans), sans-serif;
-  background-image: radial-gradient(
-    circle at 50% -10%,
-    color-mix(in oklab, #3b82f6 12%, transparent),
-    transparent 32rem
-  );
+  font-family: var(--font-sans), system-ui, sans-serif;
+  background-color: var(--color-fd-background);
+  color: var(--color-fd-foreground);
 }
 
 code,
@@ -29,21 +71,53 @@ code,
   font-variant-ligatures: none;
 }
 
-.dot-grid {
-  background-image: radial-gradient(
-    color-mix(in oklab, currentColor 14%, transparent) 0.75px,
-    transparent 0.75px
-  );
-  background-size: 18px 18px;
+/* Fumadocs default rails are 268px; target 17.5rem. No public width props. */
+@media (min-width: 768px) {
+  #nd-docs-layout {
+    --fd-sidebar-width: 17.5rem;
+  }
 }
 
-.dotted-divider {
-  border-color: color-mix(in oklab, currentColor 18%, transparent);
-  border-style: dotted;
+@media (min-width: 1280px) {
+  #nd-docs-layout {
+    --fd-toc-width: 17.5rem;
+  }
+}
+
+/* Prose density: 14px / 1.7, medium headings. */
+#nd-page .prose {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--color-fd-muted-foreground);
+}
+
+#nd-page .prose :where(h1, h2, h3, h4) {
+  font-weight: 500;
+  color: var(--color-fd-foreground);
+}
+
+#nd-page .prose :where(pre),
+#nd-page figure.shiki {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+#nd-page figure.shiki {
+  border-radius: 0.125rem;
+  box-shadow: none;
+  background: transparent;
+}
+
+/* Force blocky chrome where Fumadocs bakes rounded-full into class strings. */
+#nd-docs-layout .rounded-full:not(.size-1\.5):not(.size-1):not(.size-2),
+#nd-home-layout .rounded-full:not(.size-1\.5):not(.size-1):not(.size-2),
+main .rounded-full:not(.size-1\.5):not(.size-1):not(.size-2) {
+  border-radius: 0.125rem;
 }
 
 html {
   scrollbar-gutter: stable;
+  scroll-padding-top: 4.5rem;
 }
 
 html > body[data-scroll-locked] {
