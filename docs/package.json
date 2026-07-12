@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev",
+    "dev": "next dev --port 1024",
     "postinstall": "fumadocs-mdx",
     "check-types": "fumadocs-mdx && next typegen && tsc --noEmit"
   },

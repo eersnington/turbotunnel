@@ -124,3 +124,179 @@ html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
+
+/* ── Landing scenes ───────────────────────────────────────────────
+   Live path: monochrome (foreground). Queue: warm amber only.
+   Brand pink/blue from the logo are not used as scene chrome. */
+:root {
+  --home-live: oklch(0.35 0 0);
+  --home-live-soft: oklch(0.35 0 0 / 0.14);
+  --home-queue: oklch(0.62 0.14 55);
+  --home-queue-soft: oklch(0.62 0.14 55 / 0.12);
+  --home-ok: oklch(0.55 0.14 150);
+  --home-surface: oklch(1 0 0);
+  --home-edge: oklch(0.88 0.006 260 / 0.72);
+}
+
+.dark {
+  --home-live: oklch(0.92 0 0);
+  --home-live-soft: oklch(0.92 0 0 / 0.12);
+  --home-queue: oklch(0.78 0.12 70);
+  --home-queue-soft: oklch(0.78 0.12 70 / 0.14);
+  --home-ok: oklch(0.72 0.14 155);
+  --home-surface: oklch(0.11 0 0);
+  --home-edge: oklch(0.28 0 0 / 0.85);
+}
+
+.home-panel {
+  border: 1px solid var(--home-edge);
+  background: color-mix(in oklch, var(--home-surface) 94%, transparent);
+  box-shadow: 0 1px 0 oklch(0 0 0 / 0.03);
+}
+
+.dark .home-panel {
+  background: color-mix(in oklch, var(--home-surface) 90%, transparent);
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.025),
+    0 10px 30px oklch(0 0 0 / 0.4);
+}
+
+.home-panel-raised {
+  box-shadow:
+    0 1px 0 oklch(0 0 0 / 0.03),
+    0 8px 24px oklch(0 0 0 / 0.05);
+}
+
+.dark .home-panel-raised {
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.04),
+    0 14px 36px oklch(0 0 0 / 0.5);
+}
+
+.home-panel-live {
+  border-color: color-mix(in oklch, var(--home-live) 22%, var(--home-edge));
+  box-shadow:
+    0 0 0 1px var(--home-live-soft),
+    0 8px 28px var(--home-live-soft);
+}
+
+.home-dot-live {
+  background: var(--home-live);
+  box-shadow: 0 0 0 0 var(--home-live-soft);
+  animation: home-pulse 2.6s ease-out infinite;
+}
+
+.home-dot-ok {
+  background: var(--home-ok);
+}
+
+.home-dot-queue {
+  background: var(--home-queue);
+  box-shadow: 0 0 0 0 var(--home-queue-soft);
+  animation: home-pulse-queue 2.6s ease-out infinite;
+}
+
+.home-packet {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 9999px;
+  background: var(--home-live);
+  animation: home-travel 2.6s linear infinite;
+}
+
+.home-packet-queue {
+  background: var(--home-queue);
+  animation-duration: 2.1s;
+}
+
+.home-packet-dim {
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  opacity: 0.45;
+  animation-duration: 3.2s;
+  animation-delay: 0.5s;
+}
+
+.home-slug-mark {
+  background: color-mix(in oklch, var(--home-live) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--home-live) 18%, transparent);
+}
+
+.home-caret {
+  animation: home-blink 1.05s steps(1) infinite;
+}
+
+@keyframes home-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--home-live-soft);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes home-pulse-queue {
+  0% {
+    box-shadow: 0 0 0 0 var(--home-queue-soft);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes home-travel {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 5px);
+    opacity: 0;
+  }
+}
+
+@keyframes home-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-packet,
+  .home-dot-live,
+  .home-dot-queue,
+  .home-caret {
+    animation: none !important;
+  }
+
+  .home-packet {
+    display: none;
+  }
+
+  .home-caret {
+    opacity: 1;
+  }
+}
+
+

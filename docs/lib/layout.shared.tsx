@@ -4,6 +4,8 @@ import { appName, docsRoute, gitConfig } from "./shared";
 function Brand() {
   return (
     <>
+      {/* Static public SVGs; next/image is unnecessary for small logos */}
+      {/* oxlint-disable-next-line next/no-img-element */}
       <img
         src="/logo.svg"
         alt=""
@@ -11,6 +13,7 @@ function Brand() {
         height={24}
         className="size-6 dark:hidden"
       />
+      {/* oxlint-disable-next-line next/no-img-element */}
       <img
         src="/logo-dark.svg"
         alt=""
