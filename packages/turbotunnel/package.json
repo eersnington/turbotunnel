@@ -21,8 +21,8 @@
     "cli"
   ],
   "bin": {
-    "tt": "./dist/main.js",
-    "turbotunnel": "./dist/main.js"
+    "tt": "dist/main.js",
+    "turbotunnel": "dist/main.js"
   },
   "files": [
     "dist",
