@@ -74,6 +74,15 @@ export function acquireGatewayWebSocket(
           ws.removeListener("error", onError);
         }).pipe(Effect.andThen(EffectQueue.shutdown(events))),
     );
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1001, "gateway connection scope closed");
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          ws.terminate();
+        }
+      }),
+    );
 
     return {
       receive: EffectQueue.take(events),

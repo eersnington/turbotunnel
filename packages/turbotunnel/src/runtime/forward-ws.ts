@@ -50,7 +50,7 @@ export const openLocalWebSocket = Effect.fn("openLocalWebSocket")(function* (
           message: cause.message,
         }),
     ),
-    Effect.catch((error) =>
+    Effect.catchTag("LocalWebSocketProtocolError", (error) =>
       sendCloseFrame(frame, 1008, error.message, sendRelayFrame).pipe(
         Effect.andThen(Effect.fail(error)),
       ),
@@ -69,7 +69,7 @@ export const openLocalWebSocket = Effect.fn("openLocalWebSocket")(function* (
           message: cause.message,
         }),
     ),
-    Effect.catch((error) =>
+    Effect.catchTag("LocalWebSocketProtocolError", (error) =>
       sendCloseFrame(frame, 1008, error.message, sendRelayFrame).pipe(
         Effect.andThen(Effect.fail(error)),
       ),

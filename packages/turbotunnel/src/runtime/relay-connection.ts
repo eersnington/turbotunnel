@@ -110,7 +110,13 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     Effect.gen(function* () {
       stats.webSocketsClosed += localWebSockets.size;
       localWebSockets.clear();
-      yield* socket.close(1001, "Turbotunnel process stopped");
+      yield* socket
+        .close(1001, "Turbotunnel process stopped")
+        .pipe(
+          Effect.catchTag("RelayWebSocketWriteError", (error) =>
+            reporter.warning(`! Relay socket ${index} did not close cleanly. ${error.message}`),
+          ),
+        );
     }),
   );
 

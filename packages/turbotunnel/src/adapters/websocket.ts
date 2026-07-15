@@ -19,7 +19,7 @@ export type SocketEvent =
 export type RelayWebSocket = {
   readonly receive: Effect.Effect<SocketEvent, RelayWebSocketConnectError>;
   readonly sendFrame: (frame: Frame) => Effect.Effect<void, RelayWebSocketWriteError>;
-  readonly close: (code: number, reason: string) => Effect.Effect<void>;
+  readonly close: (code: number, reason: string) => Effect.Effect<void, RelayWebSocketWriteError>;
 };
 
 export type LocalWebSocket = {
@@ -28,7 +28,10 @@ export type LocalWebSocket = {
     data: Uint8Array | string,
     binary: boolean,
   ) => Effect.Effect<void, LocalWebSocketWriteError>;
-  readonly close: (code: number | undefined, reason: string | undefined) => Effect.Effect<void>;
+  readonly close: (
+    code: number | undefined,
+    reason: string | undefined,
+  ) => Effect.Effect<void, LocalWebSocketWriteError>;
 };
 
 export function acquireRelayWebSocket(options: {
@@ -70,7 +73,17 @@ export function acquireRelayWebSocket(options: {
             ),
           ),
         ),
-      close: (code, reason) => closeSocket(socket, code, reason),
+      close: (code, reason) =>
+        closeSocket(
+          socket,
+          code,
+          reason,
+          (cause) =>
+            new RelayWebSocketWriteError({
+              cause,
+              message: "The relay WebSocket close could not be sent; the connection will retry.",
+            }),
+        ),
     })),
   );
 }
@@ -103,7 +116,17 @@ export function acquireLocalWebSocket(options: {
               message: "The local WebSocket write did not complete; the connection was closed.",
             }),
         ),
-      close: (code, reason) => closeSocket(socket, code, reason),
+      close: (code, reason) =>
+        closeSocket(
+          socket,
+          code,
+          reason,
+          (cause) =>
+            new LocalWebSocketWriteError({
+              cause,
+              message: "The local WebSocket close could not be sent; the connection was stopped.",
+            }),
+        ),
     })),
   );
 }
@@ -191,16 +214,41 @@ function sendSocket<E>(
   });
 }
 
-function closeSocket(
+function closeSocket<E>(
   socket: WebSocket,
   code: number | undefined,
   reason: string | undefined,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-      socket.close(code, reason);
-    }
+  closeError: (cause: unknown) => E,
+): Effect.Effect<void, E> {
+  return Effect.try({
+    try: () => {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close(validCloseCode(code), truncateCloseReason(reason));
+      }
+    },
+    catch: closeError,
   });
+}
+
+function validCloseCode(code: number | undefined): number | undefined {
+  if (code === undefined) return undefined;
+  if (
+    (code >= 1000 && code <= 1014 && code !== 1004 && code !== 1005 && code !== 1006) ||
+    code >= 3000
+  ) {
+    return code;
+  }
+  return undefined;
+}
+
+function truncateCloseReason(reason: string | undefined): string | undefined {
+  if (reason === undefined || Buffer.byteLength(reason, "utf8") <= 123) return reason;
+  let truncated = "";
+  for (const character of reason) {
+    if (Buffer.byteLength(truncated + character, "utf8") > 123) break;
+    truncated += character;
+  }
+  return truncated;
 }
 
 function rawDataToBuffer(data: RawData): Buffer {
