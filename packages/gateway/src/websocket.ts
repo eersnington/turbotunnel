@@ -54,15 +54,24 @@ export function acquireGatewayWebSocket(
             reason: reason.toString("utf8"),
           });
         };
+        const onError = (): void => {
+          EffectQueue.offerUnsafe(events, {
+            _tag: "Close",
+            code: 1011,
+            reason: "gateway websocket failed",
+          });
+        };
 
         ws.on("message", onMessage);
         ws.once("close", onClose);
-        return { onMessage, onClose };
+        ws.once("error", onError);
+        return { onMessage, onClose, onError };
       }),
-      ({ onMessage, onClose }) =>
+      ({ onMessage, onClose, onError }) =>
         Effect.sync(() => {
           ws.removeListener("message", onMessage);
           ws.removeListener("close", onClose);
+          ws.removeListener("error", onError);
         }).pipe(Effect.andThen(EffectQueue.shutdown(events))),
     );
 

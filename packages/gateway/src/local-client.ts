@@ -287,7 +287,7 @@ const startLocalWsInputPump = Effect.fn("startLocalWsInputPump")(function* (
         yield* message.ack;
         yield* state.recordMetric("queueAcks");
       }
-      if (frame.type === "ws.close") {
+      if (accepted && frame.type === "ws.close") {
         return;
       }
     }

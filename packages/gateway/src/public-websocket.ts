@@ -107,8 +107,14 @@ export const runPublicWebSocket = Effect.fn("runPublicWebSocket")(function* (
   if (connection.route._tag === "Direct") {
     yield* state.recordMetric("directWebSocketOpens");
     const selectedLocalClient = yield* state.findLocalClient(connection.route.localClientId);
-    if (selectedLocalClient !== undefined) {
-      yield* selectedLocalClient.socket.sendFrame(openFrame);
+    const sent =
+      selectedLocalClient !== undefined &&
+      (yield* selectedLocalClient.socket
+        .sendFrame(openFrame)
+        .pipe(Effect.tapError(() => socket.close(1013, "local tunnel client disconnected"))));
+    if (!sent) {
+      yield* socket.close(1013, "local tunnel client disconnected");
+      return;
     }
     yield* processBrowserMessages(socket, connection);
     return;
