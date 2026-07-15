@@ -20,6 +20,7 @@
     "ws": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@turbotunnel/typescript-config": "*",
     "@types/node": "^22.15.3",
     "@types/ws": "catalog:",

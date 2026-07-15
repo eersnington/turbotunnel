@@ -1,5 +1,5 @@
 import { DEFAULT_LOCAL_CLIENT_POOL_SIZE } from "@turbotunnel/contracts";
-import { Redacted } from "effect";
+import { Effect, Redacted } from "effect";
 
 import { CliConfigError, NoGatewayConfigured } from "../errors.js";
 
@@ -43,26 +43,16 @@ export type HttpTunnelConfig = {
   readonly target: LocalTarget;
 };
 
-export type TunnelConfigResult =
-  | { readonly _tag: "ok"; readonly config: HttpTunnelConfig }
-  | { readonly _tag: "err"; readonly error: CliConfigError | NoGatewayConfigured };
-
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
-export function resolveTunnelConfig(options: {
+export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (options: {
   readonly input: HttpCommandInput;
   readonly env: TunnelEnvironment;
   readonly savedConfig: SavedTunnelConfig;
   readonly generatedSlug: string;
-}): TunnelConfigResult {
-  const portResult = parsePort(options.input.port);
-  if (portResult._tag === "err") {
-    return portResult;
-  }
-  const poolResult = parsePoolSize(options.input.pool);
-  if (poolResult._tag === "err") {
-    return poolResult;
-  }
+}): Effect.fn.Return<HttpTunnelConfig, CliConfigError | NoGatewayConfigured> {
+  const port = yield* parsePort(options.input.port);
+  const poolSize = yield* parsePoolSize(options.input.pool);
 
   const hasExplicitGatewayInput =
     options.input.domain !== undefined ||
@@ -78,13 +68,10 @@ export function resolveTunnelConfig(options: {
     options.savedConfig.relayUrl !== undefined;
 
   if (!hasExplicitGatewayInput && !hasSavedGateway) {
-    return {
-      _tag: "err",
-      error: new NoGatewayConfigured({
-        message:
-          "No Turbotunnel gateway is configured yet. Run `tt deploy`, then expose your local app with `tt http 5173`. No local tunnel was started.",
-      }),
-    };
+    return yield* new NoGatewayConfigured({
+      message:
+        "No Turbotunnel gateway is configured yet. Run `tt deploy`, then expose your local app with `tt http 5173`. No local tunnel was started.",
+    });
   }
 
   const slug =
@@ -93,13 +80,10 @@ export function resolveTunnelConfig(options: {
     options.savedConfig.slug ??
     options.generatedSlug;
   if (!SLUG_PATTERN.test(slug)) {
-    return {
-      _tag: "err",
-      error: new CliConfigError({
-        message:
-          "Tunnel slug must contain only lowercase letters, digits, and hyphens, and must start with a letter or digit.",
-      }),
-    };
+    return yield* new CliConfigError({
+      message:
+        "Tunnel slug must contain only lowercase letters, digits, and hyphens, and must start with a letter or digit.",
+    });
   }
 
   const relayDomain =
@@ -114,75 +98,72 @@ export function resolveTunnelConfig(options: {
     options.savedConfig.relaySecret ??
     "dev_secret";
 
-  const relayUrlResult = parseRelayUrl(
+  const relayUrl = yield* parseRelayUrl(
     options.input.relayUrl ?? options.env.TURBOTUNNEL_RELAY_URL ?? options.savedConfig.relayUrl,
   );
-  if (relayUrlResult._tag === "err") {
-    return relayUrlResult;
-  }
 
   return {
-    _tag: "ok",
-    config: {
-      slug,
-      relayDomain,
-      relaySecret: Redacted.make(relaySecret, { label: "relay-secret" }),
-      relayUrl: relayUrlResult.value,
-      poolSize: poolResult.value,
-      target: {
-        protocol: "http",
-        host: options.input.host,
-        port: portResult.value,
-      },
+    slug,
+    relayDomain,
+    relaySecret: Redacted.make(relaySecret, { label: "relay-secret" }),
+    relayUrl,
+    poolSize,
+    target: {
+      protocol: "http",
+      host: options.input.host,
+      port,
     },
   };
-}
+});
 
 function parseRelayUrl(
   value: string | undefined,
-):
-  | { readonly _tag: "ok"; readonly value: string | undefined }
-  | { readonly _tag: "err"; readonly error: CliConfigError } {
+): Effect.Effect<string | undefined, CliConfigError> {
   if (value === undefined) {
-    return { _tag: "ok", value: undefined };
+    return Effect.succeed(undefined);
   }
 
   if (!URL.canParse(value)) {
-    return { _tag: "err", error: new CliConfigError({ message: "Relay URL must be a valid http, https, ws, or wss URL." }) };
+    return Effect.fail(
+      new CliConfigError({
+        message: "Relay URL must be a valid http, https, ws, or wss URL.",
+      }),
+    );
   }
 
   const url = new URL(value);
-  if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "ws:" && url.protocol !== "wss:") {
-    return { _tag: "err", error: new CliConfigError({ message: "Relay URL must use http, https, ws, or wss." }) };
+  if (
+    url.protocol !== "http:" &&
+    url.protocol !== "https:" &&
+    url.protocol !== "ws:" &&
+    url.protocol !== "wss:"
+  ) {
+    return Effect.fail(
+      new CliConfigError({ message: "Relay URL must use http, https, ws, or wss." }),
+    );
   }
 
-  return { _tag: "ok", value: url.toString() };
+  return Effect.succeed(url.toString());
 }
 
-function parsePort(
-  port: number,
-):
-  | { readonly _tag: "ok"; readonly value: number }
-  | { readonly _tag: "err"; readonly error: CliConfigError } {
+function parsePort(port: number): Effect.Effect<number, CliConfigError> {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    return { _tag: "err", error: new CliConfigError({ message: "Port must be an integer from 1 to 65535." }) };
+    return Effect.fail(new CliConfigError({ message: "Port must be an integer from 1 to 65535." }));
   }
 
-  return { _tag: "ok", value: port };
+  return Effect.succeed(port);
 }
 
-function parsePoolSize(
-  pool: number | undefined,
-):
-  | { readonly _tag: "ok"; readonly value: number }
-  | { readonly _tag: "err"; readonly error: CliConfigError } {
+function parsePoolSize(pool: number | undefined): Effect.Effect<number, CliConfigError> {
   if (pool === undefined) {
-    return { _tag: "ok", value: DEFAULT_LOCAL_CLIENT_POOL_SIZE };
+    return Effect.succeed(DEFAULT_LOCAL_CLIENT_POOL_SIZE);
   }
 
   if (!Number.isInteger(pool) || pool < 1 || pool > 16) {
-    return { _tag: "err", error: new CliConfigError({ message: "Pool size must be an integer from 1 to 16." }) };
+    return Effect.fail(
+      new CliConfigError({ message: "Pool size must be an integer from 1 to 16." }),
+    );
   }
 
-  return { _tag: "ok", value: pool };
+  return Effect.succeed(pool);
 }

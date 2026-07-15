@@ -1,18 +1,17 @@
-import { Buffer } from "node:buffer";
-
 import {
-  type HeaderPair,
   type HttpRequest,
   type HttpResponse,
-  localUrlFromTunnelRequestTarget,
+  decodeTunnelRequestTarget,
+  makeLocalUrlFromTunnelRequestTarget,
   MAX_RESPONSE_BODY_BYTES,
-  parseTunnelRequestTarget,
   PUBLIC_HTTP_TIMEOUT_MS,
   PROTOCOL_VERSION,
 } from "@turbotunnel/contracts";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { nanoid } from "nanoid";
 
+import { decodeBase64, encodeBase64, encodeUtf8 } from "../adapters/bytes.js";
+import { requestLocalHttp } from "../adapters/local-http.js";
 import type { LocalTarget } from "../domain/tunnel-config.js";
 import {
   LocalHttpRequestFailed,
@@ -27,9 +26,20 @@ export const forwardHttpToLocalApp = Effect.fn("forwardHttpToLocalApp")(function
   target: LocalTarget,
 ): Effect.fn.Return<HttpResponse, never, never> {
   return yield* fetchLocalHttp(frame, target).pipe(
-    Effect.catch((error) =>
-      Effect.succeed(textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error))),
-    ),
+    Effect.catchTags({
+      LocalHttpRequestFailed: (error) =>
+        Effect.succeed(
+          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+        ),
+      LocalHttpRequestTimedOut: (error) =>
+        Effect.succeed(
+          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+        ),
+      LocalHttpResponseTooLarge: (error) =>
+        Effect.succeed(
+          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+        ),
+    }),
   );
 });
 
@@ -41,43 +51,41 @@ const fetchLocalHttp = Effect.fn("fetchLocalHttp")(function* (
   LocalHttpRequestFailed | LocalHttpRequestTimedOut | LocalHttpResponseTooLarge,
   never
 > {
-  const requestTarget = parseTunnelRequestTarget(frame.path);
-  if (Result.isFailure(requestTarget)) {
-    return yield* new LocalHttpRequestFailed({
-      host: target.host,
-      port: target.port,
-      cause: requestTarget.failure,
-      message: "Tunnel request path was invalid; the local app was not contacted.",
-    });
-  }
-
-  const url = localUrlFromTunnelRequestTarget({
+  const requestTarget = yield* decodeTunnelRequestTarget(frame.path).pipe(
+    Effect.mapError(
+      (cause) =>
+        new LocalHttpRequestFailed({
+          host: target.host,
+          port: target.port,
+          cause,
+          message: "Tunnel request path was invalid; the local app was not contacted.",
+        }),
+    ),
+  );
+  const url = yield* makeLocalUrlFromTunnelRequestTarget({
     protocol: target.protocol,
     host: target.host,
     port: target.port,
-    requestTarget: requestTarget.success,
-  });
-  const requestHeaders = frame.headers.map(([name, value]) => [name, value] as [string, string]);
-  const forwarded = yield* Effect.tryPromise({
-    try: async (signal) => {
-      const response = await globalThis.fetch(url, {
-        method: frame.method,
-        headers: requestHeaders,
-        body: requestBody(frame),
-        signal,
-      });
-      const body = await readLimitedResponseBody(response);
-      return { response, body };
-    },
-    catch: (cause) =>
-      cause instanceof LocalHttpResponseTooLarge
-        ? cause
-        : new LocalHttpRequestFailed({
-            host: target.host,
-            port: target.port,
-            cause,
-            message: `Local app request failed at http://${target.host}:${target.port}. Confirm the app is listening there, or restart the tunnel with --host <host>.`,
-          }),
+    requestTarget,
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new LocalHttpRequestFailed({
+          host: target.host,
+          port: target.port,
+          cause,
+          message: cause.message,
+        }),
+    ),
+  );
+  const forwarded = yield* requestLocalHttp({
+    url,
+    method: frame.method,
+    headers: frame.headers,
+    body: requestBody(frame),
+    maxResponseBytes: MAX_RESPONSE_BODY_BYTES,
+    host: target.host,
+    port: target.port,
   }).pipe(
     Effect.timeoutOrElse({
       duration: PUBLIC_HTTP_TIMEOUT_MS,
@@ -93,75 +101,27 @@ const fetchLocalHttp = Effect.fn("fetchLocalHttp")(function* (
     }),
   );
 
-  if (forwarded.body.byteLength > MAX_RESPONSE_BODY_BYTES) {
-    return yield* new LocalHttpResponseTooLarge({
-      limitBytes: MAX_RESPONSE_BODY_BYTES,
-      message: "Local app response exceeded the tunnel response size limit.",
-    });
-  }
-
   return {
     protocolVersion: PROTOCOL_VERSION,
     type: "http.response",
     frameId: `frm_${nanoid(12)}`,
     requestId: frame.requestId,
     responseTopic: frame.responseTopic,
-    status: forwarded.response.status,
-    headers: responseHeadersToPairs(forwarded.response.headers),
-    body: forwarded.body.toString("base64"),
+    status: forwarded.status,
+    headers: forwarded.headers.filter(
+      ([name]) => !RESPONSE_HEADERS_DROPPED_BY_TUNNEL.has(name.toLowerCase()),
+    ),
+    body: encodeBase64(forwarded.body),
   };
 });
 
-function responseHeadersToPairs(headers: Headers): Array<HeaderPair> {
-  const pairs: Array<HeaderPair> = [];
-  headers.forEach((value, name) => {
-    if (!RESPONSE_HEADERS_DROPPED_BY_TUNNEL.has(name.toLowerCase())) {
-      pairs.push([name, value]);
-    }
-  });
-  return pairs;
-}
-
-/**
- * Throws `LocalHttpResponseTooLarge` inside the Fetch promise so the stream
- * reader can cancel as soon as the response crosses the size limit. The
- * surrounding Effect.tryPromise classifier preserves that typed failure instead
- * of wrapping it as a generic local request failure.
- */
-async function readLimitedResponseBody(response: Response): Promise<Buffer> {
-  if (response.body === null) {
-    return Buffer.alloc(0);
-  }
-
-  const chunks: Array<Buffer> = [];
-  let bytesRead = 0;
-  const reader = response.body.getReader();
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) {
-      return Buffer.concat(chunks);
-    }
-
-    bytesRead += chunk.value.byteLength;
-    if (bytesRead > MAX_RESPONSE_BODY_BYTES) {
-      await reader.cancel();
-      throw new LocalHttpResponseTooLarge({
-        limitBytes: MAX_RESPONSE_BODY_BYTES,
-        message: "Local app response exceeded the tunnel response size limit.",
-      });
-    }
-
-    chunks.push(Buffer.from(chunk.value));
-  }
-}
-
-function requestBody(frame: HttpRequest): BodyInit | undefined {
+function requestBody(frame: HttpRequest): Uint8Array | undefined {
   const method = frame.method.toUpperCase();
   if (method === "GET" || method === "HEAD") {
     return undefined;
   }
 
-  return Uint8Array.from(Buffer.from(frame.body, "base64"));
+  return decodeBase64(frame.body);
 }
 
 function textResponse(
@@ -178,7 +138,7 @@ function textResponse(
     responseTopic,
     status,
     headers: [["content-type", "text/plain; charset=utf-8"]],
-    body: Buffer.from(`${message}\n`, "utf8").toString("base64"),
+    body: encodeBase64(encodeUtf8(`${message}\n`)),
   };
 }
 

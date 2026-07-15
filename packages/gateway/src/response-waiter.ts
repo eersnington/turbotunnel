@@ -1,13 +1,12 @@
 import {
   httpResponseConsumerGroup,
-  isHttpResponseFrame,
-  parseProtocolFramePayload,
+  decodeHttpResponseFramePayload,
   PUBLIC_HTTP_TIMEOUT_MS,
   QUEUE_RECEIVE_LIMIT,
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   type HttpResponse,
 } from "@turbotunnel/contracts";
-import { Clock, Effect, Result } from "effect";
+import { Clock, Effect, Option } from "effect";
 
 import type { Queue, QueueAckError, QueueAuthError, QueueReceiveError } from "./queue.js";
 
@@ -23,40 +22,41 @@ export type WaitForHttpResponseResult =
   | { readonly _tag: "timeout" };
 
 /** Polls and acknowledges a request response topic until a match, timeout, or fiber interruption. */
-export function waitForHttpResponseFromQueue(
+export const waitForHttpResponseFromQueue = Effect.fn("waitForHttpResponseFromQueue")(function* (
   input: WaitForHttpResponseInput,
-): Effect.Effect<WaitForHttpResponseResult, QueueAckError | QueueAuthError | QueueReceiveError> {
-  return Effect.gen(function* () {
-    const deadline = (yield* Clock.currentTimeMillis) + (input.timeoutMs ?? PUBLIC_HTTP_TIMEOUT_MS);
-    const consumerGroup = httpResponseConsumerGroup(input.requestId);
+): Effect.fn.Return<WaitForHttpResponseResult, QueueAckError | QueueAuthError | QueueReceiveError> {
+  const deadline = (yield* Clock.currentTimeMillis) + (input.timeoutMs ?? PUBLIC_HTTP_TIMEOUT_MS);
+  const consumerGroup = httpResponseConsumerGroup(input.requestId);
 
-    while ((yield* Clock.currentTimeMillis) < deadline) {
-      const messages = yield* input.queue.receive({
-        topic: input.responseTopic,
-        consumerGroup,
-        limit: QUEUE_RECEIVE_LIMIT,
-        visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
-      });
+  while ((yield* Clock.currentTimeMillis) < deadline) {
+    const messages = yield* input.queue.receive({
+      topic: input.responseTopic,
+      consumerGroup,
+      limit: QUEUE_RECEIVE_LIMIT,
+      visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+    });
 
-      for (const message of messages) {
-        const parsed = parseProtocolFramePayload(message.payload);
-        if (Result.isFailure(parsed) || !isHttpResponseFrame(parsed.success)) {
-          yield* message.ack;
-          continue;
-        }
-
-        if (parsed.success.requestId !== input.requestId) {
-          yield* message.ack;
-          continue;
-        }
-
+    for (const message of messages) {
+      const parsed = yield* decodeHttpResponseFramePayload(message.payload).pipe(
+        Effect.map(Option.some),
+        Effect.catchTags({ ProtocolPayloadDecodeError: () => Effect.succeed(Option.none()) }),
+      );
+      if (Option.isNone(parsed)) {
         yield* message.ack;
-        return { _tag: "ok", value: parsed.success };
+        continue;
       }
 
-      yield* Effect.sleep("100 millis");
+      if (parsed.value.requestId !== input.requestId) {
+        yield* message.ack;
+        continue;
+      }
+
+      yield* message.ack;
+      return { _tag: "ok", value: parsed.value };
     }
 
-    return { _tag: "timeout" };
-  });
-}
+    yield* Effect.sleep("100 millis");
+  }
+
+  return { _tag: "timeout" };
+});

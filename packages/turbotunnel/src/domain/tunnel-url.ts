@@ -45,7 +45,8 @@ export function publicTunnelUrl(config: HttpTunnelConfig): string {
   const host = tunnelHost(config);
   if (config.relayUrl !== undefined && localHostName(host)) {
     const relayUrl = new URL(config.relayUrl);
-    const protocol = relayUrl.protocol === "wss:" || relayUrl.protocol === "https:" ? "https" : "http";
+    const protocol =
+      relayUrl.protocol === "wss:" || relayUrl.protocol === "https:" ? "https" : "http";
     const port = relayUrl.port === "" ? "" : `:${relayUrl.port}`;
     return `${protocol}://${host.replace(/:\d+$/, "")}${port}/`;
   }

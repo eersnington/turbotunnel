@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import type { Frame } from "@turbotunnel/contracts";
+import { encodeProtocolFrameJson, type Frame } from "@turbotunnel/contracts";
 import { Effect, Queue as EffectQueue, Schema, Scope } from "effect";
 import { WebSocket, type RawData } from "ws";
 
@@ -54,22 +54,43 @@ export function acquireGatewayWebSocket(
             reason: reason.toString("utf8"),
           });
         };
+        const onError = (): void => {
+          EffectQueue.offerUnsafe(events, {
+            _tag: "Close",
+            code: 1011,
+            reason: "gateway websocket failed",
+          });
+        };
 
         ws.on("message", onMessage);
         ws.once("close", onClose);
-        return { onMessage, onClose };
+        ws.once("error", onError);
+        return { onMessage, onClose, onError };
       }),
-      ({ onMessage, onClose }) =>
+      ({ onMessage, onClose, onError }) =>
         Effect.sync(() => {
           ws.removeListener("message", onMessage);
           ws.removeListener("close", onClose);
+          ws.removeListener("error", onError);
         }).pipe(Effect.andThen(EffectQueue.shutdown(events))),
     );
+    yield* Effect.addFinalizer(() => closeOwnedWebSocket(ws));
 
     return {
       receive: EffectQueue.take(events),
       isOpen: Effect.sync(() => ws.readyState === WebSocket.OPEN),
-      sendFrame: (frame) => send(ws, "send-frame", JSON.stringify(frame)),
+      sendFrame: (frame) =>
+        encodeProtocolFrameJson(frame).pipe(
+          Effect.mapError(
+            (cause) =>
+              new GatewayWebSocketWriteError({
+                operation: "send-frame",
+                cause,
+                message: "The gateway protocol frame could not be encoded; no frame was sent.",
+              }),
+          ),
+          Effect.flatMap((encoded) => send(ws, "send-frame", encoded)),
+        ),
       sendData: (data, binary) => send(ws, "send-data", data, { binary }),
       close: (code, reason) =>
         Effect.sync(() => {
@@ -134,4 +155,43 @@ function rawDataToBuffer(data: RawData): Buffer {
     return Buffer.from(data);
   }
   return Buffer.concat(data);
+}
+
+function closeOwnedWebSocket(ws: WebSocket): Effect.Effect<void> {
+  return Effect.callback((resume) => {
+    if (ws.readyState === WebSocket.CLOSED) {
+      resume(Effect.void);
+      return;
+    }
+
+    let settled = false;
+    const onError = (): void => {};
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      ws.removeListener("close", finish);
+      ws.removeListener("error", onError);
+      resume(Effect.void);
+    };
+    ws.on("error", onError);
+    ws.once("close", finish);
+    const timeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+      finish();
+    }, 250);
+
+    if (ws.readyState === WebSocket.CONNECTING) {
+      ws.terminate();
+    } else if (ws.readyState === WebSocket.OPEN) {
+      ws.close(1001, "gateway connection scope closed");
+    }
+
+    return Effect.sync(() => {
+      clearTimeout(timeout);
+      ws.removeListener("close", finish);
+      ws.removeListener("error", onError);
+      if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+    });
+  });
 }

@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { afterEach, beforeAll, describe, expect, test } from "vitest";
+import { beforeAll } from "vitest";
 
 import { GatewayWorkspace } from "../src/adapters/gateway-workspace.js";
 
-const tempDirs: Array<string> = [];
 const gatewayRoot = join(import.meta.dirname, "..", "..", "gateway");
 const gatewayArtifactDir = join(gatewayRoot, "dist", "deployment");
 
@@ -17,30 +17,28 @@ beforeAll(async () => {
   await run("bun", ["run", "--cwd", gatewayRoot, "build"]);
 });
 
-afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
-});
-
 describe("GatewayWorkspace", () => {
-  test("copies the standalone gateway artifact without constructing runtime files", async () => {
-    const dir = await tempDir();
-    const deployDir = join(dir, "relay");
-    const vercelMetadataPath = join(deployDir, ".vercel", "project.json");
-    await mkdir(join(deployDir, ".vercel"), { recursive: true });
-    await writeFile(vercelMetadataPath, "linked-project\n");
+  it.effect("copies the standalone gateway artifact without constructing runtime files", () =>
+    Effect.gen(function* () {
+      const dir = yield* tempDir;
+      const deployDir = join(dir, "relay");
+      const vercelMetadataPath = join(deployDir, ".vercel", "project.json");
+      yield* Effect.promise(() => mkdir(join(deployDir, ".vercel"), { recursive: true }));
+      yield* Effect.promise(() => writeFile(vercelMetadataPath, "linked-project\n"));
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const workspace = yield* GatewayWorkspace;
         yield* workspace.copyTo(deployDir);
-      }).pipe(Effect.provide(GatewayWorkspace.live), Effect.provide(NodeServices.layer)),
-    );
+      }).pipe(Effect.provide(GatewayWorkspace.live), Effect.provide(NodeServices.layer));
 
-    expect(await directorySnapshot(deployDir, [".vercel"])).toEqual(
-      await directorySnapshot(gatewayArtifactDir),
-    );
-    expect(await readFile(vercelMetadataPath, "utf8")).toBe("linked-project\n");
-  });
+      const actual = yield* Effect.promise(() => directorySnapshot(deployDir, [".vercel"]));
+      const expected = yield* Effect.promise(() => directorySnapshot(gatewayArtifactDir));
+      expect(actual).toEqual(expected);
+      expect(yield* Effect.promise(() => readFile(vercelMetadataPath, "utf8"))).toBe(
+        "linked-project\n",
+      );
+    }),
+  );
 });
 
 function run(command: string, arguments_: ReadonlyArray<string>): Promise<void> {
@@ -80,8 +78,7 @@ async function directorySnapshot(
   return snapshot;
 }
 
-async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "turbotunnel-workspace-"));
-  tempDirs.push(dir);
-  return dir;
-}
+const tempDir = Effect.acquireRelease(
+  Effect.promise(() => mkdtemp(join(tmpdir(), "turbotunnel-workspace-"))),
+  (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true })).pipe(Effect.orDie),
+);

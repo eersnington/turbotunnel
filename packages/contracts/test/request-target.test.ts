@@ -1,10 +1,17 @@
-import { Result } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect, Result } from "effect";
 
-import { localUrlFromTunnelRequestTarget, parseTunnelRequestTarget } from "../src/index.js";
+import {
+  decodeTunnelRequestTarget,
+  LocalUrlConstructionError,
+  localUrlFromTunnelRequestTarget,
+  makeLocalUrlFromTunnelRequestTarget,
+  parseTunnelRequestTarget,
+  TunnelRequestTargetError,
+} from "../src/index.js";
 
 describe("tunnel request target", () => {
-  test("defaults a missing target to root", () => {
+  it("defaults a missing target to root", () => {
     const parsed = parseTunnelRequestTarget(undefined);
 
     expect(Result.isSuccess(parsed)).toBe(true);
@@ -13,7 +20,7 @@ describe("tunnel request target", () => {
     }
   });
 
-  test("parses an origin-form path and preserves query string", () => {
+  it("parses an origin-form path and preserves query string", () => {
     const parsed = parseTunnelRequestTarget("/docs/search?q=tunnel&limit=10");
 
     expect(Result.isSuccess(parsed)).toBe(true);
@@ -26,7 +33,7 @@ describe("tunnel request target", () => {
     }
   });
 
-  test("rejects non-origin-form targets", () => {
+  it("rejects non-origin-form targets", () => {
     const parsed = parseTunnelRequestTarget("https://example.com/path");
 
     expect(Result.isFailure(parsed)).toBe(true);
@@ -37,7 +44,7 @@ describe("tunnel request target", () => {
     }
   });
 
-  test("pins scheme-relative targets to the configured local origin", () => {
+  it("pins scheme-relative targets to the configured local origin", () => {
     const parsed = parseTunnelRequestTarget("//evil.test/path?q=1");
 
     expect(Result.isSuccess(parsed)).toBe(true);
@@ -54,4 +61,34 @@ describe("tunnel request target", () => {
       expect(url.search).toBe("?q=1");
     }
   });
+
+  it.effect("parses through the Effect seam and preserves typed failures", () =>
+    Effect.gen(function* () {
+      const target = yield* decodeTunnelRequestTarget("/health?full=1");
+      const error = yield* decodeTunnelRequestTarget("https://example.com/path").pipe(Effect.flip);
+
+      expect(target).toEqual({
+        path: "/health?full=1",
+        pathname: "/health",
+        search: "?full=1",
+      });
+      expect(error).toBeInstanceOf(TunnelRequestTargetError);
+    }),
+  );
+
+  it.effect("reports invalid local origins as typed construction failures", () =>
+    Effect.gen(function* () {
+      const requestTarget = yield* decodeTunnelRequestTarget("/health");
+      const error = yield* makeLocalUrlFromTunnelRequestTarget({
+        protocol: "http",
+        host: "[invalid",
+        port: 3000,
+        requestTarget,
+      }).pipe(Effect.flip);
+
+      expect(error).toBeInstanceOf(LocalUrlConstructionError);
+      expect(error.host).toBe("[invalid");
+      expect(error.port).toBe(3000);
+    }),
+  );
 });

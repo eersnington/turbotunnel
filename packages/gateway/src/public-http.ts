@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   httpResponseTopic,
   MAX_REQUEST_BODY_BYTES,
-  parseTunnelRequestTarget,
+  decodeTunnelRequestTarget,
   PROTOCOL_VERSION,
   PUBLIC_HTTP_TIMEOUT_MS,
   QUEUE_REQUEST_TTL_SECONDS,
@@ -13,7 +13,7 @@ import {
   type HttpRequest,
   type HttpResponse,
 } from "@turbotunnel/contracts";
-import { Clock, Effect, Option, Result } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import { nanoid } from "nanoid";
 
 import { GatewayConfig } from "./gateway-config.js";
@@ -45,145 +45,161 @@ export type PublicHttpError =
   | QueueSendError;
 
 /** Serves one public HTTP request through a direct or queued tunnel route. */
-export function handlePublicHttp(
+export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
   request: IncomingMessage,
   response: ServerResponse,
-): Effect.Effect<void, PublicHttpError, GatewayConfig | GatewayState | OidcToken | Queue> {
-  return Effect.gen(function* () {
-    const config = yield* GatewayConfig;
-    const state = yield* GatewayState;
-    const oidcToken = yield* OidcToken;
-    const queue = yield* Queue;
-    const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
-    if (headersResult._tag === "err") {
-      writePlainResponse(
-        response,
-        400,
-        `Request contained more than one ${headersResult.header} header. The gateway did not contact the local app.`,
-      );
-      return;
-    }
+): Effect.fn.Return<void, PublicHttpError, GatewayConfig | GatewayState | OidcToken | Queue> {
+  const config = yield* GatewayConfig;
+  const state = yield* GatewayState;
+  const oidcToken = yield* OidcToken;
+  const queue = yield* Queue;
+  const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
+  if (headersResult._tag === "err") {
+    writePlainResponse(
+      response,
+      400,
+      `Request contained more than one ${headersResult.header} header. The gateway did not contact the local app.`,
+    );
+    return;
+  }
 
-    const headers = headersResult.value;
-    if (headers.oidcToken !== undefined) {
-      yield* oidcToken.set(headers.oidcToken);
-    }
-    if (request.url === "/_turbotunnel/status") {
+  const headers = headersResult.value;
+  if (headers.oidcToken !== undefined) {
+    yield* oidcToken.set(headers.oidcToken);
+  }
+  if (request.url === "/_turbotunnel/status") {
+    yield* writeGatewayStatus(response, request, config, state);
+    return;
+  }
+
+  const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
+  if (slugResult._tag === "err") {
+    if (isGatewayRootHost(headers.host, config.baseDomain)) {
       yield* writeGatewayStatus(response, request, config, state);
       return;
     }
+    writePlainResponse(response, 404, "Tunnel host was not recognized for this relay domain.");
+    return;
+  }
 
-    const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
-    if (slugResult._tag === "err") {
-      if (isGatewayRootHost(headers.host, config.baseDomain)) {
-        yield* writeGatewayStatus(response, request, config, state);
+  const body = yield* readLimitedBody(request, MAX_REQUEST_BODY_BYTES).pipe(
+    Effect.map(Option.some),
+    Effect.catchTags({
+      RequestBodyTooLargeError: () => {
+        writePlainResponse(
+          response,
+          413,
+          "Request body is larger than the tunnel limit. The local app was not contacted.",
+        );
+        return Effect.succeed(Option.none<Buffer>());
+      },
+      RequestBodyReadError: () => {
+        writePlainResponse(
+          response,
+          400,
+          "Request body could not be read. The local app was not contacted.",
+        );
+        return Effect.succeed(Option.none<Buffer>());
+      },
+    }),
+  );
+  if (Option.isNone(body)) {
+    return;
+  }
+
+  const requestTarget = yield* decodeTunnelRequestTarget(request.url).pipe(
+    Effect.map(Option.some),
+    Effect.catchTag("TunnelRequestTargetError", (error) => {
+      writePlainResponse(response, 400, error.message);
+      return Effect.succeed(Option.none());
+    }),
+  );
+  if (Option.isNone(requestTarget)) {
+    return;
+  }
+
+  const slug = slugResult.value;
+  const requestId = `req_${nanoid(12)}`;
+  const responseTopicName = httpResponseTopic(requestId);
+  const localClient = yield* state.pickLocalClient(slug);
+  const localHost =
+    localClient === undefined
+      ? (headers.host ?? "")
+      : `${localClient.target.host}:${localClient.target.port}`;
+  const now = yield* Clock.currentTimeMillis;
+  const frame: HttpRequest = {
+    protocolVersion: PROTOCOL_VERSION,
+    type: "http.request",
+    frameId: `frm_${nanoid(12)}`,
+    requestId,
+    responseTopic: responseTopicName,
+    deadlineAt: now + PUBLIC_HTTP_TIMEOUT_MS,
+    method: request.method ?? "GET",
+    path: requestTarget.value.path,
+    headers: [
+      ...requestHeadersForLocalApp({
+        rawHeaders: request.rawHeaders,
+        localHost,
+        forwardedHost: headers.host ?? "",
+        forwardedProto: headers.forwardedProto,
+        requestId,
+      }),
+    ],
+    body: body.value.toString("base64"),
+  };
+
+  if (localClient !== undefined) {
+    yield* state.recordMetric("directHttpRequests");
+    const direct = yield* forwardHttpDirect(state, localClient, frame).pipe(Effect.scoped);
+    switch (direct._tag) {
+      case "response":
+        writeHttpResponse(response, direct.response);
         return;
-      }
-      writePlainResponse(response, 404, "Tunnel host was not recognized for this relay domain.");
-      return;
+      case "disconnected-before-forwarding":
+        writePlainResponse(response, 502, "Local tunnel client disconnected before forwarding.");
+        return;
+      case "disconnected-before-response":
+        writePlainResponse(
+          response,
+          502,
+          "Local tunnel client disconnected before the local app responded.",
+        );
+        return;
+      case "timeout":
+        writePlainResponse(
+          response,
+          504,
+          "Tunnel request timed out before the local app responded. The local app may still have received the request.",
+        );
+        return;
     }
+  }
 
-    const bodyResult = yield* readLimitedBody(request, MAX_REQUEST_BODY_BYTES);
-    if (bodyResult._tag === "err") {
-      writePlainResponse(
-        response,
-        bodyResult.error.reason === "too-large" ? 413 : 400,
-        bodyResult.error.reason === "too-large"
-          ? "Request body is larger than the tunnel limit. The local app was not contacted."
-          : "Request body could not be read. The local app was not contacted.",
-      );
-      return;
-    }
-
-    const requestTarget = parseTunnelRequestTarget(request.url);
-    if (Result.isFailure(requestTarget)) {
-      writePlainResponse(response, 400, requestTarget.failure.message);
-      return;
-    }
-
-    const slug = slugResult.value;
-    const requestId = `req_${nanoid(12)}`;
-    const responseTopicName = httpResponseTopic(requestId);
-    const localClient = yield* state.pickLocalClient(slug);
-    const localHost =
-      localClient === undefined
-        ? (headers.host ?? "")
-        : `${localClient.target.host}:${localClient.target.port}`;
-    const now = yield* Clock.currentTimeMillis;
-    const frame: HttpRequest = {
-      protocolVersion: PROTOCOL_VERSION,
-      type: "http.request",
-      frameId: `frm_${nanoid(12)}`,
-      requestId,
-      responseTopic: responseTopicName,
-      deadlineAt: now + PUBLIC_HTTP_TIMEOUT_MS,
-      method: request.method ?? "GET",
-      path: requestTarget.success.path,
-      headers: [
-        ...requestHeadersForLocalApp({
-          rawHeaders: request.rawHeaders,
-          localHost,
-          forwardedHost: headers.host ?? "",
-          forwardedProto: headers.forwardedProto,
-          requestId,
-        }),
-      ],
-      body: bodyResult.value.toString("base64"),
-    };
-
-    if (localClient !== undefined) {
-      yield* state.recordMetric("directHttpRequests");
-      const direct = yield* forwardHttpDirect(state, localClient, frame).pipe(Effect.scoped);
-      switch (direct._tag) {
-        case "response":
-          writeHttpResponse(response, direct.response);
-          return;
-        case "disconnected-before-forwarding":
-          writePlainResponse(response, 502, "Local tunnel client disconnected before forwarding.");
-          return;
-        case "disconnected-before-response":
-          writePlainResponse(
-            response,
-            502,
-            "Local tunnel client disconnected before the local app responded.",
-          );
-          return;
-        case "timeout":
-          writePlainResponse(
-            response,
-            504,
-            "Tunnel request timed out before the local app responded. The local app may still have received the request.",
-          );
-          return;
-      }
-    }
-
-    yield* state.recordMetric("queuedHttpRequests");
-    yield* queue.send(requestTopic(slug), frame, {
-      idempotencyKey: frame.frameId,
-      ttlSeconds: QUEUE_REQUEST_TTL_SECONDS,
-    });
-    yield* state.recordMetric("queueSends");
-
-    const result = yield* waitForHttpResponseFromQueue({
-      queue,
-      requestId,
-      responseTopic: responseTopicName,
-      timeoutMs: PUBLIC_HTTP_TIMEOUT_MS,
-    });
-    if (result._tag === "ok") {
-      writeHttpResponse(response, result.value);
-      return;
-    }
-    if (result._tag === "timeout") {
-      writePlainResponse(
-        response,
-        504,
-        "Tunnel request timed out before a local tunnel client responded.",
-      );
-    }
+  yield* state.recordMetric("queuedHttpRequests");
+  yield* queue.send(requestTopic(slug), frame, {
+    idempotencyKey: frame.frameId,
+    ttlSeconds: QUEUE_REQUEST_TTL_SECONDS,
   });
-}
+  yield* state.recordMetric("queueSends");
+
+  const result = yield* waitForHttpResponseFromQueue({
+    queue,
+    requestId,
+    responseTopic: responseTopicName,
+    timeoutMs: PUBLIC_HTTP_TIMEOUT_MS,
+  });
+  if (result._tag === "ok") {
+    writeHttpResponse(response, result.value);
+    return;
+  }
+  if (result._tag === "timeout") {
+    writePlainResponse(
+      response,
+      504,
+      "Tunnel request timed out before a local tunnel client responded.",
+    );
+  }
+});
 
 /** Registers a scoped direct request and classifies forwarding, disconnect, and timeout outcomes. */
 function forwardHttpDirect(
@@ -192,12 +208,12 @@ function forwardHttpDirect(
   frame: HttpRequest,
 ) {
   return Effect.gen(function* () {
-    const awaitResult = yield* state.registerDirectRequest(localClient, frame.requestId);
+    const request = yield* state.registerDirectRequest(localClient, frame.requestId);
     if (!(yield* localClient.socket.sendFrame(frame))) {
       return { _tag: "disconnected-before-forwarding" } as const;
     }
 
-    const completed = yield* awaitResult.pipe(Effect.timeoutOption(PUBLIC_HTTP_TIMEOUT_MS));
+    const completed = yield* request.await.pipe(Effect.timeoutOption(PUBLIC_HTTP_TIMEOUT_MS));
     if (Option.isNone(completed)) {
       return { _tag: "timeout" } as const;
     }
@@ -249,19 +265,27 @@ export function writePlainResponse(
   response.end(`${message}\n`);
 }
 
-type ReadLimitedBodyResult =
-  | { readonly _tag: "ok"; readonly value: Buffer }
-  | { readonly _tag: "err"; readonly error: ReadLimitedBodyError };
+export class RequestBodyTooLargeError extends Schema.TaggedErrorClass<RequestBodyTooLargeError>()(
+  "RequestBodyTooLargeError",
+  {
+    limitBytes: Schema.Number,
+    message: Schema.String,
+  },
+) {}
 
-type ReadLimitedBodyError =
-  | { readonly reason: "too-large"; readonly limitBytes: number }
-  | { readonly reason: "read-failed"; readonly cause: unknown };
+export class RequestBodyReadError extends Schema.TaggedErrorClass<RequestBodyReadError>()(
+  "RequestBodyReadError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
 
 /** Reads a Node request body with interruption cleanup and the established byte limit. */
-function readLimitedBody(
+export function readLimitedBody(
   request: IncomingMessage,
   maxBytes: number,
-): Effect.Effect<ReadLimitedBodyResult> {
+): Effect.Effect<Buffer, RequestBodyTooLargeError | RequestBodyReadError> {
   return Effect.callback((resume) => {
     const chunks: Array<Buffer> = [];
     let totalBytes = 0;
@@ -271,27 +295,44 @@ function readLimitedBody(
       request.removeListener("end", onEnd);
       request.removeListener("error", onError);
     };
-    const finish = (result: ReadLimitedBodyResult): void => {
+    const finish = (
+      result: Effect.Effect<Buffer, RequestBodyTooLargeError | RequestBodyReadError>,
+    ): void => {
       if (settled) {
         return;
       }
       settled = true;
       cleanup();
-      resume(Effect.succeed(result));
+      resume(result);
     };
     const onData = (chunk: Buffer | string): void => {
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalBytes += bytes.byteLength;
       if (totalBytes > maxBytes) {
         request.pause();
-        finish({ _tag: "err", error: { reason: "too-large", limitBytes: maxBytes } });
+        finish(
+          Effect.fail(
+            new RequestBodyTooLargeError({
+              limitBytes: maxBytes,
+              message: `Request body exceeded the ${maxBytes}-byte tunnel limit; the local app was not contacted.`,
+            }),
+          ),
+        );
         return;
       }
       chunks.push(bytes);
     };
-    const onEnd = (): void => finish({ _tag: "ok", value: Buffer.concat(chunks, totalBytes) });
+    const onEnd = (): void => finish(Effect.succeed(Buffer.concat(chunks, totalBytes)));
     const onError = (cause: unknown): void =>
-      finish({ _tag: "err", error: { reason: "read-failed", cause } });
+      finish(
+        Effect.fail(
+          new RequestBodyReadError({
+            cause,
+            message:
+              "The gateway could not read the request body; the local app was not contacted.",
+          }),
+        ),
+      );
     request.on("data", onData);
     request.on("end", onEnd);
     request.on("error", onError);

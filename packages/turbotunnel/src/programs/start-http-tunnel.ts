@@ -24,18 +24,14 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   const localAppProbe = yield* LocalAppProbe;
   const tunnelRuntime = yield* TunnelRuntime;
   const savedConfig = yield* localConfigStore.read;
-  const resolved = resolveTunnelConfig({
+  const config = yield* resolveTunnelConfig({
     input,
     env,
     savedConfig,
     generatedSlug: yield* entropy.tunnelSlug,
   });
-  if (resolved._tag === "err") {
-    return yield* resolved.error;
-  }
-
-  yield* localAppProbe.assertReachable(resolved.config.target);
-  return yield* tunnelRuntime.run(resolved.config);
+  yield* localAppProbe.assertReachable(config.target);
+  return yield* tunnelRuntime.run(config);
 });
 
 export function tunnelEnvironmentFromProcess(env: NodeJS.ProcessEnv): TunnelEnvironment {

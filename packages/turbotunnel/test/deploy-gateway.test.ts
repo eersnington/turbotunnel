@@ -1,6 +1,7 @@
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
 
+import { AppPaths } from "../src/adapters/app-paths.js";
 import { Entropy } from "../src/adapters/entropy.js";
 import { GatewayVerifier } from "../src/adapters/gateway-verifier.js";
 import { GatewayWorkspace } from "../src/adapters/gateway-workspace.js";
@@ -12,116 +13,122 @@ import { GatewayVerificationError, VercelCliFailed } from "../src/errors.js";
 import { deployGateway } from "../src/programs/deploy-gateway.js";
 
 describe("deployGateway", () => {
-  test("deploys, verifies, then writes config through service seams", async () => {
-    const recorder = new DeployRecorder();
+  it.effect("deploys, verifies, then writes config through service seams", () =>
+    Effect.gen(function* () {
+      const recorder = new DeployRecorder();
 
-    await Effect.runPromise(
-      deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer())),
-    );
+      yield* deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer()));
 
-    expect(recorder.workspaceGenerated?.endsWith("/.turbotunnel/relay")).toBe(true);
-    expect(recorder.vercelOperations).toEqual([
-      "requireInstalled",
-      "currentAccount",
-      "link:ttabc123-turbotunnel",
-      "env:TURBOTUNNEL_BASE_DOMAIN={slug}-turbotunnel.vercel.app",
-      "env:TURBOTUNNEL_RELAY_SECRET=ttsec_test",
-      "env:TURBOTUNNEL_QUEUE_REGION=iad1",
-      "deploy",
-    ]);
-    expect(recorder.verifiedHost).toBe("ttabc123-turbotunnel.vercel.app");
-    expect(recorder.writtenConfig).toMatchObject({
-      project: "ttabc123-turbotunnel",
-      slug: "ttabc123",
-      relayDomain: "{slug}-turbotunnel.vercel.app",
-      relaySecret: "ttsec_test",
-      queueRegion: "iad1",
-    });
-    expect(recorder.outputMessages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          _tag: "Text",
-          stream: "stderr",
-          text: expect.stringMatching(/Gateway[\s\S]*deployed|deployed[\s\S]*Gateway/),
-        }),
-      ]),
-    );
-  });
+      expect(recorder.workspaceGenerated?.endsWith("/.turbotunnel/relay")).toBe(true);
+      expect(recorder.vercelOperations).toEqual([
+        "requireInstalled",
+        "currentAccount",
+        "link:ttabc123-turbotunnel",
+        "env:TURBOTUNNEL_BASE_DOMAIN={slug}-turbotunnel.vercel.app",
+        "env:TURBOTUNNEL_RELAY_SECRET=ttsec_test",
+        "env:TURBOTUNNEL_QUEUE_REGION=iad1",
+        "deploy",
+      ]);
+      expect(recorder.verifiedHost).toBe("ttabc123-turbotunnel.vercel.app");
+      expect(recorder.writtenConfig).toMatchObject({
+        project: "ttabc123-turbotunnel",
+        slug: "ttabc123",
+        relayDomain: "{slug}-turbotunnel.vercel.app",
+        relaySecret: "ttsec_test",
+        queueRegion: "iad1",
+      });
+      expect(recorder.outputMessages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            _tag: "Text",
+            stream: "stderr",
+            text: expect.stringMatching(/Gateway[\s\S]*deployed|deployed[\s\S]*Gateway/),
+          }),
+        ]),
+      );
+    }),
+  );
 
-  test("reuses a saved deploy target and secret when flags do not override it", async () => {
-    const recorder = new DeployRecorder({
-      project: "demo-turbotunnel",
-      slug: "demo",
-      relayDomain: "tunnel.example.com",
-      relaySecret: "saved_secret",
-      queueRegion: "sfo1",
-    });
+  it.effect("reuses a saved deploy target and secret when flags do not override it", () =>
+    Effect.gen(function* () {
+      const recorder = new DeployRecorder({
+        project: "demo-turbotunnel",
+        slug: "demo",
+        relayDomain: "tunnel.example.com",
+        relaySecret: "saved_secret",
+        queueRegion: "sfo1",
+      });
 
-    await Effect.runPromise(
-      deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer())),
-    );
+      yield* deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer()));
 
-    expect(recorder.vercelOperations).toContain("env:TURBOTUNNEL_RELAY_SECRET=saved_secret");
-    expect(recorder.writtenConfig).toMatchObject({
-      project: "demo-turbotunnel",
-      slug: "demo",
-      relayDomain: "tunnel.example.com",
-      queueRegion: "sfo1",
-    });
-  });
+      expect(recorder.vercelOperations).toContain("env:TURBOTUNNEL_RELAY_SECRET=saved_secret");
+      expect(recorder.writtenConfig).toMatchObject({
+        project: "demo-turbotunnel",
+        slug: "demo",
+        relayDomain: "tunnel.example.com",
+        queueRegion: "sfo1",
+      });
+    }),
+  );
 
-  test("writes deploy summary as json when requested", async () => {
-    const recorder = new DeployRecorder();
+  it.effect("writes deploy summary as json when requested", () =>
+    Effect.gen(function* () {
+      const recorder = new DeployRecorder();
 
-    await Effect.runPromise(
-      deployGateway({ output: { _tag: "Json" } }).pipe(Effect.provide(recorder.layer())),
-    );
+      yield* deployGateway({ output: { _tag: "Json" } }).pipe(Effect.provide(recorder.layer()));
 
-    expect(recorder.outputMessages).toContainEqual({
-      _tag: "Json",
-      stream: "stdout",
-      value: expect.objectContaining({ reason: "gateway_deployed" }),
-    });
-  });
+      expect(recorder.outputMessages).toContainEqual({
+        _tag: "Json",
+        stream: "stdout",
+        value: expect.objectContaining({ reason: "gateway_deployed" }),
+      });
+    }),
+  );
 
-  test("adds a custom wildcard domain before deploying", async () => {
-    const recorder = new DeployRecorder();
+  it.effect("adds a custom wildcard domain before deploying", () =>
+    Effect.gen(function* () {
+      const recorder = new DeployRecorder();
 
-    await Effect.runPromise(
-      deployGateway({ output: { _tag: "Terminal" }, domain: "tunnel.example.com" }).pipe(
+      yield* deployGateway({ output: { _tag: "Terminal" }, domain: "tunnel.example.com" }).pipe(
         Effect.provide(recorder.layer()),
-      ),
-    );
+      );
 
-    expect(recorder.vercelOperations).toContain("domain:*.tunnel.example.com");
-    expect(recorder.vercelOperations.indexOf("domain:*.tunnel.example.com")).toBeLessThan(
-      recorder.vercelOperations.indexOf("deploy"),
-    );
-  });
+      expect(recorder.vercelOperations).toContain("domain:*.tunnel.example.com");
+      expect(recorder.vercelOperations.indexOf("domain:*.tunnel.example.com")).toBeLessThan(
+        recorder.vercelOperations.indexOf("deploy"),
+      );
+    }),
+  );
 
-  test("does not write config when Vercel deployment fails", async () => {
-    const recorder = new DeployRecorder();
-    recorder.failDeploy = true;
+  it.effect("does not write config when Vercel deployment fails", () =>
+    Effect.gen(function* () {
+      const recorder = new DeployRecorder();
+      recorder.failDeploy = true;
 
-    const exit = await Effect.runPromiseExit(
-      deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer())),
-    );
+      const exit = yield* deployGateway({ output: { _tag: "Terminal" } }).pipe(
+        Effect.provide(recorder.layer()),
+        Effect.exit,
+      );
 
-    expect(exit._tag).toBe("Failure");
-    expect(recorder.writtenConfig).toBeUndefined();
-  });
+      expect(exit._tag).toBe("Failure");
+      expect(recorder.writtenConfig).toBeUndefined();
+    }),
+  );
 
-  test("does not write config when gateway verification fails", async () => {
-    const recorder = new DeployRecorder();
-    recorder.failVerification = true;
+  it.effect("does not write config when gateway verification fails", () =>
+    Effect.gen(function* () {
+      const recorder = new DeployRecorder();
+      recorder.failVerification = true;
 
-    const exit = await Effect.runPromiseExit(
-      deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer())),
-    );
+      const exit = yield* deployGateway({ output: { _tag: "Terminal" } }).pipe(
+        Effect.provide(recorder.layer()),
+        Effect.exit,
+      );
 
-    expect(exit._tag).toBe("Failure");
-    expect(recorder.writtenConfig).toBeUndefined();
-  });
+      expect(exit._tag).toBe("Failure");
+      expect(recorder.writtenConfig).toBeUndefined();
+    }),
+  );
 });
 
 class DeployRecorder {
@@ -137,6 +144,13 @@ class DeployRecorder {
 
   layer() {
     return Layer.mergeAll(
+      Layer.succeed(
+        AppPaths,
+        AppPaths.of({
+          configPath: "/tmp/.turbotunnel/config.json",
+          deployDir: "/tmp/.turbotunnel/relay",
+        }),
+      ),
       Layer.succeed(
         Entropy,
         Entropy.of({
@@ -174,7 +188,7 @@ class DeployRecorder {
               ? Effect.fail(
                   new VercelCliFailed({
                     command: "vercel deploy --prod --yes",
-                    exitCode: 1,
+                    failure: { _tag: "NonZeroExit", exitCode: 1 },
                     message: "deploy failed",
                   }),
                 )

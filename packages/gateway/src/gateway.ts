@@ -30,7 +30,7 @@ export const GatewayLive = (env: NodeJS.ProcessEnv) => {
   );
   const queueLayer = Layer.unwrap(
     GatewayConfig.use((config) =>
-      Effect.succeed(config.brokerKind === "memory" ? MemoryQueue.layer : VercelQueue.layer),
+      Effect.succeed(config.brokerKind === "memory" ? MemoryQueue.sharedLayer : VercelQueue.layer),
     ),
   ).pipe(Layer.provide(baseLayer));
   const dependencies = Layer.mergeAll(baseLayer, queueLayer);

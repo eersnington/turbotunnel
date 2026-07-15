@@ -23,65 +23,61 @@ export class GatewayWorkspace extends Context.Service<GatewayWorkspace, GatewayW
   );
 }
 
-function copyWorkspace(
+const copyWorkspace = Effect.fn("GatewayWorkspace.copy")(function* (
   fs: FileSystem,
   deployDir: string,
-): Effect.Effect<void, GatewayWorkspaceError> {
-  return Effect.gen(function* () {
-    const sourceDir = yield* resolveGatewayDeploymentArtifact(fs);
-    yield* cleanDeploymentDirectory(fs, deployDir);
+): Effect.fn.Return<void, GatewayWorkspaceError> {
+  const sourceDir = yield* resolveGatewayDeploymentArtifact(fs);
+  yield* cleanDeploymentDirectory(fs, deployDir);
+  yield* fs
+    .makeDirectory(deployDir, { recursive: true })
+    .pipe(
+      Effect.mapError((cause) =>
+        workspaceError("create gateway deployment directory", deployDir, cause),
+      ),
+    );
+  const entries = yield* fs
+    .readDirectory(sourceDir)
+    .pipe(
+      Effect.mapError((cause) =>
+        workspaceError("read gateway deployment artifact", sourceDir, cause),
+      ),
+    );
+  for (const entry of entries) {
+    const sourcePath = join(sourceDir, entry);
     yield* fs
-      .makeDirectory(deployDir, { recursive: true })
+      .copy(sourcePath, join(deployDir, entry), { overwrite: true })
       .pipe(
         Effect.mapError((cause) =>
-          workspaceError("create gateway deployment directory", deployDir, cause),
+          workspaceError("copy gateway deployment artifact", sourcePath, cause),
         ),
       );
-    const entries = yield* fs
-      .readDirectory(sourceDir)
-      .pipe(
-        Effect.mapError((cause) =>
-          workspaceError("read gateway deployment artifact", sourceDir, cause),
-        ),
-      );
-    for (const entry of entries) {
-      const sourcePath = join(sourceDir, entry);
-      yield* fs
-        .copy(sourcePath, join(deployDir, entry), { overwrite: true })
-        .pipe(
-          Effect.mapError((cause) =>
-            workspaceError("copy gateway deployment artifact", sourcePath, cause),
-          ),
-        );
-    }
-  });
-}
+  }
+});
 
-function resolveGatewayDeploymentArtifact(
+const resolveGatewayDeploymentArtifact = Effect.fn("GatewayWorkspace.resolveArtifact")(function* (
   fs: FileSystem,
-): Effect.Effect<string, GatewayWorkspaceError> {
-  return Effect.gen(function* () {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      resolve(here, "..", "..", "..", "gateway", "dist", "deployment"),
-      resolve(here, "..", "..", "gateway-template"),
-      resolve(here, "..", "gateway-template"),
-    ];
+): Effect.fn.Return<string, GatewayWorkspaceError> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(here, "..", "..", "..", "gateway", "dist", "deployment"),
+    resolve(here, "..", "..", "gateway-template"),
+    resolve(here, "..", "gateway-template"),
+  ];
 
-    for (const candidate of candidates) {
-      if (yield* isDirectory(fs, candidate)) {
-        return candidate;
-      }
+  for (const candidate of candidates) {
+    if (yield* isDirectory(fs, candidate)) {
+      return candidate;
     }
+  }
 
-    return yield* new GatewayWorkspaceError({
-      operation: "resolve gateway deployment artifact",
-      cause: candidates,
-      message:
-        "The gateway deployment artifact is missing. Rebuild the Turbotunnel package before deploying; local tunnel config was not changed.",
-    });
+  return yield* new GatewayWorkspaceError({
+    operation: "resolve gateway deployment artifact",
+    cause: candidates,
+    message:
+      "The gateway deployment artifact is missing. Rebuild the Turbotunnel package before deploying; local tunnel config was not changed.",
   });
-}
+});
 
 function isDirectory(fs: FileSystem, path: string): Effect.Effect<boolean, GatewayWorkspaceError> {
   return fs.stat(path).pipe(
@@ -95,46 +91,44 @@ function isDirectory(fs: FileSystem, path: string): Effect.Effect<boolean, Gatew
   );
 }
 
-function cleanDeploymentDirectory(
+const cleanDeploymentDirectory = Effect.fn("GatewayWorkspace.clean")(function* (
   fs: FileSystem,
   deployDir: string,
-): Effect.Effect<void, GatewayWorkspaceError> {
-  return Effect.gen(function* () {
-    if (
-      !(yield* fs
-        .exists(deployDir)
-        .pipe(
-          Effect.mapError((cause) =>
-            workspaceError("check gateway deployment directory", deployDir, cause),
-          ),
-        ))
-    ) {
-      return;
-    }
-
-    const entries = yield* fs
-      .readDirectory(deployDir)
+): Effect.fn.Return<void, GatewayWorkspaceError> {
+  if (
+    !(yield* fs
+      .exists(deployDir)
       .pipe(
         Effect.mapError((cause) =>
-          workspaceError("read gateway deployment directory", deployDir, cause),
+          workspaceError("check gateway deployment directory", deployDir, cause),
+        ),
+      ))
+  ) {
+    return;
+  }
+
+  const entries = yield* fs
+    .readDirectory(deployDir)
+    .pipe(
+      Effect.mapError((cause) =>
+        workspaceError("read gateway deployment directory", deployDir, cause),
+      ),
+    );
+  for (const entry of entries) {
+    if (entry === ".vercel") {
+      continue;
+    }
+
+    const path = join(deployDir, entry);
+    yield* fs
+      .remove(path, { recursive: true, force: true })
+      .pipe(
+        Effect.mapError((cause) =>
+          workspaceError("remove stale gateway deployment path", path, cause),
         ),
       );
-    for (const entry of entries) {
-      if (entry === ".vercel") {
-        continue;
-      }
-
-      const path = join(deployDir, entry);
-      yield* fs
-        .remove(path, { recursive: true, force: true })
-        .pipe(
-          Effect.mapError((cause) =>
-            workspaceError("remove stale gateway deployment path", path, cause),
-          ),
-        );
-    }
-  });
-}
+  }
+});
 
 function workspaceError(operation: string, path: string, cause: unknown): GatewayWorkspaceError {
   return new GatewayWorkspaceError({

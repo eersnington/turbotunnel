@@ -3,62 +3,47 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { afterEach, describe, expect, test } from "vitest";
 
 import { LocalConfigStore } from "../src/adapters/local-config-store.js";
 
-const tempDirs: Array<string> = [];
-
-afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
-});
-
 describe("LocalConfigStore", () => {
-  test("reads a missing config as empty", async () => {
-    const path = await tempConfigPath();
-    const config = await Effect.runPromise(
-      Effect.gen(function* () {
-        const store = yield* LocalConfigStore;
-        return yield* store.read;
-      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer)),
-    );
+  it.effect("reads a missing config as empty", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      const config = yield* readConfig(path);
 
-    expect(config).toEqual({});
-  });
+      expect(config).toEqual({});
+    }),
+  );
 
-  test("rejects invalid JSON", async () => {
-    const path = await tempConfigPath();
-    await writeFile(path, "{ nope", "utf8");
+  it.effect("rejects invalid JSON", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      yield* Effect.promise(() => writeFile(path, "{ nope", "utf8"));
 
-    const exit = await Effect.runPromiseExit(
-      Effect.gen(function* () {
-        const store = yield* LocalConfigStore;
-        return yield* store.read;
-      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer)),
-    );
+      const error = yield* readConfig(path).pipe(Effect.flip);
 
-    expect(exit._tag).toBe("Failure");
-  });
+      expect(error._tag).toBe("ConfigFileParseError");
+    }),
+  );
 
-  test("rejects config files with unsupported field shapes", async () => {
-    const path = await tempConfigPath();
-    await writeFile(path, JSON.stringify({ project: 42 }), "utf8");
+  it.effect("rejects config files with unsupported field shapes", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      yield* Effect.promise(() => writeFile(path, JSON.stringify({ project: 42 }), "utf8"));
 
-    const exit = await Effect.runPromiseExit(
-      Effect.gen(function* () {
-        const store = yield* LocalConfigStore;
-        return yield* store.read;
-      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer)),
-    );
+      const error = yield* readConfig(path).pipe(Effect.flip);
 
-    expect(exit._tag).toBe("Failure");
-  });
+      expect(error._tag).toBe("ConfigFileParseError");
+    }),
+  );
 
-  test("writes and reads deploy config", async () => {
-    const path = await tempConfigPath();
-    const readBack = await Effect.runPromise(
-      Effect.gen(function* () {
+  it.effect("writes and reads deploy config", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      const readBack = yield* Effect.gen(function* () {
         const store = yield* LocalConfigStore;
         yield* store.write({
           project: "demo-turbotunnel",
@@ -68,28 +53,34 @@ describe("LocalConfigStore", () => {
           queueRegion: "iad1",
         });
         return yield* store.read;
-      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer)),
-    );
+      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer));
 
-    expect(readBack).toMatchObject({
-      project: "demo-turbotunnel",
-      slug: "demo",
-      relayDomain: "tunnel.example.com",
-      relaySecret: "secret",
-      queueRegion: "iad1",
-    });
-    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
-      project: "demo-turbotunnel",
-      slug: "demo",
-      relayDomain: "tunnel.example.com",
-      relaySecret: "secret",
-      queueRegion: "iad1",
-    });
-  });
+      expect(readBack).toMatchObject({
+        project: "demo-turbotunnel",
+        slug: "demo",
+        relayDomain: "tunnel.example.com",
+        relaySecret: "secret",
+        queueRegion: "iad1",
+      });
+      const written = yield* Effect.promise(() => readFile(path, "utf8"));
+      expect(JSON.parse(written)).toMatchObject({
+        project: "demo-turbotunnel",
+        slug: "demo",
+        relayDomain: "tunnel.example.com",
+        relaySecret: "secret",
+        queueRegion: "iad1",
+      });
+    }),
+  );
 });
 
-async function tempConfigPath(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "turbotunnel-effect-"));
-  tempDirs.push(dir);
-  return join(dir, "config.json");
-}
+const tempConfigPath = Effect.acquireRelease(
+  Effect.promise(() => mkdtemp(join(tmpdir(), "turbotunnel-effect-"))),
+  (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true })).pipe(Effect.orDie),
+).pipe(Effect.map((dir) => join(dir, "config.json")));
+
+const readConfig = (path: string) =>
+  Effect.gen(function* () {
+    const store = yield* LocalConfigStore;
+    return yield* store.read;
+  }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer));

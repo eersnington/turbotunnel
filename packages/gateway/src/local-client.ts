@@ -1,11 +1,10 @@
 /** Owns one local-client session, including registration, delivery acknowledgements, and pumps. */
 import {
-  isTunnelRequestFrame,
+  decodeGatewayInboundFrameJson,
+  decodeTunnelRequestFramePayload,
   LOCAL_CLIENT_ACK_TIMEOUT_MS,
   LOCAL_CLIENT_CAPACITY,
   localConsumerGroup,
-  parseProtocolFrameJson,
-  parseProtocolFramePayload,
   QUEUE_RECEIVE_COLD_AFTER_EMPTY,
   QUEUE_RECEIVE_COLD_DELAY_MS,
   QUEUE_RECEIVE_HOT_DELAY_MS,
@@ -15,13 +14,14 @@ import {
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   requestTopic,
   type Frame,
+  type GatewayInboundFrame,
   type HttpResponse,
   type WsClose,
   type WsData,
   type WsOpen,
   wsLocalInConsumerGroup,
 } from "@turbotunnel/contracts";
-import { Clock, Effect, FiberSet, Result, Scope } from "effect";
+import { Clock, Effect, FiberSet, Option, Scope } from "effect";
 
 import { GatewayConfig } from "./gateway-config.js";
 import { GatewayState, type LocalClient } from "./gateway-state.js";
@@ -50,258 +50,257 @@ export type LocalClientError =
   | QueueSendError;
 
 /** Runs the complete lifecycle of one authenticated local tunnel client. */
-export function runLocalClient(
+export const runLocalClient = Effect.fn("runLocalClient")(function* (
   socket: GatewayWebSocket,
   headers: GatewayRequestHeaders,
-): Effect.Effect<void, LocalClientError, GatewayConfig | GatewayState | Queue | Scope.Scope> {
-  return Effect.gen(function* () {
-    const config = yield* GatewayConfig;
-    const state = yield* GatewayState;
-    const queue = yield* Queue;
-    const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
-    if (slugResult._tag === "err") {
-      yield* socket.close(1008, "invalid tunnel host");
+): Effect.fn.Return<void, LocalClientError, GatewayConfig | GatewayState | Queue | Scope.Scope> {
+  const config = yield* GatewayConfig;
+  const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
+  if (slugResult._tag === "err") {
+    yield* socket.close(1008, "invalid tunnel host");
+    return;
+  }
+
+  const expectedSlug = slugResult.value;
+  const firstEvent = yield* socket.receive;
+  if (firstEvent._tag === "Close") {
+    return;
+  }
+  const firstFrame = yield* decodeLocalClientMessage(socket, firstEvent);
+  if (
+    Option.isNone(firstFrame) ||
+    firstFrame.value.type !== "local.hello" ||
+    firstFrame.value.slug !== expectedSlug
+  ) {
+    if (Option.isSome(firstFrame)) {
+      yield* socket.close(1008, "invalid local client hello");
+    }
+    return;
+  }
+
+  const state = yield* GatewayState;
+  const frame = firstFrame.value;
+  const localClient = yield* state.registerLocalClient({
+    slug: frame.slug,
+    socket,
+    clientId: frame.localClientId,
+    sessionId: frame.sessionId,
+    generation: frame.generation,
+    target: frame.target,
+    capacity: Math.min(frame.capacity, LOCAL_CLIENT_CAPACITY),
+  });
+  const connectionFibers = yield* FiberSet.make<void, LocalClientError>();
+  yield* Effect.logInfo("local tunnel client registered").pipe(
+    Effect.annotateLogs({
+      slug: localClient.slug,
+      localClientId: localClient.clientId,
+      sessionId: localClient.sessionId,
+      generation: localClient.generation,
+    }),
+  );
+
+  const messages = processRegisteredLocalClient(socket, localClient);
+  const pump = startLocalQueuePump(localClient, connectionFibers);
+  yield* Effect.raceFirst(messages, pump).pipe(
+    terminateLocalConnectionOnPumpFailure(socket, localClient.slug, "local client handling"),
+    Effect.ensuring(FiberSet.clear(connectionFibers)),
+  );
+});
+
+/** Processes a registered session serially so acknowledgements cannot race registration. */
+const processRegisteredLocalClient = Effect.fn("processRegisteredLocalClient")(function* (
+  socket: GatewayWebSocket,
+  localClient: LocalClient,
+): Effect.fn.Return<void, LocalClientError, GatewayState | Queue> {
+  const state = yield* GatewayState;
+  while (true) {
+    const event = yield* socket.receive;
+    if (event._tag === "Close") {
       return;
     }
-
-    const expectedSlug = slugResult.value;
-    const connectionFibers = yield* FiberSet.make<void, LocalClientError>();
-    let registered: LocalClient | undefined;
-
-    while (true) {
-      const event = yield* socket.receive;
-      if (event._tag === "Close") {
-        return;
-      }
-      yield* FiberSet.run(
-        connectionFibers,
-        handleLocalClientMessage(event).pipe(
-          Effect.catch((error) =>
-            Effect.logError("local client message handling failed").pipe(
-              Effect.annotateLogs({ errorTag: error._tag }),
-            ),
-          ),
-        ),
-      );
+    const decoded = yield* decodeLocalClientMessage(socket, event);
+    if (Option.isNone(decoded)) {
+      return;
     }
-
-    /** Parses and routes one local-client protocol message within the connection scope. */
-    function handleLocalClientMessage(
-      event: Extract<GatewayWebSocketEvent, { readonly _tag: "Message" }>,
-    ): Effect.Effect<void, LocalClientError, Scope.Scope> {
-      return Effect.gen(function* () {
-        const frameResult = parseProtocolFrameJson(event.data.toString("utf8"));
-        if (Result.isFailure(frameResult)) {
-          yield* Effect.logWarning("closing local client after invalid frame").pipe(
-            Effect.annotateLogs({ reason: frameResult.failure.reason }),
-          );
-          yield* socket.close(1002, "invalid protocol frame");
+    const frame = decoded.value;
+    switch (frame.type) {
+      case "local.hello":
+        yield* socket.close(1008, "invalid local client hello");
+        return;
+      case "local.heartbeat":
+        if (
+          localClient.clientId !== frame.localClientId ||
+          localClient.sessionId !== frame.sessionId ||
+          localClient.generation !== frame.generation ||
+          localClient.slug !== frame.slug
+        ) {
+          yield* socket.close(1008, "invalid local client heartbeat");
           return;
         }
-
-        const frame = frameResult.success;
-        switch (frame.type) {
-          case "local.hello": {
-            if (registered !== undefined || frame.slug !== expectedSlug) {
-              yield* socket.close(1008, "invalid local client hello");
-              return;
-            }
-
-            const localClient = yield* state.registerLocalClient({
-              slug: frame.slug,
-              socket,
-              clientId: frame.localClientId,
-              sessionId: frame.sessionId,
-              generation: frame.generation,
-              target: frame.target,
-              capacity: Math.min(frame.capacity, LOCAL_CLIENT_CAPACITY),
-            });
-            registered = localClient;
-            yield* FiberSet.run(
-              connectionFibers,
-              startLocalQueuePump(localClient, connectionFibers, state, queue).pipe(
-                Effect.catch((error) =>
-                  Effect.logError("local queue pump failed").pipe(
-                    Effect.annotateLogs({ errorTag: error._tag, slug: localClient.slug }),
-                  ),
-                ),
-              ),
-            );
-            yield* Effect.logInfo("local tunnel client registered").pipe(
-              Effect.annotateLogs({
-                slug: localClient.slug,
-                localClientId: localClient.clientId,
-                sessionId: localClient.sessionId,
-                generation: localClient.generation,
-              }),
-            );
-            return;
-          }
-          case "local.heartbeat": {
-            if (
-              registered === undefined ||
-              registered.clientId !== frame.localClientId ||
-              registered.sessionId !== frame.sessionId ||
-              registered.generation !== frame.generation ||
-              registered.slug !== frame.slug
-            ) {
-              yield* socket.close(1008, "invalid local client heartbeat");
-            }
-            return;
-          }
-          case "delivery.ack":
-            yield* state.completeDeliveryAck(registered, frame.ackFrameId, true);
-            return;
-          case "delivery.reject":
-            yield* state.completeDeliveryAck(registered, frame.rejectFrameId, false);
-            return;
-          case "http.response":
-            yield* completeOrPublishHttpResponse(frame, state, queue);
-            return;
-          case "ws.data":
-          case "ws.close":
-            yield* routeLocalWebSocketFrame(frame, state, queue);
-            return;
-          case "error":
-          case "http.request":
-          case "ws.open":
-            yield* socket.close(1008, "frame type is not accepted from local client");
-            return;
-        }
-      });
+        break;
+      case "delivery.ack":
+        yield* state.completeDeliveryAck(localClient, frame.ackFrameId, true);
+        break;
+      case "delivery.reject":
+        yield* state.completeDeliveryAck(localClient, frame.rejectFrameId, false);
+        break;
+      case "http.response":
+        yield* completeOrPublishHttpResponse(frame);
+        break;
+      case "ws.data":
+      case "ws.close":
+        yield* routeLocalWebSocketFrame(frame);
+        break;
     }
-  });
+  }
+});
+
+/** Applies the invalid-protocol policy at the local-client socket boundary. */
+function decodeLocalClientMessage(
+  socket: GatewayWebSocket,
+  event: Extract<GatewayWebSocketEvent, { readonly _tag: "Message" }>,
+): Effect.Effect<Option.Option<GatewayInboundFrame>> {
+  const reject = (error: { readonly _tag: string }) =>
+    Effect.logWarning("closing local client after invalid frame").pipe(
+      Effect.annotateLogs({ errorTag: error._tag }),
+      Effect.andThen(socket.close(1002, "invalid protocol frame")),
+      Effect.as(Option.none<GatewayInboundFrame>()),
+    );
+  return decodeGatewayInboundFrameJson(event.data.toString("utf8")).pipe(
+    Effect.map(Option.some),
+    Effect.catchTags({
+      ProtocolJsonDecodeError: reject,
+      ProtocolPayloadDecodeError: reject,
+    }),
+  );
 }
 
 /** Delivers queued tunnel requests to a registered local client until it drains or disconnects. */
-function startLocalQueuePump(
+const startLocalQueuePump = Effect.fn("startLocalQueuePump")(function* (
   localClient: LocalClient,
   connectionFibers: FiberSet.FiberSet<void, LocalClientError>,
-  state: GatewayState["Service"],
-  queue: Queue["Service"],
-): Effect.Effect<void, LocalClientError> {
-  return Effect.gen(function* () {
-    const topic = requestTopic(localClient.slug);
-    const consumerGroup = localConsumerGroup(localClient.slug);
-    while (yield* state.isLocalClientActive(localClient)) {
-      const messages = yield* queue.receive({
-        topic,
-        consumerGroup,
-        limit: QUEUE_RECEIVE_LIMIT,
-        visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
-      });
-      yield* state.recordMetric("queueReceives");
-      if (messages.length === 0) {
-        const emptyReceives = yield* state.noteQueueReceive(localClient, false);
-        yield* Effect.sleep(queueReceiveDelay(emptyReceives));
+): Effect.fn.Return<void, LocalClientError, GatewayState | Queue> {
+  const state = yield* GatewayState;
+  const queue = yield* Queue;
+  const topic = requestTopic(localClient.slug);
+  const consumerGroup = localConsumerGroup(localClient.slug);
+  while (yield* state.isLocalClientActive(localClient)) {
+    const messages = yield* queue.receive({
+      topic,
+      consumerGroup,
+      limit: QUEUE_RECEIVE_LIMIT,
+      visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+    });
+    yield* state.recordMetric("queueReceives");
+    if (messages.length === 0) {
+      const emptyReceives = yield* state.noteQueueReceive(localClient, false);
+      yield* Effect.sleep(queueReceiveDelay(emptyReceives));
+      continue;
+    }
+    yield* state.noteQueueReceive(localClient, true);
+
+    for (const message of messages) {
+      const frameResult = yield* decodeTunnelRequestFramePayload(message.payload).pipe(
+        Effect.map(Option.some),
+        Effect.catchTags({ ProtocolPayloadDecodeError: () => Effect.succeed(Option.none()) }),
+      );
+      const now = yield* Clock.currentTimeMillis;
+      if (Option.isNone(frameResult) || isExpired(frameResult.value, now)) {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
         continue;
       }
-      yield* state.noteQueueReceive(localClient, true);
+      const frame = frameResult.value;
 
-      for (const message of messages) {
-        const frameResult = parseProtocolFramePayload(message.payload);
-        const now = yield* Clock.currentTimeMillis;
-        if (Result.isFailure(frameResult) || isExpired(frameResult.success, now)) {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-          continue;
-        }
-        const frame = frameResult.success;
-        if (!isTunnelRequestFrame(frame)) {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-          continue;
-        }
-
-        const accepted = yield* state.sendFrameAndWaitForAck(
-          localClient,
-          frame,
-          LOCAL_CLIENT_ACK_TIMEOUT_MS,
-        );
-        if (accepted) {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-          if (frame.type === "ws.open") {
-            yield* FiberSet.run(
-              connectionFibers,
-              startLocalWsInputPump(localClient, frame, state, queue).pipe(
-                Effect.catch((error) =>
-                  Effect.logError("local WebSocket input pump failed").pipe(
-                    Effect.annotateLogs({ errorTag: error._tag, slug: localClient.slug }),
-                  ),
-                ),
+      const accepted = yield* state.sendFrameAndWaitForAck(
+        localClient,
+        frame,
+        LOCAL_CLIENT_ACK_TIMEOUT_MS,
+      );
+      if (accepted) {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
+        if (frame.type === "ws.open") {
+          yield* FiberSet.run(
+            connectionFibers,
+            startLocalWsInputPump(localClient, frame).pipe(
+              terminateLocalConnectionOnPumpFailure(
+                localClient.socket,
+                localClient.slug,
+                "local WebSocket input pump",
               ),
-            );
-          }
+            ),
+          );
         }
       }
     }
-  });
-}
+  }
+});
 
 /** Delivers one queued browser WebSocket input stream to its selected local client. */
-function startLocalWsInputPump(
+const startLocalWsInputPump = Effect.fn("startLocalWsInputPump")(function* (
   localClient: LocalClient,
   openFrame: WsOpen,
-  state: GatewayState["Service"],
-  queue: Queue["Service"],
-): Effect.Effect<void, LocalClientError> {
-  return Effect.gen(function* () {
-    const consumerGroup = wsLocalInConsumerGroup(openFrame.connId);
-    while (yield* state.isLocalClientActive(localClient)) {
-      const messages = yield* queue.receive({
-        topic: openFrame.localInTopic,
-        consumerGroup,
-        limit: QUEUE_RECEIVE_LIMIT,
-        visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
-      });
-      yield* state.recordMetric("queueReceives");
-      if (messages.length === 0) {
-        const emptyReceives = yield* state.noteQueueReceive(localClient, false);
-        yield* Effect.sleep(queueReceiveDelay(emptyReceives));
+): Effect.fn.Return<void, LocalClientError, GatewayState | Queue> {
+  const state = yield* GatewayState;
+  const queue = yield* Queue;
+  const consumerGroup = wsLocalInConsumerGroup(openFrame.connId);
+  while (yield* state.isLocalClientActive(localClient)) {
+    const messages = yield* queue.receive({
+      topic: openFrame.localInTopic,
+      consumerGroup,
+      limit: QUEUE_RECEIVE_LIMIT,
+      visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+    });
+    yield* state.recordMetric("queueReceives");
+    if (messages.length === 0) {
+      const emptyReceives = yield* state.noteQueueReceive(localClient, false);
+      yield* Effect.sleep(queueReceiveDelay(emptyReceives));
+      continue;
+    }
+    yield* state.noteQueueReceive(localClient, true);
+
+    for (const message of messages) {
+      const frameResult = yield* decodeTunnelRequestFramePayload(message.payload).pipe(
+        Effect.map(Option.some),
+        Effect.catchTags({ ProtocolPayloadDecodeError: () => Effect.succeed(Option.none()) }),
+      );
+      const now = yield* Clock.currentTimeMillis;
+      if (Option.isNone(frameResult) || isExpired(frameResult.value, now)) {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
         continue;
       }
-      yield* state.noteQueueReceive(localClient, true);
+      const frame = frameResult.value;
+      if (frame.type !== "ws.data" && frame.type !== "ws.close") {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
+        continue;
+      }
 
-      for (const message of messages) {
-        const frameResult = parseProtocolFramePayload(message.payload);
-        const now = yield* Clock.currentTimeMillis;
-        if (Result.isFailure(frameResult) || isExpired(frameResult.success, now)) {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-          continue;
-        }
-        const frame = frameResult.success;
-        if (frame.type !== "ws.data" && frame.type !== "ws.close") {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-          continue;
-        }
-
-        const accepted = yield* state.sendFrameAndWaitForAck(
-          localClient,
-          frame,
-          LOCAL_CLIENT_ACK_TIMEOUT_MS,
-        );
-        if (accepted) {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-        }
-        if (frame.type === "ws.close") {
-          return;
-        }
+      const accepted = yield* state.sendFrameAndWaitForAck(
+        localClient,
+        frame,
+        LOCAL_CLIENT_ACK_TIMEOUT_MS,
+      );
+      if (accepted) {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
+      }
+      if (accepted && frame.type === "ws.close") {
+        return;
       }
     }
-  });
-}
+  }
+});
 
 /** Completes an in-process request or publishes its response for another gateway instance. */
 function completeOrPublishHttpResponse(
   frame: HttpResponse,
-  state: GatewayState["Service"],
-  queue: Queue["Service"],
-): Effect.Effect<void, QueueAuthError | QueueSendError> {
+): Effect.Effect<void, QueueAuthError | QueueSendError, GatewayState | Queue> {
   return Effect.gen(function* () {
+    const state = yield* GatewayState;
+    const queue = yield* Queue;
     if (yield* state.completeDirectRequest(frame)) {
       return;
     }
@@ -316,13 +315,17 @@ function completeOrPublishHttpResponse(
 /** Routes a local WebSocket frame to an in-process browser or its remote output topic. */
 function routeLocalWebSocketFrame(
   frame: WsData | WsClose,
-  state: GatewayState["Service"],
-  queue: Queue["Service"],
-): Effect.Effect<void, GatewayWebSocketWriteError | QueueAuthError | QueueSendError> {
+): Effect.Effect<
+  void,
+  GatewayWebSocketWriteError | QueueAuthError | QueueSendError,
+  GatewayState | Queue
+> {
   return Effect.gen(function* () {
+    const state = yield* GatewayState;
+    const queue = yield* Queue;
     const publicConnection = yield* state.findPublicConnection(frame.connId);
     if (publicConnection !== undefined) {
-      yield* routeWebSocketFrameToBrowser(publicConnection, frame, state);
+      yield* routeWebSocketFrameToBrowser(publicConnection, frame);
       return;
     }
     if (frame.browserOutTopic !== undefined) {
@@ -333,6 +336,29 @@ function routeLocalWebSocketFrame(
       yield* state.recordMetric("queueSends");
     }
   });
+}
+
+/** A failed delivery pump owns the local connection and forces its session scope to end. */
+function terminateLocalConnectionOnPumpFailure(
+  socket: GatewayWebSocket,
+  slug: string,
+  pump: string,
+): <R>(effect: Effect.Effect<void, LocalClientError, R>) => Effect.Effect<void, never, R> {
+  const terminate = (error: { readonly _tag: string }) =>
+    Effect.logError(`${pump} failed`).pipe(
+      Effect.annotateLogs({ errorTag: error._tag, slug }),
+      Effect.andThen(socket.close(1011, "gateway queue operation failed")),
+    );
+  return (effect) =>
+    effect.pipe(
+      Effect.catchTags({
+        GatewayWebSocketWriteError: terminate,
+        QueueAckError: terminate,
+        QueueAuthError: terminate,
+        QueueReceiveError: terminate,
+        QueueSendError: terminate,
+      }),
+    );
 }
 
 /** Selects the existing hot, warm, or cold queue polling delay. */

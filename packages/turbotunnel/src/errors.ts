@@ -40,14 +40,25 @@ export class VercelCliNotFound extends Schema.TaggedErrorClass<VercelCliNotFound
   },
 ) {}
 
-export class VercelCliFailed extends Schema.TaggedErrorClass<VercelCliFailed>()(
-  "VercelCliFailed",
-  {
-    command: Schema.String,
-    exitCode: Schema.Number,
-    message: Schema.String,
-  },
-) {}
+export class VercelCliFailed extends Schema.TaggedErrorClass<VercelCliFailed>()("VercelCliFailed", {
+  command: Schema.String,
+  failure: Schema.Union([
+    Schema.Struct({
+      _tag: Schema.Literal("SpawnFailed"),
+      cause: Schema.Defect(),
+    }),
+    Schema.Struct({
+      _tag: Schema.Literal("OutputReadFailed"),
+      stream: Schema.Literals(["stdout", "stderr", "exit-code"]),
+      cause: Schema.Defect(),
+    }),
+    Schema.Struct({
+      _tag: Schema.Literal("NonZeroExit"),
+      exitCode: Schema.Number,
+    }),
+  ]),
+  message: Schema.String,
+}) {}
 
 export class DeployOutputParseError extends Schema.TaggedErrorClass<DeployOutputParseError>()(
   "DeployOutputParseError",
@@ -127,6 +138,48 @@ export class LocalHttpResponseTooLarge extends Schema.TaggedErrorClass<LocalHttp
   {
     limitBytes: Schema.Number,
     message: Schema.String,
+  },
+) {}
+
+export class RelayWebSocketConnectError extends Schema.TaggedErrorClass<RelayWebSocketConnectError>()(
+  "RelayWebSocketConnectError",
+  {
+    url: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class RelayWebSocketWriteError extends Schema.TaggedErrorClass<RelayWebSocketWriteError>()(
+  "RelayWebSocketWriteError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalWebSocketConnectError extends Schema.TaggedErrorClass<LocalWebSocketConnectError>()(
+  "LocalWebSocketConnectError",
+  {
+    url: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalWebSocketWriteError extends Schema.TaggedErrorClass<LocalWebSocketWriteError>()(
+  "LocalWebSocketWriteError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalWebSocketProtocolError extends Schema.TaggedErrorClass<LocalWebSocketProtocolError>()(
+  "LocalWebSocketProtocolError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
   },
 ) {}
 

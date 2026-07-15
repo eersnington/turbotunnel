@@ -46,6 +46,7 @@
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@turbotunnel/typescript-config": "*",
         "@types/node": "^22.15.3",
         "typescript": "catalog:",
@@ -63,6 +64,7 @@
         "ws": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@turbotunnel/typescript-config": "*",
         "@types/node": "^22.15.3",
         "@types/ws": "catalog:",
@@ -78,8 +80,8 @@
       "name": "turbotunnel",
       "version": "0.0.1",
       "bin": {
-        "tt": "./dist/main.js",
-        "turbotunnel": "./dist/main.js",
+        "tt": "dist/main.js",
+        "turbotunnel": "dist/main.js",
       },
       "dependencies": {
         "@effect/platform-node": "catalog:",
@@ -89,6 +91,7 @@
         "ws": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@turbotunnel/contracts": "*",
         "@turbotunnel/typescript-config": "*",
         "@types/node": "^22.15.3",
@@ -102,6 +105,7 @@
   "catalog": {
     "@effect/platform-bun": "4.0.0-beta.92",
     "@effect/platform-node": "4.0.0-beta.92",
+    "@effect/vitest": "4.0.0-beta.92",
     "@types/ws": "^8.18.1",
     "effect": "4.0.0-beta.92",
     "nanoid": "^5.1.6",
@@ -153,6 +157,8 @@
     "@effect/platform-node": ["@effect/platform-node@4.0.0-beta.92", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-beta.92", "mime": "^4.1.0", "undici": "^8.2.0" }, "peerDependencies": { "effect": "^4.0.0-beta.92", "ioredis": "^5.7.0" } }, "sha512-ZNcwKqBb99yw+cj+KQBMgw0xoQl3GDbUtQjnN3cLsIRpfYS/AVcSp4wfURMczvX5PzoR131yOWkqds5Vmm5tLg=="],
 
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-beta.92", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.20.0" }, "peerDependencies": { "effect": "^4.0.0-beta.92" } }, "sha512-156ADSfmWcqz0mC8VxlHN9IHyT97AbYsBc3wJxyz2ceiWyGJOWkIRd6H/n5Be4hd6dQ4IegSt6J3HinBIJ9S/A=="],
+
+    "@effect/vitest": ["@effect/vitest@4.0.0-beta.92", "", { "peerDependencies": { "effect": "^4.0.0-beta.92", "vitest": "^3.0.0 || ^4.0.0" } }, "sha512-PCFYRDH56wF73aQWnpQh8Z4CJkI1m64t8ysZcI+oN7Iy/Y7dv5hiYP7psCWhqkCitbGcyB1edhSl61weHZ5Hxw=="],
 
     "@emnapi/core": ["@emnapi/core@1.11.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ=="],
 
