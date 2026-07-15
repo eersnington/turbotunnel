@@ -1,160 +1,207 @@
-import { Beam, SceneFrame } from "./scene-frame";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { SceneFrame } from "./scene-frame";
 
 /**
  * Request path as a product demo:
- * public host → Vercel gateway → WSS relay held by `tt http` → localhost.
+ * Browser → Gateway (Vercel) → tt http → localhost
  *
- * Default public host shape from DEFAULT_BASE_DOMAIN:
- *   {slug}-turbotunnel.vercel.app
+ * Vercel-style: dark panels, labeled directional arrows, animated packets.
+ * Green = request path, blue = response path.
  */
 export function RequestScene() {
   return (
     <SceneFrame label="A browser request to checkout-turbotunnel.vercel.app reaches the gateway, travels over the WebSocket relay opened by tt http, and is proxied to localhost:5173">
-      <div className="px-3 py-8 space-y-12 sm:px-6 sm:py-11 lg:px-10 lg:py-14">
-        <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[1.15fr_0.95fr] lg:gap-8 lg:items-stretch">
-          {/* Public side: browser hitting the real default host */}
-          <div className="home-panel home-panel-raised flex min-h-0 flex-col overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-fd-border/80 px-3 py-2.5">
-              <div className="flex items-center gap-1">
-                <span className="size-1.5 rounded-full bg-fd-border" />
-                <span className="size-1.5 rounded-full bg-fd-border" />
-                <span className="size-1.5 rounded-full bg-fd-border" />
-              </div>
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-sm bg-fd-muted/70 px-2.5 py-1.5 font-mono text-[11px] leading-none">
-                <LockIcon />
-                <span className="truncate text-fd-foreground">checkout-turbotunnel.vercel.app</span>
-                <span className="hidden text-fd-muted-foreground sm:inline">/api/cart</span>
-              </div>
-            </div>
-
-            <div className="relative flex flex-1 flex-col justify-between gap-6 p-4 sm:p-5">
-              <div className="space-y-2.5">
-                <div className="h-2 w-24 rounded-sm bg-fd-foreground/10" />
-                <div className="h-2 w-full max-w-[16rem] rounded-sm bg-fd-foreground/[0.06]" />
-                <div className="h-2 w-full max-w-[12rem] rounded-sm bg-fd-foreground/[0.06]" />
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div className="h-14 rounded-sm bg-fd-muted/80" />
-                  <div className="h-14 rounded-sm bg-fd-muted/60" />
-                  <div className="h-14 rounded-sm bg-fd-muted/40" />
-                </div>
-              </div>
-
-              <div className="home-panel flex items-center gap-3 px-3 py-2.5">
-                <span className="size-1.5 shrink-0 rounded-full home-dot-live" />
-                <div className="min-w-0 font-mono text-[10px] leading-relaxed">
-                  <div className="text-fd-foreground">GET /api/cart</div>
-                  <div className="text-fd-muted-foreground">
-                    host · checkout-turbotunnel.vercel.app
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Local side: CLI + app, with path through gateway */}
-          <div className="flex min-h-0 flex-col gap-3">
-            {/* Gateway strip */}
-            <div className="home-panel home-panel-live px-3.5 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <VercelMark />
-                  <span className="font-mono text-[11px] text-fd-foreground">gateway</span>
-                </div>
-                <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fd-muted-foreground">
-                  your vercel project
-                </span>
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <Beam className="flex-1" />
-                <span className="shrink-0 font-mono text-[9px] text-fd-muted-foreground">wss</span>
-              </div>
-            </div>
-
-            {/* Terminal — matches CLI Starting tunnel output */}
-            <div className="home-panel home-panel-raised flex-1 overflow-hidden">
-              <div className="flex items-center justify-between border-b border-fd-border/80 px-3 py-2">
-                <span className="font-mono text-[10px] text-fd-muted-foreground">
-                  tt http 5173 --slug checkout
-                </span>
-              </div>
-              <pre className="overflow-x-auto p-3.5 font-mono text-[11px] leading-[1.7] sm:text-[12px]">
-                <code>
-                  <span className="block font-medium text-fd-foreground">Starting tunnel</span>
-                  <span className="mt-2 block text-fd-muted-foreground">
-                    {"  "}Public URL{"       "}
-                    <span className="text-fd-foreground">
-                      https://checkout-turbotunnel.vercel.app/
-                    </span>
-                  </span>
-                  <span className="block text-fd-muted-foreground">
-                    {"  "}Local app{"        "}
-                    <span className="text-fd-foreground">http://localhost:5173</span>
-                  </span>
-                  <span className="mt-2 block">
-                    <span className="text-[var(--home-ok)]">✓</span>
-                    <span className="text-fd-muted-foreground">
-                      {"  "}Tunnel{"          "}
-                    </span>
-                    <span className="text-fd-foreground">ready</span>
-                  </span>
-                </code>
-              </pre>
-            </div>
-
-            {/* Localhost app */}
-            <div className="home-panel flex items-center gap-3 px-3.5 py-3">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-sm border border-fd-border bg-fd-muted font-mono text-[10px] text-fd-muted-foreground">
-                :5173
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-mono text-[12px] text-fd-foreground">localhost</div>
-                <div className="font-mono text-[10px] text-fd-muted-foreground">
-                  request proxied by tt http
-                </div>
-              </div>
-              <span className="size-1.5 shrink-0 rounded-full home-dot-live" />
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile / footer path legend — visual only, sparse */}
-        <div
-          className="flex flex-row justify-center max-w-5xl items-center gap-2 px-1 font-mono text-[10px] text-fd-muted-foreground"
-          aria-hidden
-        >
-          <span className="text-fd-foreground">browser</span>
-          <Beam className="max-w-16 flex-1 sm:max-w-24" tone="dim" />
-          <span>gateway</span>
-          <Beam className="max-w-16 flex-1 sm:max-w-24" />
-          <span className="text-fd-foreground">tt http</span>
-          <Beam className="max-w-12 flex-1 sm:max-w-16" tone="dim" />
-          <span>:5173</span>
+      <div className="relative overflow-hidden px-4 py-8 sm:px-8 sm:py-10 lg:px-12 lg:py-12">
+        <FlowDiagram />
+        {/* Legend */}
+        <div className="mt-6 flex items-center gap-5 font-mono text-[10px] text-fd-muted-foreground" aria-hidden>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-px w-6 bg-[var(--home-ok)]" />
+            request
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-px w-6 bg-[var(--home-response)]" />
+            response
+          </span>
         </div>
       </div>
     </SceneFrame>
   );
 }
 
-function LockIcon() {
+function FlowDiagram() {
+  return (
+    <div className="relative w-full">
+      {/* Nodes row */}
+      <div className="grid grid-cols-4 gap-3 sm:gap-4">
+        <Node
+          icon={<BrowserIcon />}
+          label="Browser"
+          sublabel="checkout-turbotunnel.vercel.app"
+        />
+        <Node
+          icon={<GatewayIcon />}
+          label="Gateway"
+          sublabel="Vercel Deployment"
+          highlighted
+        />
+        <Node
+          icon={<TerminalIcon />}
+          label="tt http"
+          sublabel="localhost relay"
+        />
+        <Node
+          icon={<AppIcon />}
+          label="Local App"
+          sublabel=":5173"
+        />
+      </div>
+
+      {/* Arrow rows */}
+      <div className="mt-3 space-y-2">
+        {/* Request arrows */}
+        <div className="grid grid-cols-3 gap-3 sm:gap-4">
+          <Arrow label="HTTP / WS" tone="request" delay={0} />
+          <Arrow label="WebSocket" tone="request" delay={0.4} />
+          <Arrow label="localhost" tone="request" delay={0.8} />
+        </div>
+        {/* Response arrows */}
+        <div className="grid grid-cols-3 gap-3 sm:gap-4">
+          <Arrow label="" tone="response" reverse delay={1.3} />
+          <Arrow label="" tone="response" reverse delay={0.9} />
+          <Arrow label="" tone="response" reverse delay={0.5} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Node({
+  icon,
+  label,
+  sublabel,
+  highlighted,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  sublabel?: string;
+  highlighted?: boolean;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-[2px] border p-2.5 sm:p-3 ${
+        highlighted
+          ? "border-[color-mix(in_oklch,var(--home-live)_20%,var(--home-edge))] bg-[color-mix(in_oklch,var(--home-live)_4%,var(--color-fd-background))] shadow-[0_0_0_1px_var(--home-live-soft),0_8px_24px_var(--home-live-soft)]"
+          : "border-[var(--home-edge)] bg-[color-mix(in_oklch,var(--home-surface)_90%,transparent)]"
+      }`}
+    >
+      <div className="flex h-7 w-7 items-center justify-center rounded-[2px] border border-[var(--home-edge)] bg-[color-mix(in_oklch,var(--home-surface)_80%,transparent)] text-fd-muted-foreground">
+        {icon}
+      </div>
+      <div>
+        <div className="font-mono text-[11px] font-medium text-fd-foreground">{label}</div>
+        {sublabel && (
+          <div className="mt-0.5 font-mono text-[9px] leading-tight text-fd-muted-foreground hidden sm:block">
+            {sublabel}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Arrow({
+  label,
+  tone,
+  reverse,
+  delay,
+}: {
+  label: string;
+  tone: "request" | "response";
+  reverse?: boolean;
+  delay?: number;
+}) {
+  const color = tone === "request" ? "var(--home-ok)" : "var(--home-response)";
+  const animClass = tone === "request" ? "home-packet-req" : "home-packet-res";
+  const delayStyle = { animationDelay: `${delay ?? 0}s` };
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className="relative h-px w-full"
+        style={{ background: color, opacity: 0.6 }}
+        aria-hidden
+      >
+        {/* Arrowhead */}
+        <Arrowhead color={color} reverse={reverse} />
+        {/* Traveling packet */}
+        <span
+          className={`home-packet-line ${animClass} ${reverse ? "home-packet-line-rev" : ""}`}
+          style={delayStyle}
+        />
+      </div>
+      {label ? (
+        <span className="font-mono text-[9px] text-fd-muted-foreground">{label}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function Arrowhead({ color, reverse }: { color: string; reverse?: boolean }) {
   return (
     <svg
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
+      width="6"
+      height="6"
+      viewBox="0 0 6 6"
       fill="none"
       aria-hidden
-      className="shrink-0 text-fd-muted-foreground"
+      className="absolute top-1/2 -translate-y-1/2"
+      style={{ [reverse ? "left" : "right"]: -1, transform: `translateY(-50%) ${reverse ? "rotate(180deg)" : ""}` }}
     >
-      <rect x="2" y="4.5" width="6" height="4" rx="0.5" stroke="currentColor" strokeWidth="1" />
-      <path d="M3.25 4.5V3.25a1.75 1.75 0 0 1 3.5 0V4.5" stroke="currentColor" strokeWidth="1" />
+      <path d="M0 0L6 3L0 6Z" fill={color} opacity={0.8} />
     </svg>
   );
 }
 
-function VercelMark() {
+function BrowserIcon() {
   return (
-    <svg width="10" height="9" viewBox="0 0 10 9" fill="none" aria-hidden>
-      <path d="M5 0.5L9.5 8.5H0.5L5 0.5Z" fill="currentColor" className="text-fd-foreground" />
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1" />
+      <path d="M1 7h12M7 1c-2 2-2 8 0 12M7 1c2 2 2 8 0 12" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  );
+}
+
+function GatewayIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="1" y="4" width="12" height="2.5" rx="0.5" stroke="currentColor" strokeWidth="1" />
+      <rect x="1" y="7.5" width="12" height="2.5" rx="0.5" stroke="currentColor" strokeWidth="1" />
+      <circle cx="3" cy="5.25" r="0.75" fill="currentColor" />
+      <circle cx="3" cy="8.75" r="0.75" fill="currentColor" />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="1" y="2" width="12" height="10" rx="0.5" stroke="currentColor" strokeWidth="1" />
+      <path d="M3.5 5.5L5.5 7L3.5 8.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.5 8.5h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AppIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="1" y="1" width="12" height="12" rx="0.5" stroke="currentColor" strokeWidth="1" />
+      <path d="M1 4h12" stroke="currentColor" strokeWidth="1" />
+      <circle cx="3.5" cy="2.5" r="0.5" fill="currentColor" />
+      <circle cx="5.5" cy="2.5" r="0.5" fill="currentColor" />
     </svg>
   );
 }

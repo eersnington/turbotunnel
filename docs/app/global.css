@@ -127,13 +127,14 @@ html > body[data-scroll-locked] {
 
 /* ── Landing scenes ───────────────────────────────────────────────
    Live path: monochrome (foreground). Queue: warm amber only.
-   Brand pink/blue from the logo are not used as scene chrome. */
+   Request: green. Response: blue. Queue: amber. */
 :root {
   --home-live: oklch(0.35 0 0);
   --home-live-soft: oklch(0.35 0 0 / 0.14);
   --home-queue: oklch(0.62 0.14 55);
   --home-queue-soft: oklch(0.62 0.14 55 / 0.12);
-  --home-ok: oklch(0.55 0.14 150);
+  --home-ok: oklch(0.50 0.14 150);
+  --home-response: oklch(0.52 0.16 250);
   --home-surface: oklch(1 0 0);
   --home-edge: oklch(0.88 0.006 260 / 0.72);
 }
@@ -144,6 +145,7 @@ html > body[data-scroll-locked] {
   --home-queue: oklch(0.78 0.12 70);
   --home-queue-soft: oklch(0.78 0.12 70 / 0.14);
   --home-ok: oklch(0.72 0.14 155);
+  --home-response: oklch(0.72 0.16 255);
   --home-surface: oklch(0.11 0 0);
   --home-edge: oklch(0.28 0 0 / 0.85);
 }
@@ -282,15 +284,68 @@ html > body[data-scroll-locked] {
   }
 }
 
+/* ── Packet line: traveling dot along a horizontal arrow ─────────
+   Used by the new Vercel-style flow diagrams in RequestScene /
+   FallbackScene. The element sits inside a `position:relative`
+   container that already has a background line drawn on it. */
+.home-packet-line {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 9999px;
+  animation: home-travel-line 2.6s linear infinite;
+}
+
+.home-packet-req {
+  background: var(--home-ok);
+  box-shadow: 0 0 4px var(--home-ok);
+}
+
+.home-packet-res {
+  background: var(--home-response);
+  box-shadow: 0 0 4px var(--home-response);
+}
+
+.home-packet-line-rev {
+  animation-direction: reverse;
+}
+
+.home-packet-queue-line {
+  background: var(--home-queue);
+  box-shadow: 0 0 4px var(--home-queue);
+  animation-duration: 2.1s;
+}
+
+@keyframes home-travel-line {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 5px);
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .home-packet,
+  .home-packet-line,
   .home-dot-live,
   .home-dot-queue,
   .home-caret {
     animation: none !important;
   }
 
-  .home-packet {
+  .home-packet,
+  .home-packet-line {
     display: none;
   }
 
