@@ -46,45 +46,20 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* How you use it — two commands */}
+      {/* Command reference */}
       <section className="border-b border-fd-border">
         <div className="mx-auto max-w-6xl px-6 py-20 lg:py-24">
           <h2 className="text-2xl font-medium tracking-tight sm:text-3xl text-balance">
-            Two commands. That&apos;s the whole thing.
+            The CLI
           </h2>
           <p className="mt-3 max-w-[52ch] text-base leading-relaxed text-fd-muted-foreground text-balance">
-            Deploy the gateway once, then open a tunnel whenever you need one.
+            Deploy the gateway once, then open a tunnel to any local port.
           </p>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-2">
-            <Step
-              n={1}
-              title="Deploy the gateway"
-              desc="Creates a Vercel project that acts as your public endpoint. You only do this once."
-              terminal={{
-                title: "tt deploy",
-                lines: [
-                  { t: "cmd", v: "tt deploy" },
-                  { t: "dim", v: "Creating Vercel project…" },
-                  { t: "dim", v: "Verifying /_turbotunnel/status" },
-                  { t: "ok", v: "Gateway live · config saved" },
-                ],
-              }}
-            />
-            <Step
-              n={2}
-              title="Open a tunnel"
-              desc="Point the tunnel at a local port. You get a shareable https URL that forwards straight to your app."
-              terminal={{
-                title: "tt http",
-                lines: [
-                  { t: "cmd", v: "tt http 5173 --slug checkout" },
-                  { t: "dim", v: "Connecting to localhost:5173" },
-                  { t: "dim", v: "Opening relay socket…" },
-                  { t: "ok", v: "https://checkout-turbotunnel.vercel.app" },
-                ],
-              }}
-            />
+          <div className="mt-10 divide-y divide-fd-border overflow-hidden rounded-lg border border-fd-border">
+            {commands.map((cmd) => (
+              <Command key={cmd.name} {...cmd} />
+            ))}
           </div>
         </div>
       </section>
@@ -120,79 +95,35 @@ export default function HomePage() {
   );
 }
 
-function Step({
-  n,
-  title,
-  desc,
-  terminal,
-}: {
-  n: number;
-  title: string;
-  desc: string;
-  terminal: { title: string; lines: Array<{ t: "cmd" | "dim" | "ok"; v: string }> };
-}) {
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-3">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-fd-border font-mono text-xs text-fd-muted-foreground">
-          {n}
-        </span>
-        <div>
-          <h3 className="text-base font-medium tracking-tight">{title}</h3>
-          <p className="mt-1 text-sm leading-relaxed text-fd-muted-foreground text-pretty">
-            {desc}
-          </p>
-        </div>
-      </div>
-      <Terminal title={terminal.title} lines={terminal.lines} />
-    </div>
-  );
-}
+const commands: CommandProps[] = [
+  {
+    name: "tt deploy",
+    args: "",
+    desc: "Provisions the gateway on your Vercel account. Run once to create your public endpoint.",
+  },
+  {
+    name: "tt http",
+    args: "<port>",
+    desc: "Forwards a local port over the tunnel and prints a public URL. Pass --slug to pick the subdomain.",
+  },
+];
 
-function Terminal({
-  title,
-  lines,
-}: {
-  title: string;
-  lines: Array<{ t: "cmd" | "dim" | "ok"; v: string }>;
-}) {
+type CommandProps = {
+  name: string;
+  args: string;
+  desc: string;
+};
+
+function Command({ name, args, desc }: CommandProps) {
   return (
-    <div className="overflow-hidden rounded-md border border-fd-border bg-fd-card">
-      <div className="flex items-center gap-2 border-b border-fd-border px-4 py-2.5">
-        <span className="flex gap-1.5" aria-hidden>
-          <span className="size-2.5 rounded-full bg-fd-border" />
-          <span className="size-2.5 rounded-full bg-fd-border" />
-          <span className="size-2.5 rounded-full bg-fd-border" />
-        </span>
-        <span className="ml-1 font-mono text-[11px] text-fd-muted-foreground">{title}</span>
-      </div>
-      <pre className="overflow-x-auto p-4 font-mono text-[12px] leading-7 sm:text-[13px]">
-        <code>
-          {lines.map((line, i) => {
-            if (line.t === "cmd") {
-              return (
-                <span key={i} className="block">
-                  <span className="text-fd-muted-foreground">$ </span>
-                  {line.v}
-                </span>
-              );
-            }
-            if (line.t === "ok") {
-              return (
-                <span key={i} className="block">
-                  <span className="text-emerald-500">● </span>
-                  {line.v}
-                </span>
-              );
-            }
-            return (
-              <span key={i} className="block text-fd-muted-foreground">
-                {line.v}
-              </span>
-            );
-          })}
-        </code>
-      </pre>
+    <div className="flex flex-col gap-2 bg-fd-card px-5 py-5 sm:flex-row sm:items-baseline sm:gap-8 sm:px-6">
+      <code className="shrink-0 font-mono text-sm sm:w-64">
+        <span className="text-fd-foreground">{name}</span>
+        {args ? <span className="text-fd-muted-foreground"> {args}</span> : null}
+      </code>
+      <p className="max-w-[56ch] text-sm leading-relaxed text-fd-muted-foreground text-pretty">
+        {desc}
+      </p>
     </div>
   );
 }
