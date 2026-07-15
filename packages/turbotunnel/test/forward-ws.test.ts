@@ -90,7 +90,7 @@ describe("openLocalWebSocket", () => {
       protocolHeader = request.headers["sec-websocket-protocol"];
     });
 
-    const handle = await openSocket(
+    await openSocket(
       openFrame({
         headers: [
           ["sec-websocket-protocol", "proto-a, proto-b"],
@@ -111,7 +111,7 @@ describe("openLocalWebSocket", () => {
   test("emits a relay close frame when the local socket closes", async () => {
     const server = await listenWebSocketServer();
     const frames = new RelayFrameRecorder();
-    const handle = await openSocket(openFrame(), target(server), (frame) => frames.push(frame));
+    await openSocket(openFrame(), target(server), (frame) => frames.push(frame));
 
     const socket = await waitForConnection(server);
     socket.close(4001, "done");
