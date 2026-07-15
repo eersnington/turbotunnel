@@ -40,14 +40,25 @@ export class VercelCliNotFound extends Schema.TaggedErrorClass<VercelCliNotFound
   },
 ) {}
 
-export class VercelCliFailed extends Schema.TaggedErrorClass<VercelCliFailed>()(
-  "VercelCliFailed",
-  {
-    command: Schema.String,
-    exitCode: Schema.Number,
-    message: Schema.String,
-  },
-) {}
+export class VercelCliFailed extends Schema.TaggedErrorClass<VercelCliFailed>()("VercelCliFailed", {
+  command: Schema.String,
+  failure: Schema.Union([
+    Schema.Struct({
+      _tag: Schema.Literal("SpawnFailed"),
+      cause: Schema.Defect(),
+    }),
+    Schema.Struct({
+      _tag: Schema.Literal("OutputReadFailed"),
+      stream: Schema.Literals(["stdout", "stderr", "exit-code"]),
+      cause: Schema.Defect(),
+    }),
+    Schema.Struct({
+      _tag: Schema.Literal("NonZeroExit"),
+      exitCode: Schema.Number,
+    }),
+  ]),
+  message: Schema.String,
+}) {}
 
 export class DeployOutputParseError extends Schema.TaggedErrorClass<DeployOutputParseError>()(
   "DeployOutputParseError",

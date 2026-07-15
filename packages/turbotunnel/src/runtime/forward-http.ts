@@ -4,13 +4,13 @@ import {
   type HeaderPair,
   type HttpRequest,
   type HttpResponse,
-  localUrlFromTunnelRequestTarget,
+  decodeTunnelRequestTarget,
+  makeLocalUrlFromTunnelRequestTarget,
   MAX_RESPONSE_BODY_BYTES,
-  parseTunnelRequestTarget,
   PUBLIC_HTTP_TIMEOUT_MS,
   PROTOCOL_VERSION,
 } from "@turbotunnel/contracts";
-import { Effect, Result } from "effect";
+import { Effect } from "effect";
 import { nanoid } from "nanoid";
 
 import type { LocalTarget } from "../domain/tunnel-config.js";
@@ -27,9 +27,20 @@ export const forwardHttpToLocalApp = Effect.fn("forwardHttpToLocalApp")(function
   target: LocalTarget,
 ): Effect.fn.Return<HttpResponse, never, never> {
   return yield* fetchLocalHttp(frame, target).pipe(
-    Effect.catch((error) =>
-      Effect.succeed(textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error))),
-    ),
+    Effect.catchTags({
+      LocalHttpRequestFailed: (error) =>
+        Effect.succeed(
+          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+        ),
+      LocalHttpRequestTimedOut: (error) =>
+        Effect.succeed(
+          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+        ),
+      LocalHttpResponseTooLarge: (error) =>
+        Effect.succeed(
+          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+        ),
+    }),
   );
 });
 
@@ -41,22 +52,33 @@ const fetchLocalHttp = Effect.fn("fetchLocalHttp")(function* (
   LocalHttpRequestFailed | LocalHttpRequestTimedOut | LocalHttpResponseTooLarge,
   never
 > {
-  const requestTarget = parseTunnelRequestTarget(frame.path);
-  if (Result.isFailure(requestTarget)) {
-    return yield* new LocalHttpRequestFailed({
-      host: target.host,
-      port: target.port,
-      cause: requestTarget.failure,
-      message: "Tunnel request path was invalid; the local app was not contacted.",
-    });
-  }
-
-  const url = localUrlFromTunnelRequestTarget({
+  const requestTarget = yield* decodeTunnelRequestTarget(frame.path).pipe(
+    Effect.mapError(
+      (cause) =>
+        new LocalHttpRequestFailed({
+          host: target.host,
+          port: target.port,
+          cause,
+          message: "Tunnel request path was invalid; the local app was not contacted.",
+        }),
+    ),
+  );
+  const url = yield* makeLocalUrlFromTunnelRequestTarget({
     protocol: target.protocol,
     host: target.host,
     port: target.port,
-    requestTarget: requestTarget.success,
-  });
+    requestTarget,
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new LocalHttpRequestFailed({
+          host: target.host,
+          port: target.port,
+          cause,
+          message: cause.message,
+        }),
+    ),
+  );
   const requestHeaders = frame.headers.map(([name, value]) => [name, value] as [string, string]);
   const forwarded = yield* Effect.tryPromise({
     try: async (signal) => {
