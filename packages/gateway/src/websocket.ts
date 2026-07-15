@@ -185,8 +185,6 @@ function closeOwnedWebSocket(ws: WebSocket): Effect.Effect<void> {
       ws.terminate();
     } else if (ws.readyState === WebSocket.OPEN) {
       ws.close(1001, "gateway connection scope closed");
-    } else {
-      finish();
     }
 
     return Effect.sync(() => {

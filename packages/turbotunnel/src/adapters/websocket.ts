@@ -276,8 +276,6 @@ function closeOwnedSocket(socket: WebSocket): Effect.Effect<void> {
       socket.terminate();
     } else if (socket.readyState === WebSocket.OPEN) {
       socket.close(1001, "Turbotunnel scope closed");
-    } else {
-      finish();
     }
 
     return Effect.sync(() => {
