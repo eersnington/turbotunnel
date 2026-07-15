@@ -2,8 +2,8 @@ import { Buffer } from "node:buffer";
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 
-import { Effect } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect, Fiber } from "effect";
 
 import {
   readLimitedBody,
@@ -12,24 +12,30 @@ import {
 } from "../src/public-http.js";
 
 describe("public HTTP request bodies", () => {
-  test("reports an oversized body in the typed error channel", async () => {
-    const request = new IncomingMessage(new Socket());
-    const result = Effect.runPromise(Effect.flip(readLimitedBody(request, 3)));
+  it.effect("reports an oversized body in the typed error channel", () =>
+    Effect.gen(function* () {
+      const request = new IncomingMessage(new Socket());
+      const result = yield* Effect.forkChild(Effect.flip(readLimitedBody(request, 3)));
+      yield* Effect.yieldNow;
 
-    request.emit("data", Buffer.from("four"));
+      request.emit("data", Buffer.from("four"));
 
-    const error = await result;
-    expect(error).toBeInstanceOf(RequestBodyTooLargeError);
-    expect(error).toMatchObject({ limitBytes: 3 });
-  });
+      const error = yield* Fiber.join(result);
+      expect(error).toBeInstanceOf(RequestBodyTooLargeError);
+      expect(error).toMatchObject({ limitBytes: 3 });
+    }),
+  );
 
-  test("reports a body stream failure in the typed error channel", async () => {
-    const request = new IncomingMessage(new Socket());
-    const result = Effect.runPromise(Effect.flip(readLimitedBody(request, 3)));
+  it.effect("reports a body stream failure in the typed error channel", () =>
+    Effect.gen(function* () {
+      const request = new IncomingMessage(new Socket());
+      const result = yield* Effect.forkChild(Effect.flip(readLimitedBody(request, 3)));
+      yield* Effect.yieldNow;
 
-    request.emit("error", new Error("stream failed"));
+      request.emit("error", new Error("stream failed"));
 
-    const error = await result;
-    expect(error).toBeInstanceOf(RequestBodyReadError);
-  });
+      const error = yield* Fiber.join(result);
+      expect(error).toBeInstanceOf(RequestBodyReadError);
+    }),
+  );
 });

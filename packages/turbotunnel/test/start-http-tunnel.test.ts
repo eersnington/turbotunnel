@@ -1,5 +1,5 @@
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
 
 import { Entropy } from "../src/adapters/entropy.js";
 import { LocalAppProbe } from "../src/adapters/local-app-probe.js";
@@ -10,44 +10,51 @@ import { LocalTargetNotReachable } from "../src/errors.js";
 import { startHttpTunnel } from "../src/programs/start-http-tunnel.js";
 
 describe("startHttpTunnel", () => {
-  test("resolves saved config, probes local app, then starts runtime", async () => {
-    const recorder = new TunnelRecorder();
+  it.effect("resolves saved config, probes local app, then starts runtime", () =>
+    Effect.gen(function* () {
+      const recorder = new TunnelRecorder();
 
-    await Effect.runPromiseExit(
-      startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
+      yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
         Effect.provide(recorder.layer()),
-        Effect.timeout("10 millis"),
-      ),
-    );
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
 
-    expect(recorder.probedTarget).toEqual({ protocol: "http", host: "localhost", port: 5173 });
-    expect(recorder.startedConfig?.slug).toBe("demo");
-    expect(recorder.startedConfig?.relayDomain).toBe("tunnel.example.com");
-  });
+      expect(recorder.probedTarget).toEqual({ protocol: "http", host: "localhost", port: 5173 });
+      expect(recorder.startedConfig?.slug).toBe("demo");
+      expect(recorder.startedConfig?.relayDomain).toBe("tunnel.example.com");
+    }),
+  );
 
-  test("fails before runtime when no gateway is configured", async () => {
-    const recorder = new TunnelRecorder({ savedGateway: false });
+  it.effect("fails before runtime when no gateway is configured", () =>
+    Effect.gen(function* () {
+      const recorder = new TunnelRecorder({ savedGateway: false });
 
-    const exit = await Effect.runPromiseExit(
-      startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(Effect.provide(recorder.layer())),
-    );
+      const exit = yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
+        Effect.provide(recorder.layer()),
+        Effect.exit,
+      );
 
-    expect(exit._tag).toBe("Failure");
-    expect(recorder.probedTarget).toBeUndefined();
-    expect(recorder.startedConfig).toBeUndefined();
-  });
+      expect(exit._tag).toBe("Failure");
+      expect(recorder.probedTarget).toBeUndefined();
+      expect(recorder.startedConfig).toBeUndefined();
+    }),
+  );
 
-  test("fails before runtime when local app probe fails", async () => {
-    const recorder = new TunnelRecorder();
-    recorder.failProbe = true;
+  it.effect("fails before runtime when local app probe fails", () =>
+    Effect.gen(function* () {
+      const recorder = new TunnelRecorder();
+      recorder.failProbe = true;
 
-    const exit = await Effect.runPromiseExit(
-      startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(Effect.provide(recorder.layer())),
-    );
+      const exit = yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
+        Effect.provide(recorder.layer()),
+        Effect.exit,
+      );
 
-    expect(exit._tag).toBe("Failure");
-    expect(recorder.startedConfig).toBeUndefined();
-  });
+      expect(exit._tag).toBe("Failure");
+      expect(recorder.startedConfig).toBeUndefined();
+    }),
+  );
 });
 
 class TunnelRecorder {

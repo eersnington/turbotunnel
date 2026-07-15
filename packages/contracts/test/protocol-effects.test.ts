@@ -1,5 +1,5 @@
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { describe, expect, test } from "vitest";
 
 import {
   decodeGatewayInboundFrameJson,
@@ -16,117 +16,130 @@ import {
 } from "../src/index.js";
 
 describe("Effect protocol codecs", () => {
-  test("round trips an outbound frame through schema-backed JSON", async () => {
-    const frame = validHttpRequestFrame();
+  it.effect("round trips an outbound frame through schema-backed JSON", () =>
+    Effect.gen(function* () {
+      const frame = validHttpRequestFrame();
 
-    const decoded = await Effect.runPromise(
-      encodeProtocolFrameJson(frame).pipe(Effect.flatMap(decodeProtocolFrameJson)),
-    );
+      const decoded = yield* encodeProtocolFrameJson(frame).pipe(
+        Effect.flatMap(decodeProtocolFrameJson),
+      );
 
-    expect(decoded).toEqual(frame);
-  });
+      expect(decoded).toEqual(frame);
+    }),
+  );
 
-  test("exposes malformed JSON and invalid payloads as separate catchable tags", async () => {
-    const malformedTag = await Effect.runPromise(
-      decodeProtocolFrameJson("{ nope").pipe(
+  it.effect("exposes malformed JSON and invalid payloads as separate catchable tags", () =>
+    Effect.gen(function* () {
+      const malformedTag = yield* decodeProtocolFrameJson("{ nope").pipe(
         Effect.catchTags({
           ProtocolJsonDecodeError: (error) => Effect.succeed(error._tag),
           ProtocolPayloadDecodeError: (error) => Effect.succeed(error._tag),
         }),
-      ),
-    );
-    const payloadTag = await Effect.runPromise(
-      decodeProtocolFrameJson(JSON.stringify({ type: "unknown.frame" })).pipe(
+      );
+      const payloadTag = yield* decodeProtocolFrameJson(
+        JSON.stringify({ type: "unknown.frame" }),
+      ).pipe(
         Effect.catchTags({
           ProtocolJsonDecodeError: (error) => Effect.succeed(error._tag),
           ProtocolPayloadDecodeError: (error) => Effect.succeed(error._tag),
         }),
-      ),
-    );
+      );
 
-    expect(malformedTag).toBe("ProtocolJsonDecodeError");
-    expect(payloadTag).toBe("ProtocolPayloadDecodeError");
-  });
+      expect(malformedTag).toBe("ProtocolJsonDecodeError");
+      expect(payloadTag).toBe("ProtocolPayloadDecodeError");
+    }),
+  );
 
-  test("retains tagged error classes in the Effect failure channel", async () => {
-    const jsonError = await Effect.runPromise(Effect.flip(decodeProtocolFrameJson("{")));
-    const payloadError = await Effect.runPromise(
-      Effect.flip(decodeProtocolFramePayload({ ...validHttpRequestFrame(), extra: true })),
-    );
+  it.effect("retains tagged error classes in the Effect failure channel", () =>
+    Effect.gen(function* () {
+      const jsonError = yield* decodeProtocolFrameJson("{").pipe(Effect.flip);
+      const payloadError = yield* decodeProtocolFramePayload({
+        ...validHttpRequestFrame(),
+        extra: true,
+      }).pipe(Effect.flip);
 
-    expect(jsonError).toBeInstanceOf(ProtocolJsonDecodeError);
-    expect(payloadError).toBeInstanceOf(ProtocolPayloadDecodeError);
-    expect(payloadError.expected).toBe("protocol frame");
-  });
+      expect(jsonError).toBeInstanceOf(ProtocolJsonDecodeError);
+      expect(payloadError).toBeInstanceOf(ProtocolPayloadDecodeError);
+      expect(payloadError.expected).toBe("protocol frame");
+    }),
+  );
 
-  test("rejects runtime-invalid outbound values before encoding", async () => {
-    const invalidFrame = { ...validHttpRequestFrame(), protocolVersion: 2 } as unknown as Frame;
+  it.effect("rejects runtime-invalid outbound values before encoding", () =>
+    Effect.gen(function* () {
+      const invalidFrame = { ...validHttpRequestFrame(), protocolVersion: 2 } as unknown as Frame;
 
-    const error = await Effect.runPromise(Effect.flip(encodeProtocolFrameJson(invalidFrame)));
+      const error = yield* encodeProtocolFrameJson(invalidFrame).pipe(Effect.flip);
 
-    expect(error).toBeInstanceOf(ProtocolJsonEncodeError);
-  });
+      expect(error).toBeInstanceOf(ProtocolJsonEncodeError);
+    }),
+  );
 });
 
 describe("directional protocol decoders", () => {
-  test("accepts frames expected by each endpoint", async () => {
-    const toLocalJson = await Effect.runPromise(encodeProtocolFrameJson(validWsDataToLocalFrame()));
-    const toGatewayJson = await Effect.runPromise(
-      encodeProtocolFrameJson(validWsDataToBrowserFrame()),
-    );
-    const toLocal = await Effect.runPromise(decodeLocalClientInboundFrameJson(toLocalJson));
-    const toGateway = await Effect.runPromise(decodeGatewayInboundFrameJson(toGatewayJson));
+  it.effect("accepts frames expected by each endpoint", () =>
+    Effect.gen(function* () {
+      const toLocalJson = yield* encodeProtocolFrameJson(validWsDataToLocalFrame());
+      const toGatewayJson = yield* encodeProtocolFrameJson(validWsDataToBrowserFrame());
+      const toLocal = yield* decodeLocalClientInboundFrameJson(toLocalJson);
+      const toGateway = yield* decodeGatewayInboundFrameJson(toGatewayJson);
 
-    expect(toLocal.type).toBe("ws.data");
-    expect(toGateway.type).toBe("ws.data");
-  });
+      expect(toLocal.type).toBe("ws.data");
+      expect(toGateway.type).toBe("ws.data");
+    }),
+  );
 
-  test("requires the routing topic for the decoded WebSocket direction", async () => {
-    const unroutable = {
-      ...validWsDataToLocalFrame(),
-      localInTopic: undefined,
-    };
+  it.effect("requires the routing topic for the decoded WebSocket direction", () =>
+    Effect.gen(function* () {
+      const unroutable = {
+        ...validWsDataToLocalFrame(),
+        localInTopic: undefined,
+      };
 
-    const directionalError = await Effect.runPromise(
-      Effect.flip(decodeLocalClientInboundFrameJson(JSON.stringify(unroutable))),
-    );
-    const broadFrame = await Effect.runPromise(decodeProtocolFrameJson(JSON.stringify(unroutable)));
+      const directionalError = yield* decodeLocalClientInboundFrameJson(
+        JSON.stringify(unroutable),
+      ).pipe(Effect.flip);
+      const broadFrame = yield* decodeProtocolFrameJson(JSON.stringify(unroutable));
 
-    expect(directionalError).toBeInstanceOf(ProtocolPayloadDecodeError);
-    expect(broadFrame.type).toBe("ws.data");
-  });
+      expect(directionalError).toBeInstanceOf(ProtocolPayloadDecodeError);
+      expect(broadFrame.type).toBe("ws.data");
+    }),
+  );
 
-  test("rejects a valid frame sent in the wrong direction", async () => {
-    const error = await Effect.runPromise(
-      Effect.flip(decodeGatewayInboundFrameJson(JSON.stringify(validHttpRequestFrame()))),
-    );
+  it.effect("rejects a valid frame sent in the wrong direction", () =>
+    Effect.gen(function* () {
+      const error = yield* decodeGatewayInboundFrameJson(
+        JSON.stringify(validHttpRequestFrame()),
+      ).pipe(Effect.flip);
 
-    expect(error).toBeInstanceOf(ProtocolPayloadDecodeError);
-    if (error._tag === "ProtocolPayloadDecodeError") {
-      expect(error.expected).toBe("gateway inbound frame");
-    }
-  });
+      expect(error).toBeInstanceOf(ProtocolPayloadDecodeError);
+      if (error._tag === "ProtocolPayloadDecodeError") {
+        expect(error.expected).toBe("gateway inbound frame");
+      }
+    }),
+  );
 
-  test("decodes the exact HTTP response queue subset", async () => {
-    const response = {
-      type: "http.response",
-      protocolVersion: PROTOCOL_VERSION,
-      frameId: "frm_response_1",
-      requestId: "req_1",
-      responseTopic: "tt_res_req_1",
-      status: 200,
-      headers: [["content-type", "text/plain"]],
-      body: "b2s=",
-    } as const;
+  it.effect("decodes the exact HTTP response queue subset", () =>
+    Effect.gen(function* () {
+      const response = {
+        type: "http.response",
+        protocolVersion: PROTOCOL_VERSION,
+        frameId: "frm_response_1",
+        requestId: "req_1",
+        responseTopic: "tt_res_req_1",
+        status: 200,
+        headers: [["content-type", "text/plain"]],
+        body: "b2s=",
+      } as const;
 
-    const decoded = await Effect.runPromise(decodeHttpResponseFramePayload(response));
-    const error = await Effect.runPromise(
-      Effect.flip(decodeHttpResponseFramePayload(validHttpRequestFrame())),
-    );
+      const decoded = yield* decodeHttpResponseFramePayload(response);
+      const error = yield* decodeHttpResponseFramePayload(validHttpRequestFrame()).pipe(
+        Effect.flip,
+      );
 
-    expect(decoded).toEqual(response);
-    expect(error).toBeInstanceOf(ProtocolPayloadDecodeError);
-  });
+      expect(decoded).toEqual(response);
+      expect(error).toBeInstanceOf(ProtocolPayloadDecodeError);
+    }),
+  );
 });
 
 function validHttpRequestFrame(): Frame {
