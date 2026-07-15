@@ -12,7 +12,10 @@ export const httpCommand = Command.make(
     port: Argument.integer("port").pipe(
       Argument.withDescription("set the local app port, from 1 to 65535"),
     ),
-    slug: Flag.string("slug").pipe(Flag.withDescription("set the public tunnel slug"), Flag.optional),
+    slug: Flag.string("slug").pipe(
+      Flag.withDescription("set the public tunnel slug"),
+      Flag.optional,
+    ),
     host: Flag.string("host").pipe(
       Flag.withDescription("set the local app host, defaults to localhost"),
       Flag.withDefault("localhost"),
@@ -52,14 +55,20 @@ export const httpCommand = Command.make(
   Command.withDescription("Share a local HTTP/WebSocket app through your own Vercel gateway"),
   Command.withExamples([
     { command: "tt http 3000", description: "Share a local app running on port 3000" },
-    { command: "tt http 3000 --relay-url ws://127.0.0.1:3002", description: "Connect to an explicit relay origin" },
+    {
+      command: "tt http 3000 --relay-url ws://127.0.0.1:3002",
+      description: "Connect to an explicit relay origin",
+    },
   ]),
 );
 
 export const deployCommand = Command.make(
   "deploy",
   {
-    project: Flag.string("project").pipe(Flag.withDescription("set the Vercel project name"), Flag.optional),
+    project: Flag.string("project").pipe(
+      Flag.withDescription("set the Vercel project name"),
+      Flag.optional,
+    ),
     domain: Flag.string("domain").pipe(
       Flag.withDescription("set the base tunnel domain or {slug} host pattern"),
       Flag.optional,
@@ -85,8 +94,14 @@ export const deployCommand = Command.make(
   Command.withDescription("Deploy your Turbotunnel gateway to Vercel"),
   Command.withExamples([
     { command: "tt deploy", description: "Deploy a gateway with the default Vercel domain" },
-    { command: "tt deploy --domain tunnel.example.com", description: "Deploy a gateway for a wildcard custom domain" },
-    { command: 'tt deploy --domain "{slug}.dev.example.com"', description: "Deploy a gateway with a slug host pattern" },
+    {
+      command: "tt deploy --domain tunnel.example.com",
+      description: "Deploy a gateway for a wildcard custom domain",
+    },
+    {
+      command: 'tt deploy --domain "{slug}.dev.example.com"',
+      description: "Deploy a gateway with a slug host pattern",
+    },
   ]),
 );
 
@@ -103,7 +118,9 @@ export function requestedDeployOutput(argv: ReadonlyArray<string>): DeployOutput
   return { _tag: "Terminal" };
 }
 
-function parseDeployOutput(format: string | undefined): Effect.Effect<DeployOutput, CliConfigError> {
+function parseDeployOutput(
+  format: string | undefined,
+): Effect.Effect<DeployOutput, CliConfigError> {
   if (format === undefined) {
     return Effect.succeed({ _tag: "Terminal" });
   }
@@ -115,6 +132,8 @@ function parseDeployOutput(format: string | undefined): Effect.Effect<DeployOutp
 }
 
 export const turbotunnelCommand = Command.make("turbotunnel").pipe(
-  Command.withDescription("Tunnel your local dev server with a public URL, powered by Vercel WebSockets."),
+  Command.withDescription(
+    "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
+  ),
   Command.withSubcommands([httpCommand, deployCommand]),
 );

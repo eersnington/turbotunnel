@@ -184,7 +184,10 @@ const parseDeploymentUrl = Effect.fn("VercelCli.parseDeploymentUrl")(function* (
     if (trimmed.length === 0) {
       continue;
     }
-    const parsed = trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`;
+    const parsed =
+      trimmed.startsWith("http://") || trimmed.startsWith("https://")
+        ? trimmed
+        : `https://${trimmed}`;
     if (URL.canParse(parsed)) {
       return parsed.endsWith("/") ? parsed : `${parsed}/`;
     }

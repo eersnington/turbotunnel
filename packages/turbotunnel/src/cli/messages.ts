@@ -61,7 +61,11 @@ const UNEXPECTED_FAILURE_MESSAGE =
 export function renderDeploy(message: DeployMessage): CliMessage {
   switch (message._tag) {
     case "Preview":
-      return { _tag: "Text", stream: "stderr", text: deployPreviewText(message.plan, message.account) };
+      return {
+        _tag: "Text",
+        stream: "stderr",
+        text: deployPreviewText(message.plan, message.account),
+      };
     case "Progress":
       return { _tag: "Text", stream: "stderr", text: message.message };
     case "Summary":

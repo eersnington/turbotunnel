@@ -9,9 +9,7 @@ export type DeployCommandInput = {
   readonly output: DeployOutput;
 };
 
-export type DeployOutput =
-  | { readonly _tag: "Terminal" }
-  | { readonly _tag: "Json" };
+export type DeployOutput = { readonly _tag: "Terminal" } | { readonly _tag: "Json" };
 
 export type SavedDeployConfig = {
   readonly project?: string;
@@ -51,8 +49,10 @@ export const makeDeployPlan = Effect.fn("makeDeployPlan")(function* (options: {
 }): Effect.fn.Return<DeployPlan, CliConfigError> {
   const slug = yield* resolveDeploySlug(options.input, options.savedConfig, options.generatedSlug);
   const baseDomain = options.input.domain ?? options.savedConfig.relayDomain ?? DEFAULT_BASE_DOMAIN;
-  const project = options.input.project ?? options.savedConfig.project ?? `${slug}${PROJECT_SUFFIX}`;
-  const queueRegion = options.input.region ?? options.savedConfig.queueRegion ?? DEFAULT_QUEUE_REGION;
+  const project =
+    options.input.project ?? options.savedConfig.project ?? `${slug}${PROJECT_SUFFIX}`;
+  const queueRegion =
+    options.input.region ?? options.savedConfig.queueRegion ?? DEFAULT_QUEUE_REGION;
   const savedTargetMatches =
     options.savedConfig.project === project &&
     options.savedConfig.slug === slug &&

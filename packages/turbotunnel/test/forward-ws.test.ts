@@ -330,7 +330,9 @@ function target(server: WebSocketServer): {
   return { protocol: "http", host: "127.0.0.1", port: (server.address() as AddressInfo).port };
 }
 
-function openFrame(options: { readonly path?: string; readonly headers?: WsOpen["headers"] } = {}): WsOpen {
+function openFrame(
+  options: { readonly path?: string; readonly headers?: WsOpen["headers"] } = {},
+): WsOpen {
   return {
     protocolVersion: PROTOCOL_VERSION,
     type: "ws.open",
@@ -343,7 +345,11 @@ function openFrame(options: { readonly path?: string; readonly headers?: WsOpen[
   };
 }
 
-function dataFrame(options: { readonly text?: string; readonly bytes?: Buffer; readonly binary?: boolean }): WsData {
+function dataFrame(options: {
+  readonly text?: string;
+  readonly bytes?: Buffer;
+  readonly binary?: boolean;
+}): WsData {
   const bytes = options.bytes ?? Buffer.from(options.text ?? "", "utf8");
   return {
     protocolVersion: PROTOCOL_VERSION,

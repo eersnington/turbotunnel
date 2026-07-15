@@ -9,6 +9,7 @@
     "check-types": "fumadocs-mdx && next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@takumi-rs/image-response": "^2.0.3",
     "cnfast": "^0.0.8",
     "fumadocs-core": "16.11.3",
     "fumadocs-mdx": "15.1.0",
@@ -16,12 +17,11 @@
     "lucide-react": "^1.21.0",
     "next": "16.2.10",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "@takumi-rs/image-response": "^2.0.3"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@turbotunnel/typescript-config": "*",
     "@tailwindcss/postcss": "^4.3.1",
+    "@turbotunnel/typescript-config": "*",
     "@types/mdx": "^2.0.14",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.17",

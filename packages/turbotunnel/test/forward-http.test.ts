@@ -41,7 +41,9 @@ describe("forwardHttpToLocalApp", () => {
       expect(Buffer.from(response.body, "base64").toString("utf8")).toBe("created");
       expect(response.headers).toContainEqual(["content-type", "text/plain"]);
       expect(response.headers).toContainEqual(["x-test", "ok"]);
-      expect(response.headers.some(([name]) => name.toLowerCase() === "content-length")).toBe(false);
+      expect(response.headers.some(([name]) => name.toLowerCase() === "content-length")).toBe(
+        false,
+      );
       expect(received).toEqual([{ method: "POST", body: "hello" }]);
     }),
   );

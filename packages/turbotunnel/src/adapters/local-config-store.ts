@@ -4,11 +4,7 @@ import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
 
 import type { SavedDeployConfig } from "../domain/deploy-plan.js";
-import {
-  ConfigFileParseError,
-  ConfigFileReadError,
-  ConfigFileWriteError,
-} from "../errors.js";
+import { ConfigFileParseError, ConfigFileReadError, ConfigFileWriteError } from "../errors.js";
 import { AppPaths } from "./app-paths.js";
 
 export type LocalConfig = typeof LocalConfigSchema.Type;
