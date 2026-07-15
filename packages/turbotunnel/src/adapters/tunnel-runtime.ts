@@ -37,54 +37,60 @@ export type TunnelReporter = {
   readonly warning: (message: string) => Effect.Effect<void>;
 };
 
-function runTunnel(config: HttpTunnelConfig, reporter: TunnelReporter): Effect.Effect<never> {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const stats: TunnelSessionStats = {
-        startedAtMs: Date.now(),
-        relayConnects: 0,
-        relayCloses: 0,
-        relayErrors: 0,
-        reconnects: 0,
-        framesReceived: 0,
-        framesSent: 0,
-        invalidFrames: 0,
-        httpRequests: 0,
-        httpResponses: 0,
-        webSocketsOpened: 0,
-        webSocketsClosed: 0,
-        readyPrinted: false,
-      };
+const runTunnel = Effect.fn("TunnelRuntime.run")(function* (
+  config: HttpTunnelConfig,
+  reporter: TunnelReporter,
+): Effect.fn.Return<never> {
+  return yield* Effect.scoped(runTunnelSession(config, reporter));
+});
 
-      yield* reporter.starting(config);
-      yield* Effect.addFinalizer(() =>
-        reporter.stopped({
-          durationSeconds: Math.max(0, Math.round((Date.now() - stats.startedAtMs) / 1000)),
-          httpRequests: stats.httpRequests,
-          webSocketsOpened: stats.webSocketsOpened,
-        }),
-      );
-      yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          const connections: Array<RelayConnection> = [];
-          const sessionId = `ses_${nanoid(12)}`;
-          for (let index = 0; index < config.poolSize; index += 1) {
-            const connection = new RelayConnection(config, index, sessionId, stats, reporter);
-            connections.push(connection);
-            connection.start();
-          }
+const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
+  config: HttpTunnelConfig,
+  reporter: TunnelReporter,
+) {
+  const stats: TunnelSessionStats = {
+    startedAtMs: Date.now(),
+    relayConnects: 0,
+    relayCloses: 0,
+    relayErrors: 0,
+    reconnects: 0,
+    framesReceived: 0,
+    framesSent: 0,
+    invalidFrames: 0,
+    httpRequests: 0,
+    httpResponses: 0,
+    webSocketsOpened: 0,
+    webSocketsClosed: 0,
+    readyPrinted: false,
+  };
 
-          return connections;
-        }),
-        (connections) =>
-          Effect.sync(() => {
-            for (const connection of connections) {
-              connection.stop();
-            }
-          }),
-      );
-
-      return yield* Effect.never;
+  yield* reporter.starting(config);
+  yield* Effect.addFinalizer(() =>
+    reporter.stopped({
+      durationSeconds: Math.max(0, Math.round((Date.now() - stats.startedAtMs) / 1000)),
+      httpRequests: stats.httpRequests,
+      webSocketsOpened: stats.webSocketsOpened,
     }),
   );
-}
+  yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const connections: Array<RelayConnection> = [];
+      const sessionId = `ses_${nanoid(12)}`;
+      for (let index = 0; index < config.poolSize; index += 1) {
+        const connection = new RelayConnection(config, index, sessionId, stats, reporter);
+        connections.push(connection);
+        connection.start();
+      }
+
+      return connections;
+    }),
+    (connections) =>
+      Effect.sync(() => {
+        for (const connection of connections) {
+          connection.stop();
+        }
+      }),
+  );
+
+  return yield* Effect.never;
+});

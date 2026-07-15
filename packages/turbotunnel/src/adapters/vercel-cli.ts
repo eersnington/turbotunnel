@@ -108,62 +108,64 @@ const textEncoder = new TextEncoder();
  * Effect's `spawner.string` is useful when output is enough, but Vercel failures
  * need both stderr and the real exit code for actionable typed CLI errors.
  */
-function runVercelCommand(
+const runVercelCommand = Effect.fn("VercelCli.run")(function* (
   spawner: ChildProcessSpawner["Service"],
   args: ReadonlyArray<string>,
   options: VercelCommandOptions = {},
-): Effect.Effect<VercelCommandResult, VercelCliNotFound | VercelCliFailed> {
-  return Effect.gen(function* () {
-    const command = ["vercel", ...args].join(" ");
-    const stdin = options.stdin === undefined ? undefined : stdinText(options.stdin);
-    const child = ChildProcess.make("vercel", args, {
-      cwd: options.cwd,
-      stdin:
-        stdin === undefined
-          ? "inherit"
-          : { stream: Stream.make(textEncoder.encode(stdin)), endOnDone: true },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const output = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const handle = yield* child.pipe(
-          Effect.provideService(ChildProcessSpawner, spawner),
-          Effect.mapError((cause) => classifySpawnFailure(command, cause, options)),
-        );
-        const [stdout, stderr, exitCode] = yield* Effect.all(
-          [
-            collectText(handle.stdout, command),
-            collectText(handle.stderr, command),
-            handle.exitCode.pipe(
-              Effect.mapError((cause) => classifySpawnFailure(command, cause, options)),
-            ),
-          ],
-          { concurrency: "unbounded" },
-        );
-
-        return { stdout, stderr, exitCode };
-      }),
-    );
-
-    if (output.exitCode !== 0 && options.allowNonZeroExit !== true) {
-      const excerpt = options.includeOutputOnFailure === true ? commandOutputExcerpt(output) : "";
-      return yield* new VercelCliFailed({
-        command,
-        exitCode: output.exitCode,
-        message: `${options.failureMessage ?? `${command} failed with exit code ${output.exitCode}.`}${excerpt}`,
-      });
-    }
-
-    return output;
+): Effect.fn.Return<VercelCommandResult, VercelCliNotFound | VercelCliFailed> {
+  const command = ["vercel", ...args].join(" ");
+  const stdin = options.stdin === undefined ? undefined : stdinText(options.stdin);
+  const child = ChildProcess.make("vercel", args, {
+    cwd: options.cwd,
+    stdin:
+      stdin === undefined
+        ? "inherit"
+        : { stream: Stream.make(textEncoder.encode(stdin)), endOnDone: true },
+    stdout: "pipe",
+    stderr: "pipe",
   });
-}
+  const output = yield* child.pipe(
+    Effect.provideService(ChildProcessSpawner, spawner),
+    Effect.mapError((cause) => classifySpawnFailure(command, cause, options)),
+    Effect.flatMap((handle) =>
+      Effect.all(
+        [
+          collectText(handle.stdout, command, "stdout"),
+          collectText(handle.stderr, command, "stderr"),
+          handle.exitCode.pipe(
+            Effect.mapError(
+              (cause) =>
+                new VercelCliFailed({
+                  command,
+                  failure: { _tag: "OutputReadFailed", stream: "exit-code", cause },
+                  message: `Failed to read the exit code from ${command}. ${cause.message}`,
+                }),
+            ),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(Effect.map(([stdout, stderr, exitCode]) => ({ stdout, stderr, exitCode }))),
+    ),
+    Effect.scoped,
+  );
+
+  if (output.exitCode !== 0 && options.allowNonZeroExit !== true) {
+    const excerpt = options.includeOutputOnFailure === true ? commandOutputExcerpt(output) : "";
+    return yield* new VercelCliFailed({
+      command,
+      failure: { _tag: "NonZeroExit", exitCode: output.exitCode },
+      message: `${options.failureMessage ?? `${command} failed with exit code ${output.exitCode}.`}${excerpt}`,
+    });
+  }
+
+  return output;
+});
 
 function stdinText(value: string | Redacted.Redacted<string>): string {
   return `${typeof value === "string" ? value : Redacted.value(value)}\n`;
 }
 
-function parseDeploymentUrl(stdout: string): Effect.Effect<string, DeployOutputParseError> {
+const parseDeploymentUrl = Effect.fn("VercelCli.parseDeploymentUrl")(function* (stdout: string) {
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.length === 0) {
@@ -171,27 +173,28 @@ function parseDeploymentUrl(stdout: string): Effect.Effect<string, DeployOutputP
     }
     const parsed = trimmed.startsWith("http://") || trimmed.startsWith("https://") ? trimmed : `https://${trimmed}`;
     if (URL.canParse(parsed)) {
-      return Effect.succeed(parsed.endsWith("/") ? parsed : `${parsed}/`);
+      return parsed.endsWith("/") ? parsed : `${parsed}/`;
     }
   }
 
-  return new DeployOutputParseError({
+  return yield* new DeployOutputParseError({
     stdout,
     message:
       "Vercel deployment completed, but Turbotunnel could not read the deployment URL from Vercel output. Local config was not changed. Retry `tt deploy`; if this continues, inspect Vercel deployment stdout.",
   });
-}
+});
 
 function collectText(
   stream: Stream.Stream<Uint8Array, PlatformError>,
   command: string,
+  streamName: "stdout" | "stderr",
 ): Effect.Effect<string, VercelCliFailed> {
   return Stream.mkString(Stream.decodeText(stream)).pipe(
     Effect.mapError(
       (cause) =>
         new VercelCliFailed({
           command,
-          exitCode: 1,
+          failure: { _tag: "OutputReadFailed", stream: streamName, cause },
           message: `Failed to read output from ${command}. ${cause.message}`,
         }),
     ),
@@ -215,7 +218,7 @@ function classifySpawnFailure(
 
   return new VercelCliFailed({
     command,
-    exitCode: 1,
+    failure: { _tag: "SpawnFailed", cause },
     message: options.failureMessage ?? `${command} could not be started. ${cause.message}`,
   });
 }

@@ -1,8 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 import { Effect } from "effect";
 
+import { AppPaths } from "../adapters/app-paths.js";
 import { renderDeploy } from "../cli/messages.js";
 import { CliOutput } from "../cli/output.js";
 import { Entropy } from "../adapters/entropy.js";
@@ -23,30 +21,23 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
 ): Effect.fn.Return<
   void,
   DeployGatewayError,
-  CliOutput | Entropy | LocalConfigStore | VercelCli | GatewayWorkspace | GatewayVerifier
+  CliOutput | AppPaths | Entropy | LocalConfigStore | VercelCli | GatewayWorkspace | GatewayVerifier
 > {
   const output = yield* CliOutput;
+  const paths = yield* AppPaths;
   const entropy = yield* Entropy;
   const localConfigStore = yield* LocalConfigStore;
   const vercel = yield* VercelCli;
   const gatewayWorkspace = yield* GatewayWorkspace;
   const gatewayVerifier = yield* GatewayVerifier;
   const savedConfig = yield* localConfigStore.read;
-  const planResult = makeDeployPlan({
+  const plan = yield* makeDeployPlan({
     input,
     savedConfig,
     generatedSlug: yield* entropy.deploySlug,
     generatedSecret: yield* entropy.relaySecret,
-    paths: {
-      deployDir: join(homedir(), ".turbotunnel", "relay"),
-      configPath: join(homedir(), ".turbotunnel", "config.json"),
-    },
+    paths,
   });
-  if (planResult._tag === "err") {
-    return yield* planResult.error;
-  }
-
-  const plan = planResult.plan;
   yield* vercel.requireInstalled;
   const account = yield* vercel.currentAccount;
 

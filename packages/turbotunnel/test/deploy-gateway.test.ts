@@ -1,6 +1,7 @@
 import { Effect, Layer, Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
+import { AppPaths } from "../src/adapters/app-paths.js";
 import { Entropy } from "../src/adapters/entropy.js";
 import { GatewayVerifier } from "../src/adapters/gateway-verifier.js";
 import { GatewayWorkspace } from "../src/adapters/gateway-workspace.js";
@@ -138,6 +139,13 @@ class DeployRecorder {
   layer() {
     return Layer.mergeAll(
       Layer.succeed(
+        AppPaths,
+        AppPaths.of({
+          configPath: "/tmp/.turbotunnel/config.json",
+          deployDir: "/tmp/.turbotunnel/relay",
+        }),
+      ),
+      Layer.succeed(
         Entropy,
         Entropy.of({
           deploySlug: Effect.succeed("ttabc123"),
@@ -174,7 +182,7 @@ class DeployRecorder {
               ? Effect.fail(
                   new VercelCliFailed({
                     command: "vercel deploy --prod --yes",
-                    exitCode: 1,
+                    failure: { _tag: "NonZeroExit", exitCode: 1 },
                     message: "deploy failed",
                   }),
                 )

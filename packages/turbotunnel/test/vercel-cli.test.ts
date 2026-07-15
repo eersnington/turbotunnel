@@ -48,6 +48,27 @@ process.exit(1);
     expect(error.message).toContain("No gateway was deployed");
   });
 
+  test("requireInstalled reports spawn failures without fabricating an exit code", async () => {
+    const binDir = await tempDir("turbotunnel-unexecutable-path-");
+    await writeFile(join(binDir, "vercel"), "not executable\n", { mode: 0o644 });
+
+    const error = await withPath(binDir, () =>
+      runVercel(
+        Effect.gen(function* () {
+          const vercel = yield* VercelCli;
+          return yield* vercel.requireInstalled;
+        }).pipe(Effect.flip),
+      ),
+    );
+
+    expect(error._tag).toBe("VercelCliFailed");
+    if (error._tag !== "VercelCliFailed") {
+      throw new Error("Expected VercelCliFailed");
+    }
+    expect(error.failure._tag).toBe("SpawnFailed");
+    expect("exitCode" in error.failure).toBe(false);
+  });
+
   test("currentAccount trims vercel whoami output", async () => {
     const fake = await fakeVercel(`
 if (command === "whoami") {
@@ -168,6 +189,10 @@ process.exit(0);
     );
 
     expect(error._tag).toBe("VercelCliFailed");
+    if (error._tag !== "VercelCliFailed") {
+      throw new Error("Expected VercelCliFailed");
+    }
+    expect(error.failure).toEqual({ _tag: "NonZeroExit", exitCode: 1 });
     expect(error.message).toContain("Failed to add the gateway domain");
     expect(error.message).toContain("Vercel output:");
     expect(error.message).toContain("domain not verified");
