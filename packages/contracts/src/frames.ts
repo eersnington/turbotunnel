@@ -97,6 +97,48 @@ export const wsCloseSchema = Schema.Struct({
   reason: Schema.optionalKey(Schema.String),
 });
 
+export const wsDataToLocalSchema = Schema.Struct({
+  ...baseFrameFields,
+  type: Schema.Literal("ws.data"),
+  connId: Schema.NonEmptyString,
+  browserOutTopic: Schema.optionalKey(Schema.NonEmptyString),
+  localInTopic: Schema.NonEmptyString,
+  seq: nonNegativeIntSchema,
+  data: Schema.String,
+  binary: Schema.Boolean,
+});
+
+export const wsCloseToLocalSchema = Schema.Struct({
+  ...baseFrameFields,
+  type: Schema.Literal("ws.close"),
+  connId: Schema.NonEmptyString,
+  browserOutTopic: Schema.optionalKey(Schema.NonEmptyString),
+  localInTopic: Schema.NonEmptyString,
+  code: Schema.optionalKey(wsCloseCodeSchema),
+  reason: Schema.optionalKey(Schema.String),
+});
+
+export const wsDataToBrowserSchema = Schema.Struct({
+  ...baseFrameFields,
+  type: Schema.Literal("ws.data"),
+  connId: Schema.NonEmptyString,
+  browserOutTopic: Schema.NonEmptyString,
+  localInTopic: Schema.optionalKey(Schema.NonEmptyString),
+  seq: nonNegativeIntSchema,
+  data: Schema.String,
+  binary: Schema.Boolean,
+});
+
+export const wsCloseToBrowserSchema = Schema.Struct({
+  ...baseFrameFields,
+  type: Schema.Literal("ws.close"),
+  connId: Schema.NonEmptyString,
+  browserOutTopic: Schema.NonEmptyString,
+  localInTopic: Schema.optionalKey(Schema.NonEmptyString),
+  code: Schema.optionalKey(wsCloseCodeSchema),
+  reason: Schema.optionalKey(Schema.String),
+});
+
 export const deliveryAckSchema = Schema.Struct({
   ...baseFrameFields,
   type: Schema.Literal("delivery.ack"),
@@ -132,6 +174,40 @@ export const frameSchema = Schema.Union([
   errorFrameSchema,
 ]).pipe(Schema.toTaggedUnion("type"));
 
+/** Frames accepted by the gateway from a connected local tunnel client. */
+export const gatewayInboundFrameSchema = Schema.Union([
+  localClientHelloSchema,
+  localClientHeartbeatSchema,
+  httpResponseSchema,
+  wsDataToBrowserSchema,
+  wsCloseToBrowserSchema,
+  deliveryAckSchema,
+  deliveryRejectSchema,
+]).pipe(Schema.toTaggedUnion("type"));
+
+/** Frames accepted by a local tunnel client from the gateway. */
+export const localClientInboundFrameSchema = Schema.Union([
+  httpRequestSchema,
+  wsOpenSchema,
+  wsDataToLocalSchema,
+  wsCloseToLocalSchema,
+  errorFrameSchema,
+]).pipe(Schema.toTaggedUnion("type"));
+
+/** Queue payloads that can initiate or continue work in a local tunnel client. */
+export const tunnelRequestFrameSchema = Schema.Union([
+  httpRequestSchema,
+  wsOpenSchema,
+  wsDataToLocalSchema,
+  wsCloseToLocalSchema,
+]).pipe(Schema.toTaggedUnion("type"));
+
+/** Queue payloads carrying local WebSocket output back to a browser. */
+export const browserOutputFrameSchema = Schema.Union([
+  wsDataToBrowserSchema,
+  wsCloseToBrowserSchema,
+]).pipe(Schema.toTaggedUnion("type"));
+
 export const isHttpResponseFrame = frameSchema.isAnyOf(["http.response"]);
 export const isTunnelRequestFrame = frameSchema.isAnyOf([
   "http.request",
@@ -149,8 +225,16 @@ export type HttpResponse = Schema.Schema.Type<typeof httpResponseSchema>;
 export type WsOpen = Schema.Schema.Type<typeof wsOpenSchema>;
 export type WsData = Schema.Schema.Type<typeof wsDataSchema>;
 export type WsClose = Schema.Schema.Type<typeof wsCloseSchema>;
+export type WsDataToLocal = Schema.Schema.Type<typeof wsDataToLocalSchema>;
+export type WsCloseToLocal = Schema.Schema.Type<typeof wsCloseToLocalSchema>;
+export type WsDataToBrowser = Schema.Schema.Type<typeof wsDataToBrowserSchema>;
+export type WsCloseToBrowser = Schema.Schema.Type<typeof wsCloseToBrowserSchema>;
 export type DeliveryAck = Schema.Schema.Type<typeof deliveryAckSchema>;
 export type DeliveryReject = Schema.Schema.Type<typeof deliveryRejectSchema>;
 export type ErrorFrame = Schema.Schema.Type<typeof errorFrameSchema>;
 export type Frame = Schema.Schema.Type<typeof frameSchema>;
 export type TunnelRequestFrame = HttpRequest | WsOpen | WsData | WsClose;
+export type GatewayInboundFrame = Schema.Schema.Type<typeof gatewayInboundFrameSchema>;
+export type LocalClientInboundFrame = Schema.Schema.Type<typeof localClientInboundFrameSchema>;
+export type RoutableTunnelRequestFrame = Schema.Schema.Type<typeof tunnelRequestFrameSchema>;
+export type BrowserOutputFrame = Schema.Schema.Type<typeof browserOutputFrameSchema>;
