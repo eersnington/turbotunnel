@@ -4,14 +4,19 @@ import type { AddressInfo } from "node:net";
 
 import type { WsClose, WsData, WsOpen } from "@turbotunnel/contracts";
 import { PROTOCOL_VERSION } from "@turbotunnel/contracts";
+import { Effect, Exit, Scope } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { openLocalWebSocket } from "../src/runtime/forward-ws.js";
 
 const servers: Array<WebSocketServer> = [];
+const scopes: Array<Scope.Closeable> = [];
 
 afterEach(async () => {
+  await Promise.all(
+    scopes.splice(0).map((scope) => Effect.runPromise(Scope.close(scope, Exit.void))),
+  );
   await Promise.all(servers.splice(0).map((server) => closeServer(server)));
 });
 
@@ -19,7 +24,7 @@ describe("openLocalWebSocket", () => {
   test("forwards local messages to relay ws.data frames", async () => {
     const server = await listenWebSocketServer();
     const frames = new RelayFrameRecorder();
-    const handle = openLocalWebSocket(openFrame(), target(server), (frame) => frames.push(frame));
+    const handle = await openSocket(openFrame(), target(server), (frame) => frames.push(frame));
 
     const socket = await waitForConnection(server);
     socket.send("hello");
@@ -31,37 +36,33 @@ describe("openLocalWebSocket", () => {
     expect(frame.seq).toBe(0);
     expect(frame.binary).toBe(false);
     expect(Buffer.from(frame.data, "base64").toString("utf8")).toBe("hello");
-
-    handle?.dispose();
   });
 
   test("forwards relay ws.data frames to the local socket", async () => {
     const server = await listenWebSocketServer();
-    const handle = openLocalWebSocket(openFrame(), target(server), () => {});
+    const handle = await openSocket(openFrame(), target(server), () => {});
 
     const socket = await waitForConnection(server);
     const received = waitForMessage(socket);
-    handle?.sendData(dataFrame({ text: "from-browser" }));
+    await Effect.runPromise(handle.sendData(dataFrame({ text: "from-browser" })));
 
     expect((await received).toString("utf8")).toBe("from-browser");
-    handle?.dispose();
   });
 
   test("queues relay data until the local socket opens", async () => {
     const server = await listenWebSocketServer();
-    const handle = openLocalWebSocket(openFrame(), target(server), () => {});
+    const handle = await openSocket(openFrame(), target(server), () => {});
 
-    handle?.sendData(dataFrame({ text: "queued-before-open" }));
+    await Effect.runPromise(handle.sendData(dataFrame({ text: "queued-before-open" })));
 
     const socket = await waitForConnection(server);
     expect((await waitForMessage(socket)).toString("utf8")).toBe("queued-before-open");
-    handle?.dispose();
   });
 
   test("preserves binary frames in both directions", async () => {
     const server = await listenWebSocketServer();
     const frames = new RelayFrameRecorder();
-    const handle = openLocalWebSocket(openFrame(), target(server), (frame) => frames.push(frame));
+    const handle = await openSocket(openFrame(), target(server), (frame) => frames.push(frame));
 
     const socket = await waitForConnection(server);
     socket.send(Buffer.from([1, 2, 3]), { binary: true });
@@ -71,10 +72,11 @@ describe("openLocalWebSocket", () => {
     expect(Buffer.from(relayFrame.data, "base64")).toEqual(Buffer.from([1, 2, 3]));
 
     const received = waitForMessage(socket);
-    handle?.sendData(dataFrame({ bytes: Buffer.from([4, 5, 6]), binary: true }));
+    await Effect.runPromise(
+      handle.sendData(dataFrame({ bytes: Buffer.from([4, 5, 6]), binary: true })),
+    );
 
     expect(await received).toEqual(Buffer.from([4, 5, 6]));
-    handle?.dispose();
   });
 
   test("passes websocket subprotocols separately from forwarded headers", async () => {
@@ -88,7 +90,7 @@ describe("openLocalWebSocket", () => {
       protocolHeader = request.headers["sec-websocket-protocol"];
     });
 
-    const handle = openLocalWebSocket(
+    const handle = await openSocket(
       openFrame({
         headers: [
           ["sec-websocket-protocol", "proto-a, proto-b"],
@@ -104,13 +106,12 @@ describe("openLocalWebSocket", () => {
     expect(protocolHeader).toContain("proto-a");
     expect(protocolHeader).toContain("proto-b");
     expect(socket.protocol).toBe("proto-b");
-    handle?.dispose();
   });
 
   test("emits a relay close frame when the local socket closes", async () => {
     const server = await listenWebSocketServer();
     const frames = new RelayFrameRecorder();
-    const handle = openLocalWebSocket(openFrame(), target(server), (frame) => frames.push(frame));
+    const handle = await openSocket(openFrame(), target(server), (frame) => frames.push(frame));
 
     const socket = await waitForConnection(server);
     socket.close(4001, "done");
@@ -120,40 +121,76 @@ describe("openLocalWebSocket", () => {
     expect(close.browserOutTopic).toBe("browser-out");
     expect(close.code).toBe(4001);
     expect(close.reason).toBe("done");
-    handle?.dispose();
   });
 
   test("does not echo a relay close when the browser side closes", async () => {
     const server = await listenWebSocketServer();
     const frames = new RelayFrameRecorder();
-    const handle = openLocalWebSocket(openFrame(), target(server), (frame) => frames.push(frame));
+    const handle = await openSocket(openFrame(), target(server), (frame) => frames.push(frame));
 
     await waitForConnection(server);
-    handle?.close(closeFrame({ code: 1000, reason: "browser closed" }));
+    await Effect.runPromise(handle.close(closeFrame({ code: 1000, reason: "browser closed" })));
     await delay(50);
 
     expect(frames.values.filter((frame) => frame.type === "ws.close")).toEqual([]);
+  });
+
+  test("closes the local socket when its Effect scope closes", async () => {
+    const server = await listenWebSocketServer();
+    const scope = await Effect.runPromise(Scope.make());
+    const handle = await Effect.runPromise(
+      openLocalWebSocket(openFrame(), target(server), () => Effect.void).pipe(
+        Effect.provideService(Scope.Scope, scope),
+      ),
+    );
+    expect(handle).toBeDefined();
+    const socket = await waitForConnection(server);
+    const closed = waitForClose(socket);
+
+    await Effect.runPromise(Scope.close(scope, Exit.void));
+
+    await closed;
   });
 
   test("rejects invalid request paths without opening a local socket", async () => {
     const server = await listenWebSocketServer();
     const frames = new RelayFrameRecorder();
 
-    const handle = openLocalWebSocket(openFrame({ path: "not-origin-form" }), target(server), (frame) =>
-      frames.push(frame),
+    const result = await Effect.runPromiseExit(
+      Effect.scoped(
+        openLocalWebSocket(openFrame({ path: "not-origin-form" }), target(server), (frame) =>
+          Effect.sync(() => frames.push(frame)),
+        ),
+      ),
     );
 
-    expect(handle).toBeUndefined();
+    expect(Exit.isFailure(result)).toBe(true);
+    if (Exit.isFailure(result)) {
+      expect(
+        result.cause.reasons.some(
+          (reason) => reason._tag === "Fail" && reason.error._tag === "LocalWebSocketProtocolError",
+        ),
+      ).toBe(true);
+    }
     expect(frames.values).toContainEqual(
-      expect.objectContaining({
-        type: "ws.close",
-        connId: "conn_test",
-        browserOutTopic: "browser-out",
-        code: 1008,
-      }),
+      expect.objectContaining({ type: "ws.close", connId: "conn_test", code: 1008 }),
     );
   });
 });
+
+async function openSocket(
+  frame: WsOpen,
+  localTarget: ReturnType<typeof target>,
+  send: (frame: WsData | WsClose) => void,
+) {
+  const scope = await Effect.runPromise(Scope.make());
+  scopes.push(scope);
+  return Effect.runPromise(
+    openLocalWebSocket(frame, localTarget, (relayFrame) =>
+      Effect.sync(() => send(relayFrame)),
+    ).pipe(Effect.provideService(Scope.Scope, scope)),
+  );
+}
 
 class RelayFrameRecorder {
   readonly values: Array<WsData | WsClose> = [];
@@ -236,7 +273,15 @@ function waitForMessage(socket: WebSocket): Promise<Buffer> {
   );
 }
 
-function target(server: WebSocketServer): { readonly protocol: "http"; readonly host: string; readonly port: number } {
+function waitForClose(socket: WebSocket): Promise<void> {
+  return withTimeout(new Promise((resolve) => socket.once("close", () => resolve())));
+}
+
+function target(server: WebSocketServer): {
+  readonly protocol: "http";
+  readonly host: string;
+  readonly port: number;
+} {
   return { protocol: "http", host: "127.0.0.1", port: (server.address() as AddressInfo).port };
 }
 

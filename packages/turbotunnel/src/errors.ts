@@ -141,6 +141,48 @@ export class LocalHttpResponseTooLarge extends Schema.TaggedErrorClass<LocalHttp
   },
 ) {}
 
+export class RelayWebSocketConnectError extends Schema.TaggedErrorClass<RelayWebSocketConnectError>()(
+  "RelayWebSocketConnectError",
+  {
+    url: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class RelayWebSocketWriteError extends Schema.TaggedErrorClass<RelayWebSocketWriteError>()(
+  "RelayWebSocketWriteError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalWebSocketConnectError extends Schema.TaggedErrorClass<LocalWebSocketConnectError>()(
+  "LocalWebSocketConnectError",
+  {
+    url: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalWebSocketWriteError extends Schema.TaggedErrorClass<LocalWebSocketWriteError>()(
+  "LocalWebSocketWriteError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalWebSocketProtocolError extends Schema.TaggedErrorClass<LocalWebSocketProtocolError>()(
+  "LocalWebSocketProtocolError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
 export type DeployGatewayError =
   | ConfigFileReadError
   | ConfigFileParseError
