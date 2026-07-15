@@ -144,16 +144,7 @@ function acquireSocket<E>(
     const events = yield* Queue.unbounded<SocketEvent, E>();
     const socket = yield* Effect.acquireRelease(
       Effect.try({ try: construct, catch: connectError }),
-      (socket) =>
-        Effect.sync(() => {
-          socket.removeAllListeners();
-          if (socket.readyState === WebSocket.CONNECTING) {
-            socket.once("error", () => {});
-            socket.close();
-          } else if (socket.readyState === WebSocket.OPEN) {
-            socket.close(1001, "Turbotunnel scope closed");
-          }
-        }).pipe(Effect.andThen(Queue.shutdown(events))),
+      (socket) => closeOwnedSocket(socket).pipe(Effect.andThen(Queue.shutdown(events))),
     );
 
     yield* Effect.acquireRelease(
@@ -255,4 +246,45 @@ function rawDataToBuffer(data: RawData): Buffer {
   if (Buffer.isBuffer(data)) return data;
   if (data instanceof ArrayBuffer) return Buffer.from(data);
   return Buffer.concat(data);
+}
+
+function closeOwnedSocket(socket: WebSocket): Effect.Effect<void> {
+  return Effect.callback((resume) => {
+    if (socket.readyState === WebSocket.CLOSED) {
+      resume(Effect.void);
+      return;
+    }
+
+    let settled = false;
+    const onError = (): void => {};
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.removeListener("close", finish);
+      socket.removeListener("error", onError);
+      resume(Effect.void);
+    };
+    socket.on("error", onError);
+    socket.once("close", finish);
+    const timeout = setTimeout(() => {
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+      finish();
+    }, 250);
+
+    if (socket.readyState === WebSocket.CONNECTING) {
+      socket.terminate();
+    } else if (socket.readyState === WebSocket.OPEN) {
+      socket.close(1001, "Turbotunnel scope closed");
+    } else {
+      finish();
+    }
+
+    return Effect.sync(() => {
+      clearTimeout(timeout);
+      socket.removeListener("close", finish);
+      socket.removeListener("error", onError);
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    });
+  });
 }

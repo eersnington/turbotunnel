@@ -74,15 +74,7 @@ export function acquireGatewayWebSocket(
           ws.removeListener("error", onError);
         }).pipe(Effect.andThen(EffectQueue.shutdown(events))),
     );
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.close(1001, "gateway connection scope closed");
-        } else if (ws.readyState === WebSocket.CONNECTING) {
-          ws.terminate();
-        }
-      }),
-    );
+    yield* Effect.addFinalizer(() => closeOwnedWebSocket(ws));
 
     return {
       receive: EffectQueue.take(events),
@@ -163,4 +155,45 @@ function rawDataToBuffer(data: RawData): Buffer {
     return Buffer.from(data);
   }
   return Buffer.concat(data);
+}
+
+function closeOwnedWebSocket(ws: WebSocket): Effect.Effect<void> {
+  return Effect.callback((resume) => {
+    if (ws.readyState === WebSocket.CLOSED) {
+      resume(Effect.void);
+      return;
+    }
+
+    let settled = false;
+    const onError = (): void => {};
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      ws.removeListener("close", finish);
+      ws.removeListener("error", onError);
+      resume(Effect.void);
+    };
+    ws.on("error", onError);
+    ws.once("close", finish);
+    const timeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+      finish();
+    }, 250);
+
+    if (ws.readyState === WebSocket.CONNECTING) {
+      ws.terminate();
+    } else if (ws.readyState === WebSocket.OPEN) {
+      ws.close(1001, "gateway connection scope closed");
+    } else {
+      finish();
+    }
+
+    return Effect.sync(() => {
+      clearTimeout(timeout);
+      ws.removeListener("close", finish);
+      ws.removeListener("error", onError);
+      if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+    });
+  });
 }
