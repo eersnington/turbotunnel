@@ -38,6 +38,11 @@ export type DirectHttpResult =
   | { readonly _tag: "response"; readonly response: HttpResponse }
   | { readonly _tag: "disconnected" };
 
+/** Scoped registration handle for one direct HTTP request. */
+export type DirectRequest = {
+  readonly await: Effect.Effect<DirectHttpResult>;
+};
+
 type PublicConnectionFields = {
   readonly connId: string;
   readonly slug: string;
@@ -136,7 +141,7 @@ export class GatewayState extends Context.Service<
     readonly registerDirectRequest: (
       client: LocalClient,
       requestId: string,
-    ) => Effect.Effect<Effect.Effect<DirectHttpResult>, never, Scope.Scope>;
+    ) => Effect.Effect<DirectRequest, never, Scope.Scope>;
     readonly completeDirectRequest: (response: HttpResponse) => Effect.Effect<boolean>;
     readonly registerPublicConnection: (
       input: RegisterPublicConnection,
@@ -303,28 +308,35 @@ export class GatewayState extends Context.Service<
             yield* Deferred.succeed(pending, accepted);
           }),
         sendFrameAndWaitForAck: (client, frame, timeoutMs) =>
-          Effect.gen(function* () {
-            const record = client[localClientRecordKey];
-            const acknowledgement = yield* Deferred.make<boolean>();
-            record.pendingDeliveryAcks.set(frame.frameId, acknowledgement);
-            return yield* Effect.gen(function* () {
-              if (!(yield* client.socket.sendFrame(frame))) {
-                return false;
-              }
-              return yield* Deferred.await(acknowledgement).pipe(
-                Effect.timeoutOrElse({
-                  duration: timeoutMs,
-                  orElse: () => Effect.succeed(false),
-                }),
-              );
-            }).pipe(
-              Effect.ensuring(
+          Effect.acquireUseRelease(
+            Deferred.make<boolean>().pipe(
+              Effect.tap((acknowledgement) =>
                 Effect.sync(() => {
-                  record.pendingDeliveryAcks.delete(frame.frameId);
+                  client[localClientRecordKey].pendingDeliveryAcks.set(
+                    frame.frameId,
+                    acknowledgement,
+                  );
                 }),
               ),
-            );
-          }),
+            ),
+            (acknowledgement) =>
+              client.socket.sendFrame(frame).pipe(
+                Effect.flatMap((sent) =>
+                  sent
+                    ? Deferred.await(acknowledgement).pipe(
+                        Effect.timeoutOrElse({
+                          duration: timeoutMs,
+                          orElse: () => Effect.succeed(false),
+                        }),
+                      )
+                    : Effect.succeed(false),
+                ),
+              ),
+            () =>
+              Effect.sync(() => {
+                client[localClientRecordKey].pendingDeliveryAcks.delete(frame.frameId);
+              }),
+          ),
         registerDirectRequest: (client, requestId) =>
           Effect.acquireRelease(
             Effect.gen(function* () {
@@ -333,7 +345,7 @@ export class GatewayState extends Context.Service<
               pendingHttpRequests.set(requestId, { result });
               record.pendingDirectHttpRequests.add(requestId);
               record.inFlight += 1;
-              return Deferred.await(result);
+              return { await: Deferred.await(result) };
             }),
             () =>
               Effect.sync(() => {

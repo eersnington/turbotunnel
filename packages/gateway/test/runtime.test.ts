@@ -13,7 +13,7 @@ import {
 } from "@turbotunnel/contracts";
 import { ManagedRuntime, Result } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 
 import { GatewayLive, GatewayServer } from "../src/gateway.js";
 
@@ -126,6 +126,68 @@ describe("gateway runtime", () => {
       (frame): frame is WsClose => frame.type === "ws.close" && frame.connId === open.connId,
     );
     expect(close).toMatchObject({ code: 4000, reason: "browser done" });
+  });
+
+  test("preserves browser WebSocket message order when forwarding to a local client", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("ordered-demo");
+    const localFrames = new FrameRecorder(local);
+    local.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "local.hello",
+        frameId: "frm_ordered_hello",
+        slug: "ordered-demo",
+        localClientId: "local_ordered_test",
+        sessionId: "session_ordered_test",
+        generation: 1,
+        capacity: 1,
+        target: { protocol: "http", host: "127.0.0.1", port: 4321 },
+      }),
+    );
+    await waitForActiveLocalClient(gateway.server);
+
+    const browser = await gateway.openPublicWebSocket("ordered-demo", "/ordered");
+    const open = await localFrames.take((frame): frame is WsOpen => frame.type === "ws.open");
+    const count = 20;
+    const received = recordFramesInArrivalOrder(
+      local,
+      (frame): frame is WsData => frame.type === "ws.data" && frame.connId === open.connId,
+      count,
+    );
+    for (let index = 0; index < count; index += 1) {
+      browser.send(`message-${index}`);
+    }
+
+    const frames = await received;
+    expect(frames.map((frame) => frame.seq)).toEqual(
+      Array.from({ length: count }, (_, index) => index),
+    );
+    expect(frames.map((frame) => Buffer.from(frame.data, "base64").toString("utf8"))).toEqual(
+      Array.from({ length: count }, (_, index) => `message-${index}`),
+    );
+  });
+
+  test("rejects a valid protocol frame sent before the local-client hello", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("protocol-demo");
+    const closed = waitForClose(local);
+
+    local.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.request",
+        frameId: "frm_wrong_direction",
+        requestId: "req_wrong_direction",
+        responseTopic: "response_wrong_direction",
+        method: "GET",
+        path: "/",
+        headers: [],
+        body: "",
+      }),
+    );
+
+    await expect(closed).resolves.toEqual({ code: 1002, reason: "invalid protocol frame" });
   });
 
   test("routes queued HTTP and WebSocket traffic across gateway instances", async () => {
@@ -638,6 +700,30 @@ function waitForMessage(socket: WebSocket): Promise<Buffer> {
         }
         resolve(Buffer.concat(data));
       });
+    }),
+  );
+}
+
+function recordFramesInArrivalOrder<A extends Frame>(
+  socket: WebSocket,
+  predicate: (frame: Frame) => frame is A,
+  count: number,
+): Promise<ReadonlyArray<A>> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const frames: Array<A> = [];
+      const onMessage = (data: RawData): void => {
+        const parsed = parseProtocolFrameJson(data.toString());
+        if (Result.isFailure(parsed) || !predicate(parsed.success)) {
+          return;
+        }
+        frames.push(parsed.success);
+        if (frames.length === count) {
+          socket.removeListener("message", onMessage);
+          resolve(frames);
+        }
+      };
+      socket.on("message", onMessage);
     }),
   );
 }

@@ -1,4 +1,4 @@
-import { Clock, Effect, Layer } from "effect";
+import { Clock, Context, Effect, Layer } from "effect";
 
 import { Queue, type QueueMessage, type ReceiveOptions, type SendOptions } from "./queue.js";
 
@@ -11,20 +11,24 @@ type StoredMessage = {
   acknowledgedBy: Set<string>;
 };
 
-type SharedState = {
+type MemoryQueueStateValue = {
   readonly topics: Map<string, Array<StoredMessage>>;
   readonly idempotencyKeys: Map<string, number>;
   nextId: number;
 };
 
-const defaultState: SharedState = {
-  topics: new Map(),
-  idempotencyKeys: new Map(),
-  nextId: 1,
-};
+/** Explicit shared broker state used by all in-process gateway runtimes. */
+class MemoryQueueState extends Context.Service<MemoryQueueState, MemoryQueueStateValue>()(
+  "turbotunnel/gateway/MemoryQueueState",
+) {
+  static readonly shared = Layer.succeed(
+    this,
+    this.of({ topics: new Map(), idempotencyKeys: new Map(), nextId: 1 }),
+  );
+}
 
 class MemoryQueueLive {
-  constructor(private readonly state: SharedState = defaultState) {}
+  constructor(private readonly state: MemoryQueueStateValue) {}
 
   send<T>(topic: string, payload: T, options: SendOptions = {}): Effect.Effect<void> {
     const state = this.state;
@@ -85,6 +89,12 @@ class MemoryQueueLive {
 export class MemoryQueue {
   static readonly layer = Layer.effect(
     Queue,
-    Effect.sync(() => Queue.of(new MemoryQueueLive())),
+    Effect.gen(function* () {
+      const state = yield* MemoryQueueState;
+      return Queue.of(new MemoryQueueLive(state));
+    }),
   );
+
+  /** Queue implementation plus the shared in-memory broker it requires. */
+  static readonly sharedLayer = this.layer.pipe(Layer.provide(MemoryQueueState.shared));
 }

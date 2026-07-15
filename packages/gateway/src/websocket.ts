@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-import type { Frame } from "@turbotunnel/contracts";
+import { encodeProtocolFrameJson, type Frame } from "@turbotunnel/contracts";
 import { Effect, Queue as EffectQueue, Schema, Scope } from "effect";
 import { WebSocket, type RawData } from "ws";
 
@@ -69,7 +69,18 @@ export function acquireGatewayWebSocket(
     return {
       receive: EffectQueue.take(events),
       isOpen: Effect.sync(() => ws.readyState === WebSocket.OPEN),
-      sendFrame: (frame) => send(ws, "send-frame", JSON.stringify(frame)),
+      sendFrame: (frame) =>
+        encodeProtocolFrameJson(frame).pipe(
+          Effect.mapError(
+            (cause) =>
+              new GatewayWebSocketWriteError({
+                operation: "send-frame",
+                cause,
+                message: "The gateway protocol frame could not be encoded; no frame was sent.",
+              }),
+          ),
+          Effect.flatMap((encoded) => send(ws, "send-frame", encoded)),
+        ),
       sendData: (data, binary) => send(ws, "send-data", data, { binary }),
       close: (code, reason) =>
         Effect.sync(() => {
