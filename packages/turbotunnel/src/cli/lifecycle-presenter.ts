@@ -36,7 +36,7 @@ export const tunnelReporterLive = Layer.effect(
               alreadyVisible
                 ? Effect.void
                 : surface.append(
-                    `${colors.yellow("!")} Relay disconnected · reconnecting in ${formatDurationMs(event.retryInMs)}`,
+                    `${colors.yellow("!")} Relay disconnected · reconnecting automatically`,
                   ),
             ),
           );

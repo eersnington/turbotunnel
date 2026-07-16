@@ -22,7 +22,7 @@ export type LifecycleEvent =
       readonly config: HttpTunnelConfig;
       readonly readyAfterMs: number;
     }
-  | { readonly _tag: "RelayReconnecting"; readonly retryInMs: number }
+  | { readonly _tag: "RelayReconnecting" }
   | { readonly _tag: "RelayRestored"; readonly disconnectedForMs: number }
   | { readonly _tag: "RecoverableWarning"; readonly warning: RecoverableWarning }
   | { readonly _tag: "TunnelStopped"; readonly summary: TunnelStoppedSummary }

@@ -38,7 +38,7 @@ export type TunnelSession = {
     readonly nowMs: number;
     readonly failure?: string;
   }) => Effect.Effect<void>;
-  readonly relayReconnecting: (retryInMs: number) => Effect.Effect<void>;
+  readonly relayReconnecting: Effect.Effect<void>;
   readonly recordFrameReceived: Effect.Effect<void>;
   readonly recordFrameSent: Effect.Effect<void>;
   readonly recordInvalidFrame: Effect.Effect<boolean>;
@@ -166,11 +166,10 @@ export const makeTunnelSession = Effect.fn("TunnelSession.make")(function* (opti
           events,
         };
       }),
-    relayReconnecting: (retryInMs) =>
-      transition((current) => ({
-        state: current,
-        events: current.reachedConfiguredPool ? [{ _tag: "RelayReconnecting", retryInMs }] : [],
-      })),
+    relayReconnecting: transition((current) => ({
+      state: current,
+      events: current.reachedConfiguredPool ? [{ _tag: "RelayReconnecting" }] : [],
+    })),
     recordFrameReceived: updateCounters((counters) => ({
       ...counters,
       framesReceived: counters.framesReceived + 1,

@@ -47,20 +47,20 @@ describe("TunnelSession", () => {
         slot: 0,
         nowMs: 2_000,
       });
-      yield* session.relayReconnecting(1_000);
-      yield* session.relayReconnecting(2_000);
+      yield* session.relayReconnecting;
+      yield* session.relayReconnecting;
       yield* session.relayClosed({
         slot: 1,
         nowMs: 2_100,
       });
-      yield* session.relayReconnecting(1_000);
+      yield* session.relayReconnecting;
       yield* session.relayConnected(0, 3_000);
       yield* session.relayConnected(1, 5_000);
 
       expect(events).toEqual([
-        { _tag: "RelayReconnecting", retryInMs: 1_000 },
-        { _tag: "RelayReconnecting", retryInMs: 2_000 },
-        { _tag: "RelayReconnecting", retryInMs: 1_000 },
+        { _tag: "RelayReconnecting" },
+        { _tag: "RelayReconnecting" },
+        { _tag: "RelayReconnecting" },
         { _tag: "RelayRestored", disconnectedForMs: 3_000 },
       ]);
       expect(session.snapshot()).toMatchObject({ state: "ready", reconnects: 2 });

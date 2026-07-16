@@ -44,14 +44,8 @@ describe("lifecycle presenter", () => {
       });
       yield* reporter.emit({ _tag: "RelaysConnecting" });
       yield* reporter.emit({ _tag: "TunnelReady", config, readyAfterMs: 1_400 });
-      yield* reporter.emit({
-        _tag: "RelayReconnecting",
-        retryInMs: 1_000,
-      });
-      yield* reporter.emit({
-        _tag: "RelayReconnecting",
-        retryInMs: 2_000,
-      });
+      yield* reporter.emit({ _tag: "RelayReconnecting" });
+      yield* reporter.emit({ _tag: "RelayReconnecting" });
       yield* reporter.emit({ _tag: "RelayRestored", disconnectedForMs: 3_000 });
       yield* reporter.emit({
         _tag: "TunnelStopped",
@@ -76,7 +70,7 @@ describe("lifecycle presenter", () => {
           "  Process          pnpm dev",
           "",
           "  Press Ctrl-C to stop",
-          "! Relay disconnected · reconnecting in 1s",
+          "! Relay disconnected · reconnecting automatically",
           "✓ Relay restored after 3s",
           "✓ Tunnel stopped",
           "",

@@ -67,7 +67,7 @@ export const runRelayConnection = Effect.fn("runRelayConnection")(function* (
       nowMs,
       failure: failureMessage,
     });
-    yield* session.relayReconnecting(retryInMs);
+    yield* session.relayReconnecting;
     yield* Effect.sleep(retryInMs);
     reconnectDelayMs = connected ? 1_000 : Math.min(retryInMs * 2, 30_000);
   }
