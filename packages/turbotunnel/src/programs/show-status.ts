@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Clock, Effect, Option, Result } from "effect";
 
 import {
   GatewayStatusChecker,
@@ -8,8 +8,8 @@ import { LocalControl } from "../adapters/local-control.js";
 import { RuntimeRegistry } from "../adapters/runtime-registry.js";
 import { renderStatus, type StatusOutput } from "../cli/messages.js";
 import { CliOutput } from "../cli/output.js";
-import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
-import type { StatusError } from "../errors.js";
+import type { RuntimeRecord, TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
+import type { LocalControlError, RuntimeRegistryError, StatusError } from "../errors.js";
 
 export type StatusFormat = "terminal" | "json";
 
@@ -27,15 +27,7 @@ export const showStatus = Effect.fn("showStatus")(function* (options: {
   const records = yield* registry.list;
   const queried = yield* Effect.forEach(
     records,
-    (record) =>
-      control.query(record).pipe(
-        Effect.map(Option.some),
-        Effect.catchTag("LocalControlError", (error) =>
-          error.reason === "temporarily-unavailable"
-            ? Effect.succeed(Option.none<TunnelLifecycleSnapshot>())
-            : registry.remove(record).pipe(Effect.as(Option.none<TunnelLifecycleSnapshot>())),
-        ),
-      ),
+    (record) => queryRecord(control, registry, record),
     { concurrency: 8 },
   );
   const tunnels = queried
@@ -43,10 +35,25 @@ export const showStatus = Effect.fn("showStatus")(function* (options: {
     .map((entry) => entry.value)
     .sort((left, right) => left.startedAtMs - right.startedAtMs);
   const gateways = yield* checkDistinctGateways(gatewayChecker, tunnels);
+  const generatedAt = yield* Clock.currentTimeMillis;
 
-  const status: StatusOutput = { tunnels, gateways };
+  const status: StatusOutput = { generatedAt, tunnels, gateways };
   yield* output.write(renderStatus({ format: options.format, status }));
 });
+
+function queryRecord(
+  control: LocalControl["Service"],
+  registry: RuntimeRegistry["Service"],
+  record: RuntimeRecord,
+): Effect.Effect<Option.Option<TunnelLifecycleSnapshot>, LocalControlError | RuntimeRegistryError> {
+  return Effect.gen(function* () {
+    const result = yield* control.query(record).pipe(Effect.result);
+    if (Result.isSuccess(result)) return Option.some(result.success);
+    if (result.failure.reason === "temporarily-unavailable") return yield* result.failure;
+    yield* registry.remove(record);
+    return Option.none();
+  });
+}
 
 function checkDistinctGateways(
   checker: GatewayStatusChecker["Service"],

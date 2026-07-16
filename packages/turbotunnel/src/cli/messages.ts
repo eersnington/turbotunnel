@@ -46,6 +46,7 @@ export type TunnelMessage =
   | { readonly _tag: "Warning"; readonly message: string };
 
 export type StatusOutput = {
+  readonly generatedAt: number;
   readonly tunnels: ReadonlyArray<TunnelLifecycleSnapshot>;
   readonly gateways: ReadonlyArray<GatewayStatusCheck>;
 };
@@ -223,7 +224,10 @@ function statusText(status: StatusOutput): string {
 
   const tunnels = status.tunnels.map((tunnel) => {
     const gateway = status.gateways.find((candidate) => candidate.url === tunnel.gatewayStatusUrl);
-    const uptimeSeconds = Math.max(0, Math.floor((Date.now() - tunnel.startedAtMs) / 1_000));
+    const uptimeSeconds = Math.max(
+      0,
+      Math.floor((status.generatedAt - tunnel.startedAtMs) / 1_000),
+    );
     return formatRows([
       { label: "Gateway", value: gateway?.status === "running" ? "reachable" : "unreachable" },
       { label: "Tunnel", value: tunnel.state === "ready" ? "connected" : tunnel.state },
@@ -239,7 +243,7 @@ function statusText(status: StatusOutput): string {
 function statusJson(status: StatusOutput): unknown {
   return status.tunnels.map((tunnel) => ({
     ...tunnel,
-    uptimeSeconds: Math.max(0, Math.floor((Date.now() - tunnel.startedAtMs) / 1_000)),
+    uptimeSeconds: Math.max(0, Math.floor((status.generatedAt - tunnel.startedAtMs) / 1_000)),
     gateway:
       status.gateways.find((candidate) => candidate.url === tunnel.gatewayStatusUrl)?.status ??
       "unreachable",

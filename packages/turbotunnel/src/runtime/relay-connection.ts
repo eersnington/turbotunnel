@@ -33,7 +33,6 @@ export type TunnelSessionStats = {
   webSocketsOpened: number;
   webSocketsClosed: number;
   activeRelayConnections: number;
-  relayWorkersStarted: boolean;
   reachedConfiguredPool: boolean;
   readyPrinted: boolean;
 };

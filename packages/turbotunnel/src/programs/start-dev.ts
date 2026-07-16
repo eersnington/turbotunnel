@@ -13,7 +13,7 @@ import {
   resolveDevLaunch,
 } from "../domain/dev-project.js";
 import { resolveTunnelConfig, type TunnelEnvironment } from "../domain/tunnel-config.js";
-import { publicTunnelUrl } from "../domain/tunnel-url.js";
+import { publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
 import { DevServerReadinessTimeout, type StartDevError } from "../errors.js";
 
 const DEV_SERVER_READINESS_TIMEOUT_SECONDS = 60;
@@ -63,7 +63,7 @@ export const startDev = Effect.fn("startDev")(function* (options: {
         env: {
           PORT: String(port),
           TURBOTUNNEL_URL: publicUrl,
-          TURBOTUNNEL_HOST: new URL(publicUrl).host,
+          TURBOTUNNEL_HOST: publicTunnelHost(config),
           TURBOTUNNEL_SLUG: config.slug,
         },
       });

@@ -25,7 +25,31 @@ export const TunnelLifecycleSnapshotSchema = Schema.Struct({
   httpResponses: nonNegativeInt,
   webSocketsOpened: nonNegativeInt,
   webSocketsClosed: nonNegativeInt,
-});
+}).check(
+  Schema.makeFilter((snapshot) => {
+    if (snapshot.connectedRelays > snapshot.configuredRelays) {
+      return {
+        path: ["connectedRelays"],
+        issue: "connected relays must not exceed configured relays",
+      };
+    }
+    if (snapshot.state === "starting" && snapshot.connectedRelays !== 0) {
+      return { path: ["connectedRelays"], issue: "a starting tunnel cannot have connected relays" };
+    }
+    if (snapshot.state === "ready" && snapshot.connectedRelays !== snapshot.configuredRelays) {
+      return { path: ["connectedRelays"], issue: "a ready tunnel must have all relays connected" };
+    }
+    if (
+      (snapshot.state === "connecting" || snapshot.state === "reconnecting") &&
+      snapshot.connectedRelays === snapshot.configuredRelays
+    ) {
+      return {
+        path: ["connectedRelays"],
+        issue: `${snapshot.state} tunnel must have fewer connected relays than configured relays`,
+      };
+    }
+  }),
+);
 
 export type TunnelLifecycleSnapshot = typeof TunnelLifecycleSnapshotSchema.Type;
 
@@ -35,9 +59,6 @@ export const RuntimeRecordSchema = Schema.Struct({
   pid: positiveInt,
   processToken: Schema.NonEmptyString,
   startedAt: nonNegativeInt,
-  slug: Schema.NonEmptyString,
-  publicUrl: Schema.NonEmptyString,
-  localUrl: Schema.NonEmptyString,
   controlSocketPath: Schema.NonEmptyString,
 });
 

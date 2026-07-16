@@ -133,6 +133,24 @@ describe("GatewayControlClient.live", () => {
     ),
   );
 
+  it.effect("redacts credentials from malformed gateway URLs", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const configPath = yield* writeTemporaryConfig({
+          relayUrl: "https://user:must_not_leak@",
+          relaySecret: "test_secret",
+        });
+        const error = yield* runClient(
+          configPath,
+          HttpClient.make(() => Effect.die("gateway must not be contacted")),
+        ).pipe(Effect.flip);
+
+        expect(error).toMatchObject({ reason: "invalid-url", url: "invalid gateway URL" });
+        expect(JSON.stringify(error)).not.toContain("must_not_leak");
+      }),
+    ),
+  );
+
   it.effect("times out a gateway request after five seconds", () =>
     Effect.gen(function* () {
       const request = Effect.gen(function* () {

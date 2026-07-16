@@ -2,14 +2,13 @@ import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { deployGateway } from "../programs/deploy-gateway.js";
-import { showStatus, type StatusFormat } from "../programs/show-status.js";
+import { showStatus } from "../programs/show-status.js";
 import { startHttpTunnel, tunnelEnvironmentFromProcess } from "../programs/start-http-tunnel.js";
 import { startDev } from "../programs/start-dev.js";
 import { listTunnels } from "../programs/list-tunnels.js";
 import { CliConfigError } from "../errors.js";
 import type { DeployOutput } from "../domain/deploy-plan.js";
 import { decodeDevArguments } from "./argv.js";
-import type { TunnelListFormat } from "./messages.js";
 
 export const httpCommand = Command.make(
   "http",
@@ -120,7 +119,7 @@ export const statusCommand = Command.make(
   },
   Effect.fn("statusCommand")(function* ({ format }) {
     yield* showStatus({
-      format: yield* parseStatusFormat(Option.getOrUndefined(format)),
+      format: yield* parseReadOutput(Option.getOrUndefined(format)),
     });
   }),
 ).pipe(
@@ -141,7 +140,7 @@ export const listCommand = Command.make(
   },
   Effect.fn("listCommand")(function* ({ format }) {
     yield* listTunnels({
-      format: yield* parseListFormat(Option.getOrUndefined(format)),
+      format: yield* parseReadOutput(Option.getOrUndefined(format)),
     });
   }),
 ).pipe(
@@ -201,12 +200,6 @@ export function requestedOutput(argv: ReadonlyArray<string>): DeployOutput {
   return { _tag: "Terminal" };
 }
 
-function parseListFormat(
-  format: string | undefined,
-): Effect.Effect<TunnelListFormat, CliConfigError> {
-  return parseReadOutput(format);
-}
-
 function parseDeployOutput(
   format: string | undefined,
 ): Effect.Effect<DeployOutput, CliConfigError> {
@@ -218,12 +211,6 @@ function parseDeployOutput(
   }
 
   return new CliConfigError({ message: "Format must be `json`." });
-}
-
-function parseStatusFormat(
-  format: string | undefined,
-): Effect.Effect<StatusFormat, CliConfigError> {
-  return parseReadOutput(format);
 }
 
 function parseReadOutput(

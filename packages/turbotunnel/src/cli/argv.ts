@@ -13,14 +13,11 @@ export function prepareCliArgv(argv: ReadonlyArray<string>): ReadonlyArray<strin
 }
 
 export function decodeDevArguments(argv: ReadonlyArray<string>): ReadonlyArray<string> {
-  return argv.map((argument) => {
-    if (!argument.startsWith(DEV_ARGUMENT_PREFIX)) return argument;
-    try {
-      return decodeURIComponent(argument.slice(DEV_ARGUMENT_PREFIX.length));
-    } catch {
-      return argument;
-    }
-  });
+  return argv.map((argument) =>
+    argument.startsWith(DEV_ARGUMENT_PREFIX)
+      ? decodeURIComponent(argument.slice(DEV_ARGUMENT_PREFIX.length))
+      : argument,
+  );
 }
 
 function encodeDevArgument(argument: string): string {

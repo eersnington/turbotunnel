@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+import { TestClock } from "effect/testing";
 
 import { GatewayStatusChecker } from "../src/adapters/gateway-status-checker.js";
 import { LocalControl } from "../src/adapters/local-control.js";
@@ -12,6 +13,7 @@ import { RuntimeRegistry } from "../src/adapters/runtime-registry.js";
 import type { CliMessage } from "../src/cli/output.js";
 import { CliOutput } from "../src/cli/output.js";
 import type { RuntimeRecord, TunnelLifecycleSnapshot } from "../src/domain/tunnel-lifecycle.js";
+import { LocalControlError } from "../src/errors.js";
 import { showStatus } from "../src/programs/show-status.js";
 
 describe("showStatus", () => {
@@ -60,6 +62,7 @@ describe("showStatus", () => {
             writeFile(join(sessionsDir, "ses_stale.json"), JSON.stringify(stale)),
           );
 
+          yield* TestClock.adjust("61 seconds");
           yield* showStatus({ format: "json" });
           expect((yield* registry.list).map((record) => record.sessionId)).toEqual([
             liveSnapshot.sessionId,
@@ -68,10 +71,10 @@ describe("showStatus", () => {
 
         expect(checkedUrls).toEqual([liveSnapshot.gatewayStatusUrl]);
         expect(messages).toHaveLength(1);
-        expect(messages[0]).toMatchObject({
+        expect(messages[0]).toEqual({
           _tag: "Json",
           stream: "stdout",
-          value: [{ ...liveSnapshot, gateway: "running" }],
+          value: [{ ...liveSnapshot, uptimeSeconds: 60, gateway: "running" }],
         });
       }),
   );
@@ -100,6 +103,56 @@ describe("showStatus", () => {
       expect(messages).toEqual([
         { _tag: "Text", stream: "stderr", text: "No local tunnels are running." },
       ]);
+    }),
+  );
+
+  it.effect("fails without removing a tunnel when local control is temporarily unavailable", () =>
+    Effect.gen(function* () {
+      const record = recordFor(liveSnapshot, "live-token", "/tmp/live.sock");
+      let removed = false;
+      const services = Layer.mergeAll(
+        Layer.succeed(
+          RuntimeRegistry,
+          RuntimeRegistry.of({
+            register: () => Effect.void,
+            list: Effect.succeed([record]),
+            remove: () =>
+              Effect.sync(() => {
+                removed = true;
+              }),
+          }),
+        ),
+        Layer.succeed(
+          LocalControl,
+          LocalControl.of({
+            open: () => Effect.die("not used"),
+            query: () =>
+              Effect.fail(
+                new LocalControlError({
+                  operation: "connect",
+                  reason: "temporarily-unavailable",
+                  endpoint: record.controlSocketPath,
+                  message: "temporarily unavailable",
+                }),
+              ),
+          }),
+        ),
+        Layer.succeed(
+          GatewayStatusChecker,
+          GatewayStatusChecker.of({
+            check: (url) => Effect.succeed({ url, status: "running", version: "test" }),
+          }),
+        ),
+        Layer.succeed(CliOutput, CliOutput.of({ write: () => Effect.void })),
+      );
+
+      const error = yield* showStatus({ format: "json" }).pipe(
+        Effect.provide(services),
+        Effect.flip,
+      );
+
+      expect(error).toMatchObject({ _tag: "LocalControlError", reason: "temporarily-unavailable" });
+      expect(removed).toBe(false);
     }),
   );
 });
@@ -145,9 +198,6 @@ function recordFor(
     pid: snapshot.pid,
     processToken,
     startedAt: snapshot.startedAtMs,
-    slug: "demo",
-    publicUrl: snapshot.publicUrl,
-    localUrl: snapshot.localUrl,
     controlSocketPath,
   };
 }

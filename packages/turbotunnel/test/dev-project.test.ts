@@ -17,8 +17,6 @@ describe("dev project launch resolution", () => {
       expect(launch).toMatchObject({
         executable: "pnpm",
         args: ["run", "dev", "--port", "5173", "--strictPort"],
-        port: 5173,
-        framework: "vite",
       });
     }),
   );
@@ -94,7 +92,6 @@ describe("dev project launch resolution", () => {
         { command: [] },
         5173,
       );
-      expect(launch.framework).toBeUndefined();
       expect(launch.args).toEqual(["run", "dev"]);
     }),
   );

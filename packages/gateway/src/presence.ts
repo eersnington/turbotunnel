@@ -90,20 +90,19 @@ export function listTunnels(): Effect.Effect<
         break;
       }
       if (replayedEvents + messages.length > PRESENCE_REPLAY_EVENT_LIMIT) {
-        for (const message of messages) {
-          yield* message.ack;
-          yield* state.recordMetric("queueAcks");
-        }
+        yield* acknowledgeMessages(messages, state);
         return yield* new PresenceReplayLimitError({
           eventLimit: PRESENCE_REPLAY_EVENT_LIMIT,
           message: `Tunnel presence replay exceeded the ${PRESENCE_REPLAY_EVENT_LIMIT}-event safety limit. No partial tunnel list was returned. Retry after heartbeat traffic subsides; if this persists, inspect relay reconnect or heartbeat volume.`,
         });
       }
       replayedEvents += messages.length;
-      for (const message of messages) {
-        const decoded = decodePresenceEvent(message.payload);
-        yield* message.ack;
-        yield* state.recordMetric("queueAcks");
+      const decodedMessages = messages.map((message) => ({
+        message,
+        decoded: decodePresenceEvent(message.payload),
+      }));
+      yield* acknowledgeMessages(messages, state);
+      for (const { message, decoded } of decodedMessages) {
         if (Result.isFailure(decoded)) {
           yield* logMalformedPresenceEvent(message);
           continue;
@@ -120,6 +119,17 @@ export function listTunnels(): Effect.Effect<
       tunnels: reducePresence(records, generatedAt),
     };
   });
+}
+
+function acknowledgeMessages(
+  messages: ReadonlyArray<QueueMessage>,
+  state: GatewayState["Service"],
+): Effect.Effect<void, QueueAckError | QueueAuthError> {
+  return Effect.forEach(
+    messages,
+    (message) => message.ack.pipe(Effect.andThen(state.recordMetric("queueAcks"))),
+    { concurrency: "unbounded", discard: true },
+  );
 }
 
 /** Reduces strict events by generation, connection sequence, and broker time. */

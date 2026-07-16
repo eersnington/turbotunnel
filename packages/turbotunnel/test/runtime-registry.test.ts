@@ -103,9 +103,6 @@ function runtimeRecord(sessionId: string, processToken: string): RuntimeRecord {
     pid: 123,
     processToken,
     startedAt: 1_000,
-    slug: "demo",
-    publicUrl: "https://demo.example.com/",
-    localUrl: "http://localhost:5173",
     controlSocketPath: join(tmpdir(), `${sessionId}.sock`),
   };
 }

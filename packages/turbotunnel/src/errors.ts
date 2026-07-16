@@ -144,7 +144,7 @@ export class RuntimeRegistryError extends Schema.TaggedErrorClass<RuntimeRegistr
 export class LocalControlError extends Schema.TaggedErrorClass<LocalControlError>()(
   "LocalControlError",
   {
-    operation: Schema.Literals(["listen", "connect", "read", "protocol"]),
+    operation: Schema.Literals(["listen", "connect", "protocol"]),
     reason: Schema.Literals(["stale-record", "temporarily-unavailable", "invalid-protocol"]),
     endpoint: Schema.String,
     message: Schema.String,
@@ -307,7 +307,7 @@ export type StartHttpTunnelError =
   | RuntimeRegistryError
   | LocalControlError;
 
-export type StatusError = RuntimeRegistryError;
+export type StatusError = RuntimeRegistryError | LocalControlError;
 
 export type ListTunnelsError =
   | ConfigFileReadError

@@ -39,7 +39,6 @@ export const tunnelListResponseSchema = Schema.Struct({
   tunnels: Schema.Array(listedTunnelSchema),
 });
 
-export type TunnelTarget = Schema.Schema.Type<typeof tunnelTargetSchema>;
 export type TunnelPresenceEvent = Schema.Schema.Type<typeof tunnelPresenceEventSchema>;
 export type ListedTunnel = Schema.Schema.Type<typeof listedTunnelSchema>;
 export type TunnelListResponse = Schema.Schema.Type<typeof tunnelListResponseSchema>;

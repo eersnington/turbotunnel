@@ -58,45 +58,34 @@ const resolveGatewayConnection = Effect.fn("GatewayControlClient.resolveConfig")
     });
   }
 
-  const baseUrl = yield* Effect.try({
-    try: () =>
-      gatewayUrl({
+  const connectionUrl = yield* Effect.try({
+    try: () => {
+      const baseUrl = gatewayUrl({
         slug: config.slug ?? "gateway",
         relayDomain: config.relayDomain ?? "localhost",
         relayUrl: config.relayUrl,
-      }),
-    catch: (cause) =>
+      });
+      return { baseUrl, parsed: new URL(baseUrl) };
+    },
+    catch: () =>
       new GatewayControlError({
         reason: "invalid-url",
-        url: config.relayUrl ?? config.relayDomain ?? "",
-        cause,
+        url: sanitizedUrl(config.relayUrl ?? config.relayDomain ?? ""),
         message:
           "The configured gateway URL is invalid. Fix the saved Turbotunnel config or run `tt deploy`, then retry `tt list`. No gateway was contacted.",
       }),
   });
-  const parsedBaseUrl = new URL(baseUrl);
-  if (parsedBaseUrl.username.length > 0 || parsedBaseUrl.password.length > 0) {
+  if (connectionUrl.parsed.username.length > 0 || connectionUrl.parsed.password.length > 0) {
     return yield* new GatewayControlError({
       reason: "invalid-url",
-      url: sanitizedUrl(baseUrl),
+      url: sanitizedUrl(connectionUrl.baseUrl),
       message:
         "The configured gateway URL must not contain a username or password. Remove URL credentials and retry `tt list`. No gateway was contacted.",
     });
   }
-  const url = yield* Effect.try({
-    try: () => new URL("/_turbotunnel/tunnels", baseUrl).toString(),
-    catch: (cause) =>
-      new GatewayControlError({
-        reason: "invalid-url",
-        url: baseUrl,
-        cause,
-        message:
-          "The configured gateway URL is invalid. Fix the saved Turbotunnel config or run `tt deploy`, then retry `tt list`. No gateway was contacted.",
-      }),
-  });
 
   return {
-    url,
+    url: new URL("/_turbotunnel/tunnels", connectionUrl.parsed).toString(),
     relaySecret: Redacted.make(config.relaySecret ?? "dev_secret", { label: "relay-secret" }),
   };
 });

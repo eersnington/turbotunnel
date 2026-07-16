@@ -2,11 +2,11 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 
-import { Context, Effect, Exit, Layer, Schema, Scope } from "effect";
+import { Context, Effect, Layer, Schema, Scope } from "effect";
 
 import {
-  decodeControlRequest,
   decodeControlResponse,
+  ControlRequestSchema,
   type ControlResponse,
   type RuntimeRecord,
   type TunnelLifecycleSnapshot,
@@ -44,6 +44,12 @@ export class LocalControl extends Context.Service<LocalControl, LocalControlShap
 }
 
 const decodeJsonString = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString);
+const decodeControlRequestSync = Schema.decodeUnknownSync(
+  Schema.fromJsonString(ControlRequestSchema),
+  {
+    onExcessProperty: "error",
+  },
+);
 
 function makeLocalControl(runtimeDir: string): LocalControlShape {
   return LocalControl.of({
@@ -125,14 +131,14 @@ function handleConnection(
     if (newline === -1) return;
     handled = true;
 
-    const decoded = Effect.runSyncExit(
-      decodeJsonString(input.slice(0, newline)).pipe(Effect.flatMap(decodeControlRequest)),
-    );
-    if (Exit.isFailure(decoded)) {
+    let decoded: typeof ControlRequestSchema.Type;
+    try {
+      decoded = decodeControlRequestSync(input.slice(0, newline));
+    } catch {
       writeResponse(socket, { version: 1, status: "error", reason: "invalid_request" });
       return;
     }
-    if (decoded.value.processToken !== processToken) {
+    if (decoded.processToken !== processToken) {
       writeResponse(socket, { version: 1, status: "error", reason: "unauthorized" });
       return;
     }

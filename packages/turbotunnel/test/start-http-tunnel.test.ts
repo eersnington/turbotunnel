@@ -111,7 +111,6 @@ class TunnelRecorder {
       Layer.succeed(
         TunnelRuntime,
         TunnelRuntime.of({
-          snapshot: Effect.succeed(undefined),
           run: (config) =>
             Effect.sync(() => {
               this.startedConfig = config;

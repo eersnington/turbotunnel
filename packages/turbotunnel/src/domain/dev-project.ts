@@ -19,8 +19,6 @@ export type DevCommandInput = {
 export type DevLaunch = {
   readonly executable: string;
   readonly args: ReadonlyArray<string>;
-  readonly port: number;
-  readonly framework: Framework | undefined;
 };
 
 export type Framework = "next" | "vite" | "astro" | "nuxt" | "storybook";
@@ -75,7 +73,7 @@ export const resolveDevLaunch = Effect.fn("resolveDevLaunch")(function* (
           ? [...removePortArguments(originalArgs, framework), "--port", String(port)]
           : originalArgs
         : appendFrameworkPort(originalArgs, framework, port);
-    return { executable, args, port, framework };
+    return { executable, args };
   }
 
   const devScript = project.scripts.dev;
@@ -91,8 +89,6 @@ export const resolveDevLaunch = Effect.fn("resolveDevLaunch")(function* (
   return {
     executable: project.packageManager,
     args: packageManagerDevArgs(project.packageManager, frameworkArgs),
-    port,
-    framework,
   };
 });
 

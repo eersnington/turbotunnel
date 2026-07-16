@@ -19,6 +19,7 @@ import { RuntimeRegistry } from "../src/adapters/runtime-registry.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
 import { CliOutput } from "../src/cli/output.js";
 import type { TunnelLifecycleSnapshot } from "../src/domain/tunnel-lifecycle.js";
+import type { LocalControlError, RuntimeRegistryError } from "../src/errors.js";
 
 describe("TunnelRuntime", () => {
   it.effect("registers a starting snapshot while waiting for the local app", () =>
@@ -32,9 +33,12 @@ describe("TunnelRuntime", () => {
         Layer.provide(localRuntime),
         Layer.provide(Layer.succeed(CliOutput, CliOutput.of({ write: () => Effect.void }))),
       );
+      const services = Layer.merge(localRuntime, runtimeLayer);
 
       yield* Effect.gen(function* () {
         const runtime = yield* TunnelRuntime;
+        const registry = yield* RuntimeRegistry;
+        const control = yield* LocalControl;
         yield* runtime
           .run(
             {
@@ -50,11 +54,12 @@ describe("TunnelRuntime", () => {
           .pipe(Effect.forkScoped);
 
         const starting = yield* waitForSnapshot(
-          runtime,
+          registry,
+          control,
           (snapshot) => snapshot.state === "starting",
         );
         expect(starting.connectedRelays).toBe(0);
-      }).pipe(Effect.scoped, Effect.provide(runtimeLayer));
+      }).pipe(Effect.scoped, Effect.provide(services));
     }),
   );
 
@@ -82,9 +87,12 @@ describe("TunnelRuntime", () => {
         Layer.provide(localRuntime),
         Layer.provide(Layer.succeed(CliOutput, CliOutput.of({ write: () => Effect.void }))),
       );
+      const services = Layer.merge(localRuntime, runtimeLayer);
 
       yield* Effect.gen(function* () {
         const runtime = yield* TunnelRuntime;
+        const registry = yield* RuntimeRegistry;
+        const control = yield* LocalControl;
         yield* runtime
           .run({
             slug: "demo",
@@ -96,7 +104,11 @@ describe("TunnelRuntime", () => {
           })
           .pipe(Effect.forkScoped);
 
-        const ready = yield* waitForSnapshot(runtime, (snapshot) => snapshot.state === "ready");
+        const ready = yield* waitForSnapshot(
+          registry,
+          control,
+          (snapshot) => snapshot.state === "ready",
+        );
         expect(ready.connectedRelays).toBe(1);
         expect(ready.relayConnects).toBe(1);
         const firstHello = yield* waitForHello(hellos, 1);
@@ -104,7 +116,8 @@ describe("TunnelRuntime", () => {
 
         clients[0]?.terminate();
         const reconnecting = yield* waitForSnapshot(
-          runtime,
+          registry,
+          control,
           (snapshot) => snapshot.state === "reconnecting",
         );
         expect(reconnecting.connectedRelays).toBe(0);
@@ -117,19 +130,23 @@ describe("TunnelRuntime", () => {
           generation: 2,
           connectedAt: firstHello.connectedAt,
         });
-      }).pipe(Effect.scoped, Effect.provide(runtimeLayer));
+      }).pipe(Effect.scoped, Effect.provide(services));
     }),
   );
 });
 
 function waitForSnapshot(
-  runtime: TunnelRuntime["Service"],
+  registry: RuntimeRegistry["Service"],
+  control: LocalControl["Service"],
   predicate: (snapshot: TunnelLifecycleSnapshot) => boolean,
-): Effect.Effect<TunnelLifecycleSnapshot> {
+): Effect.Effect<TunnelLifecycleSnapshot, RuntimeRegistryError | LocalControlError> {
   return Effect.gen(function* () {
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      const snapshot = yield* runtime.snapshot;
-      if (snapshot !== undefined && predicate(snapshot)) return snapshot;
+      const [record] = yield* registry.list;
+      if (record !== undefined) {
+        const snapshot = yield* control.query(record);
+        if (predicate(snapshot)) return snapshot;
+      }
       yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
     }
     return yield* Effect.die("runtime snapshot did not reach the expected phase");

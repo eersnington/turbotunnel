@@ -44,8 +44,8 @@ describe("startDev", () => {
         expect(exitCode).toBe(19);
         expect(JSON.parse(yield* Effect.promise(() => readFile(outputPath, "utf8")))).toEqual({
           PORT: "5173",
-          URL: "https://demo.tunnel.example.com/",
-          HOST: "demo.tunnel.example.com",
+          URL: "http://demo.localhost:3002/",
+          HOST: "demo.localhost:3002",
           SLUG: "demo",
         });
       }),
@@ -105,8 +105,9 @@ const testLayer = Layer.mergeAll(
     LocalConfigStore.of({
       read: Effect.succeed({
         slug: "demo",
-        relayDomain: "tunnel.example.com",
+        relayDomain: "localhost",
         relaySecret: "secret",
+        relayUrl: "http://127.0.0.1:3002",
       }),
       write: () => Effect.void,
     }),
@@ -121,7 +122,6 @@ const testLayer = Layer.mergeAll(
   Layer.succeed(
     TunnelRuntime,
     TunnelRuntime.of({
-      snapshot: Effect.succeed(undefined),
       run: (_config, beforeConnect = Effect.void) =>
         beforeConnect.pipe(Effect.andThen(Effect.never)),
     }),
@@ -168,7 +168,6 @@ const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
     Layer.succeed(
       TunnelRuntime,
       TunnelRuntime.of({
-        snapshot: Effect.succeed(undefined),
         run: (_config, beforeConnect = Effect.void) =>
           beforeConnect.pipe(Effect.andThen(Effect.never)),
       }),
