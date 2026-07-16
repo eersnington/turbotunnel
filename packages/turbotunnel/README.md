@@ -162,13 +162,6 @@ bun run tt -- deploy
 bun run tt -- http 5173
 ```
 
-Or use the workspace shortcuts:
-
-```sh
-bun run tt:deploy
-bun run tt:http 5173
-```
-
 ## License
 
 MIT
