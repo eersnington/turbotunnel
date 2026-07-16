@@ -3,6 +3,8 @@ title: Configuration
 description: Understand saved gateway settings, secrets, and runtime overrides.
 ---
 
+Turbotunnel stores gateway connection details after deployment. Environment variables can override those details for a tunnel process.
+
 ## Saved configuration
 
 After a successful deployment, Turbotunnel writes `~/.turbotunnel/config.json`:
@@ -13,7 +15,7 @@ After a successful deployment, Turbotunnel writes `~/.turbotunnel/config.json`:
   "slug": "ttabc123",
   "relayDomain": "{slug}-turbotunnel.vercel.app",
   "queueRegion": "iad1",
-  "relaySecret": "ttsec_..."
+  "relaySecret": "ttsec_example_redacted"
 }
 ```
 
@@ -23,7 +25,7 @@ The relay secret grants access to your gateway. Do not commit or share this file
 
 ## Environment variables
 
-`tt http` reads these variables:
+`tt http` and `tt dev` read these variables:
 
 | Variable                   | Purpose                                      |
 | -------------------------- | -------------------------------------------- |
@@ -33,7 +35,7 @@ The relay secret grants access to your gateway. Do not commit or share this file
 | `TURBOTUNNEL_RELAY_SECRET` | Gateway bearer secret.                       |
 | `TURBOTUNNEL_RELAY_URL`    | Explicit relay origin for local development. |
 
-Command-line options take precedence over environment variables, which take precedence over the saved config. A generated value is used only when none of those sources provides one.
+For `tt http`, command-line options take precedence over environment variables. Environment variables take precedence over saved config, followed by generated defaults. `tt dev` has no tunnel configuration options, so environment variables take precedence over saved config directly.
 
 For the domain, `TURBOTUNNEL_BASE_DOMAIN` takes precedence over `TURBOTUNNEL_RELAY_DOMAIN`.
 

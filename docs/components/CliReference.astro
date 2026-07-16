@@ -3,8 +3,7 @@ const commands = [
   {
     name: "tt deploy",
     args: "",
-    description:
-      "Provisions the gateway on your Vercel account. Run once to create your public endpoint.",
+    description: "Deploy a gateway to your Vercel account and save its connection settings.",
     href: "/docs/deploy",
   },
   {
@@ -16,18 +15,18 @@ const commands = [
   {
     name: "tt http",
     args: "<port>",
-    description: "Connect a running local app to the gateway and print its public URL.",
+    description: "Expose a running local app through the gateway.",
     href: "/docs/http",
   },
   {
     name: "tt status",
-    args: "[--format json]",
+    args: "",
     description: "Inspect live tunnel processes on this machine.",
     href: "/docs/status",
   },
   {
     name: "tt list",
-    args: "[--format json]",
+    args: "",
     description: "List recent tunnels reported by the configured gateway.",
     href: "/docs/list",
   },
@@ -37,7 +36,7 @@ const commands = [
 <section class="border-border border-b">
   <div class="mx-auto max-w-6xl px-6 py-20 lg:py-24">
     <h2 class="text-balance font-medium text-2xl tracking-tight sm:text-3xl">
-      CLI Reference
+      CLI reference
     </h2>
     <p class="mt-3 max-w-[52ch] text-balance text-base text-muted-foreground leading-relaxed">
       Deploy a gateway, run tunnels, and inspect their local or gateway state.

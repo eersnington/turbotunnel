@@ -1,58 +1,17 @@
 ---
-title: Limits and troubleshooting
-description: Understand current limits and recover from common failures.
+title: Limits
+description: Check request, connection, and startup limits before opening a tunnel.
 ---
 
-## Current limits
+These limits apply to gateway instances, local relay processes, and Vercel Queue traffic.
 
 - The public URL works only while `tt http` or `tt dev` is running.
 - HTTP requests time out after 30 seconds.
-- Request and response bodies are limited to 4 MB each.
-- A tunnel accepts up to 32 concurrent public WebSocket connections.
+- Request and response bodies are limited to 4 MiB (4,194,304 bytes) each.
+- Each gateway instance accepts up to 32 concurrent public WebSocket connections per tunnel slug.
 - The local relay socket pool can contain 1 to 16 connections and defaults to 2.
+- `tt dev` waits up to 60 seconds for the local server before it stops the managed process and tunnel.
+- `tt list` waits up to five seconds for a response and accepts response bodies up to 1 MiB.
+- Gateway tunnel listing stops after 10,000 presence events rather than returning a partial result.
 
-## The local app is not reachable
-
-Start the app before opening the tunnel. Confirm the port and, if needed, pass the interface it listens on:
-
-```sh
-tt http 5173 --host 127.0.0.1
-```
-
-The preflight request has a three-second timeout.
-
-If the app is visibly running but the check still fails, compare its printed URL with the `Local` row. Fixed-port scripts need the same value passed to `tt dev --port`, and servers bound to another interface need `tt http --host`.
-
-## No gateway is configured
-
-Deploy one first:
-
-```sh
-tt deploy
-```
-
-For local gateway development, provide a domain, relay URL, and secret through options or environment variables instead.
-
-## The Vercel CLI is missing or logged out
-
-Install it and authenticate:
-
-```sh
-npm i -g vercel
-vercel login
-vercel whoami
-```
-
-Then retry `tt deploy`.
-
-## A custom domain fails
-
-The active Vercel account must own or have access to the domain. Review the Vercel CLI output, complete any required DNS verification, and run `tt deploy` again. Turbotunnel keeps the previous local config when deployment or verification fails.
-
-## The config file is invalid
-
-Fix the JSON in `~/.turbotunnel/config.json` or remove the file and deploy again. All supported fields are strings.
-
-## Gateway verification fails
-
-Open `https://<gateway-host>/_turbotunnel/status` and inspect the Vercel deployment logs. Verification retries after 1, 2, 4, and 8 seconds; each request has a 15-second timeout. The saved config changes only after verification passes.
+Vercel may run several gateway instances. The WebSocket connection limit applies independently to each instance.

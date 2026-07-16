@@ -5,16 +5,28 @@ description: Run a project dev server and public tunnel as one managed process.
 
 ```sh
 tt dev [--port <port>]
+tt dev [--port <port>] -- <command> [args...]
 ```
 
-`tt dev` finds the nearest `package.json`, starts its `dev` script, waits for the local HTTP server, and opens the tunnel. Pressing `Ctrl-C` stops both the tunnel and the managed process group.
+`tt dev` finds the nearest `package.json` and starts its `dev` script. Pass a command after `--` to run another executable. Turbotunnel waits for the local HTTP server and then opens the tunnel. Press `Ctrl-C` to stop both processes.
 
-## Options
+## Select a port
 
-| Input           | Description                                                        | Default              |
-| --------------- | ------------------------------------------------------------------ | -------------------- |
-| `--port <port>` | Local dev server port, from 1 to 65535.                            | A free local port    |
-| `-- <command>`  | Command to run instead of the detected package manager and script. | Package `dev` script |
+Pass `--port` to select the local target. Otherwise, Turbotunnel uses a port from the custom command or allocates a free port.
+
+| Option          | Description                                    | Default                                    |
+| --------------- | ---------------------------------------------- | ------------------------------------------ |
+| `--port <port>` | Select the local server port, from 1 to 65535. | Custom command port, otherwise a free port |
+
+## Command arguments
+
+The second form replaces the package `dev` script with an explicit executable and arguments:
+
+| Input       | Description                                                  |
+| ----------- | ------------------------------------------------------------ |
+| `<command>` | Executable to start directly, without a shell.               |
+| `[args...]` | Child arguments; supported port options may be normalized.   |
+| `--`        | Separator between Turbotunnel options and the child command. |
 
 The child receives these environment variables:
 
@@ -25,7 +37,13 @@ The child receives these environment variables:
 | `TURBOTUNNEL_HOST` | The public tunnel host.   |
 | `TURBOTUNNEL_SLUG` | The resolved tunnel slug. |
 
-Known framework commands receive their normal port option. Vite also receives `--strictPort`. Other commands receive the environment variables above and must read `PORT` themselves, unless you pass a matching `--port` to Turbotunnel.
+Turbotunnel recognizes these framework commands: Next.js, Vite, Astro, Nuxt, and Storybook. It replaces an existing framework port argument and appends the selected port in the framework's normal form. Vite also receives `--strictPort`.
+
+For other executables, `--port <port>` or `--port=<port>` in the child arguments selects the tunnel port. Turbotunnel normalizes either form to `--port <port>`. Without that argument, the executable must read `PORT`.
+
+You can also pass `--port <port>` before the separator. For an unrecognized executable, this sets `PORT` but does not append a child argument.
+
+Turbotunnel waits up to 60 seconds for the selected port to accept an HTTP connection. If the deadline expires, it stops the child process and tunnel.
 
 ## Package scripts
 
@@ -57,7 +75,7 @@ When running the repository CLI through Bun, preserve both argument boundaries:
 bun run tt -- dev --port 1024 -- bun run --cwd docs dev
 ```
 
-Turbotunnel prints the custom command before launch. Control characters are escaped, and values attached to common secret, token, password, credential, authentication, and key options are replaced with `<redacted>`.
+Turbotunnel prints the custom command before launch. It escapes control characters and redacts values attached to options containing `auth`, `credential`, `key`, `password`, `secret`, or `token`. It also redacts uppercase environment assignments whose names contain those terms.
 
 ## Terminal output
 

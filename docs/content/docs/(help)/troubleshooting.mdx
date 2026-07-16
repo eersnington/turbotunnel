@@ -1,0 +1,52 @@
+---
+title: Troubleshooting
+description: Diagnose gateway, local app, configuration, and deployment failures.
+---
+
+Start with the error message from `tt`. Expected failures describe what stopped, what remains unchanged, and what to try next.
+
+## The local app is not reachable
+
+Start the app before opening the tunnel. Confirm the port and, if needed, pass the interface it listens on:
+
+```sh
+tt http 5173 --host 127.0.0.1
+```
+
+The preflight request has a three-second timeout.
+
+If the app is running but the check still fails, compare its URL with the `Local` row. Fixed-port scripts need the same value passed to `tt dev --port`. Servers bound to another interface need `tt http --host`.
+
+## No gateway is configured
+
+Deploy a gateway:
+
+```sh
+tt deploy
+```
+
+For local gateway development, provide a domain, relay URL, and secret through options or environment variables instead.
+
+## The Vercel CLI is missing or logged out
+
+Install the Vercel CLI and authenticate:
+
+```sh
+npm i -g vercel
+vercel login
+vercel whoami
+```
+
+Then retry `tt deploy`.
+
+## A custom domain fails
+
+The active Vercel account must own or have access to the domain. Review the Vercel CLI output and complete any required Domain Name System (DNS) verification. Run `tt deploy` again afterward. Turbotunnel keeps the previous local config when deployment or verification fails.
+
+## The config file is invalid
+
+Fix the JavaScript Object Notation (JSON) in `~/.turbotunnel/config.json`, or remove the file and deploy again. All supported fields are strings.
+
+## Gateway verification fails
+
+Open a gateway status URL such as `https://gateway.example.com/_turbotunnel/status` and inspect the Vercel deployment logs. Verification retries after 1, 2, 4, and 8 seconds. Each request has a 15-second timeout. The saved config changes only after verification passes.

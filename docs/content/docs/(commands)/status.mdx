@@ -7,11 +7,11 @@ description: Inspect every live Turbotunnel process running on this machine.
 tt status [--format json]
 ```
 
-`tt status` asks each local Turbotunnel process for its current lifecycle state. Use it to confirm which tunnels are running on this machine, whether their relay pools are healthy, and whether their gateways are reachable.
+`tt status` asks each local Turbotunnel process for its lifecycle state. It reports running tunnels, relay health, and gateway reachability.
 
 Unlike `tt list`, this command reads authenticated local control sockets. It does not depend on gateway presence events and does not show tunnels running on other machines.
 
-## Output
+## Terminal output
 
 The terminal view prints one block per tunnel:
 
@@ -26,14 +26,14 @@ Local tunnels
   Uptime           12m
 ```
 
-| Field     | Meaning                                                                  |
-| --------- | ------------------------------------------------------------------------ |
-| `Tunnel`  | Current lifecycle state: starting, connecting, ready, or reconnecting.   |
-| `Public`  | URL served by the configured gateway.                                    |
-| `Local`   | Local HTTP target receiving forwarded requests.                          |
-| `Gateway` | Whether the gateway status endpoint answered when the command was run.   |
-| `Relays`  | Connected relay sockets compared with the configured pool size.          |
-| `Uptime`  | Time since the local tunnel process started, rounded to seconds/minutes. |
+| Field     | Meaning                                                                     |
+| --------- | --------------------------------------------------------------------------- |
+| `Tunnel`  | Current lifecycle state: starting, connecting, ready, or reconnecting.      |
+| `Public`  | URL served by the configured gateway.                                       |
+| `Local`   | Local HTTP target receiving forwarded requests.                             |
+| `Gateway` | Whether the gateway status endpoint answered when the command was run.      |
+| `Relays`  | Connected relay sockets compared with the configured pool size.             |
+| `Uptime`  | Time since the process started, rounded down to seconds, minutes, or hours. |
 
 If no tunnel process is running, the command prints `No local tunnels are running.`
 
@@ -57,9 +57,16 @@ The command writes a JSON array to stdout. Each item includes the terminal field
     "startedAtMs": 1752667200000,
     "publicUrl": "https://docs-turbotunnel.vercel.app/",
     "localUrl": "http://localhost:5173",
+    "gatewayStatusUrl": "https://docs-turbotunnel.vercel.app/_turbotunnel/status",
     "configuredRelays": 2,
     "connectedRelays": 2,
+    "relayConnects": 2,
+    "relayCloses": 0,
+    "relayErrors": 0,
     "reconnects": 0,
+    "framesReceived": 14,
+    "framesSent": 14,
+    "invalidFrames": 0,
     "httpRequests": 14,
     "httpResponses": 14,
     "webSocketsOpened": 1,
@@ -70,13 +77,13 @@ The command writes a JSON array to stdout. Each item includes the terminal field
 ]
 ```
 
-Additional counters report relay connects, closes, and errors; frames sent, received, or rejected; and HTTP/WebSocket activity. Fields may be added as the versioned snapshot evolves, so consumers should read only the fields they need.
+The `version` field identifies the snapshot schema. Consumers should read only the counters they need.
 
 Human output goes to stderr. JSON output goes to stdout without ANSI styling.
 
 ## Local process discovery
 
-Every `tt http` and `tt dev` process registers a private record under `~/.turbotunnel` and listens on an authenticated local control socket. `tt status` queries up to eight records concurrently.
+Every `tt http` and `tt dev` process registers a private record under `~/.turbotunnel` and listens on an authenticated local control socket.
 
 Records whose process is gone are removed automatically. A process that is temporarily unavailable is preserved and causes the command to fail instead of incorrectly reporting that the tunnel stopped.
 

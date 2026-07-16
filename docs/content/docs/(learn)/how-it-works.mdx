@@ -10,13 +10,13 @@ Turbotunnel has two runtime pieces:
 
 ![Browser to gateway to tt http to local app, with Vercel Queue fallback](/architecture.png)
 
-The local process opens a pool of persistent WebSocket connections to the gateway. A browser request reaches the public gateway, travels over one of those connections, and is replayed against your local HTTP server. The response returns over the same path.
+The local process opens a pool of persistent WebSocket connections to the gateway. When the gateway receives a browser request, it sends the request over one connection. The local process makes the corresponding request to your HTTP server and returns its response to the gateway.
 
 WebSocket upgrade requests use the same tunnel and remain connected to the local app.
 
 ## Multiple gateway instances
 
-Vercel can run more than one gateway instance. A public request may reach an instance that does not own a connection to your machine. In that case, the Vercel Queue carries the request to an instance that does. The queue region is selected during `tt deploy`.
+Vercel can run more than one gateway instance. A public request may reach an instance without a connection to your machine. That instance publishes the request to Vercel Queue, and an instance with a local connection consumes it. You select the queue region during `tt deploy`.
 
 ## Gateway status
 
@@ -34,7 +34,7 @@ Each relay connection publishes a heartbeat to Vercel Queue. `tt list` calls the
 
 The response reports `consistency: "bounded"`. A relay can remain in the list for up to its lease window after an unclean disconnect, so this is not an instantaneous global snapshot. `tt status` uses authenticated local process sockets instead when you need the state of tunnels on the current machine.
 
-Each local process registers a private control socket under `~/.turbotunnel`. `tt status` authenticates to that socket with a per-process token and reads the current relay state and counters. Stale process records are removed when they no longer answer.
+Each local process registers a private control socket under `~/.turbotunnel`. `tt status` authenticates with a per-process token and reads the current relay state and counters. It removes records for missing sockets or invalid protocols. Temporary connection failures preserve the record and cause the command to fail.
 
 ## Disconnects and retries
 

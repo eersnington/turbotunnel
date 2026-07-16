@@ -11,6 +11,8 @@ Turbotunnel forwards HTTP and WebSocket traffic from a public URL to an app runn
 - A Vercel account
 - The Vercel CLI, installed and logged in
 
+Install the CLIs and authenticate with Vercel:
+
 ```sh
 npm i -g turbotunnel vercel
 vercel login
@@ -55,7 +57,7 @@ You can also let Turbotunnel start the package's `dev` script:
 tt dev
 ```
 
-`tt dev` prints the resolved tunnel and command before handing the terminal to the child process. It separates child logs from tunnel lifecycle messages so reconnects and readiness remain easy to find.
+`tt dev` prints the resolved tunnel and command before it starts the child process. It separates child logs from tunnel lifecycle messages, so reconnect and readiness messages stay distinct.
 
 Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to see recent tunnel presence reported by the configured gateway.
 
@@ -80,5 +82,11 @@ Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to se
   </Card>
   <Card title="How it works" href="/docs/how-it-works">
     Gateway, queue, and relay architecture.
+  </Card>
+  <Card title="Limits" href="/docs/limits">
+    Request sizes, timeouts, connection counts, and listing safeguards.
+  </Card>
+  <Card title="Troubleshooting" href="/docs/troubleshooting">
+    Local app, gateway, configuration, and deployment failures.
   </Card>
 </CardGroup>

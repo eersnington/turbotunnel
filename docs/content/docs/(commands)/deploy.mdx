@@ -4,12 +4,12 @@ description: Provision and configure your Turbotunnel gateway on Vercel.
 ---
 
 ```sh
-tt deploy [--project <name>] [--domain <domain>] [--region <region>] [--format json]
+tt deploy [options]
 ```
 
 `tt deploy` copies the gateway artifact to `~/.turbotunnel/relay`, links a Vercel project, sets its production environment variables, deploys it, and verifies the public status endpoint. It writes `~/.turbotunnel/config.json` only after verification succeeds.
 
-## Options
+## Deployment options
 
 | Option              | Description                                                                               | Default                         |
 | ------------------- | ----------------------------------------------------------------------------------------- | ------------------------------- |
@@ -22,6 +22,8 @@ Running the command again without options reuses the saved project, slug, domain
 
 ## Default Vercel domain
 
+Run the command without options to use a generated project and Vercel domain:
+
 ```sh
 tt deploy
 ```
@@ -31,6 +33,8 @@ A generated slug such as `ttabc123` produces the project `ttabc123-turbotunnel` 
 ```text
 https://ttabc123-turbotunnel.vercel.app/
 ```
+
+The default Vercel domain supports this deployment slug only. To use a different slug, deploy a matching project such as `demo-turbotunnel` or configure a wildcard custom domain.
 
 ## Custom domains
 
@@ -42,23 +46,25 @@ tt deploy --domain tunnel.example.com
 
 A tunnel with the slug `demo` is available at `https://demo.tunnel.example.com/`. Turbotunnel asks Vercel to add `*.tunnel.example.com` to the project.
 
-Use `{slug}` when the slug belongs elsewhere in the hostname:
+Use `{slug}` to place the deployment slug elsewhere in one concrete hostname:
 
 ```sh
-tt deploy --domain "{slug}.dev.example.com"
+tt deploy --project demo-turbotunnel --domain "{slug}.dev.example.com"
 ```
 
-The same slug is then available at `https://demo.dev.example.com/`.
+This adds `demo.dev.example.com` to the Vercel project. It does not add a wildcard, so another runtime slug will not work unless you provision its hostname separately. Use a base domain such as `dev.example.com` when you need arbitrary runtime slugs.
 
 Your domain must already be available to the active Vercel account. Vercel may ask you to configure DNS or prove ownership.
 
 ## JSON output
 
+Pass `--format json` to send the final result to stdout:
+
 ```sh
 tt deploy --format json
 ```
 
-A successful deployment writes one JSON value:
+A successful deployment writes progress to stderr and one JSON result to stdout:
 
 ```json
 {
@@ -76,12 +82,14 @@ A successful deployment writes one JSON value:
 }
 ```
 
-Expected failures use this shape and exit with status 1:
+Expected failures in JSON mode use the same stdout stream and exit with status 1. For example, `tt deploy --project demo --format json` returns:
 
 ```json
 {
   "status": "error",
   "reason": "CliConfigError",
-  "message": "Format must be `json`."
+  "message": "--project without --domain must use the <slug>-turbotunnel format. Pass --domain when the project name does not include the tunnel slug."
 }
 ```
+
+An unsupported `--format` value cannot select JSON mode, so that configuration error is printed as terminal text on stderr.
