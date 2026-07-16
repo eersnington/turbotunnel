@@ -27,9 +27,13 @@ describe("renderTunnelList", () => {
       _tag: "Text",
       stream: "stderr",
       text: [
+        "",
+        "Connected tunnels",
+        "",
         "SLUG      TARGET          CONNECTED  RELAYS",
         "checkout  127.0.0.1:3000  1m         3",
         "docs      localhost:5173  30s        1",
+        "",
       ].join("\n"),
     });
   });

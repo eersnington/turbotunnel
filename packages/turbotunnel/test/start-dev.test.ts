@@ -15,6 +15,8 @@ import { PortAllocator } from "../src/adapters/port-allocator.js";
 import { ProjectDiscovery } from "../src/adapters/project-discovery.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
 import { startDev } from "../src/programs/start-dev.js";
+import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
+import type { LifecycleEvent } from "../src/runtime/lifecycle-event.js";
 
 describe("startDev", () => {
   it.effect("injects the resolved tunnel environment and returns the child exit code", () =>
@@ -32,14 +34,18 @@ describe("startDev", () => {
           ),
         );
         const outputPath = join(root, "environment.json");
+        const events: Array<LifecycleEvent> = [];
         const script =
           "require('node:fs').writeFileSync(process.argv[1], JSON.stringify({ PORT: process.env.PORT, URL: process.env.TURBOTUNNEL_URL, HOST: process.env.TURBOTUNNEL_HOST, SLUG: process.env.TURBOTUNNEL_SLUG })); process.exit(19)";
 
         const exitCode = yield* startDev({
-          input: { port: 5173, command: [process.execPath, "-e", script, outputPath] },
+          input: {
+            port: 5173,
+            command: [process.execPath, "-e", script, outputPath, "--api-key", "secret"],
+          },
           cwd: root,
           env: {},
-        }).pipe(Effect.provide(testLayer), Effect.provide(NodeServices.layer));
+        }).pipe(Effect.provide(makeTestLayer(events)), Effect.provide(NodeServices.layer));
 
         expect(exitCode).toBe(19);
         expect(JSON.parse(yield* Effect.promise(() => readFile(outputPath, "utf8")))).toEqual({
@@ -48,6 +54,20 @@ describe("startDev", () => {
           HOST: "demo.localhost:3002",
           SLUG: "demo",
         });
+        expect(events[0]).toMatchObject({
+          _tag: "TunnelStarting",
+          launch: {
+            _tag: "ManagedProcess",
+            directory: root,
+          },
+        });
+        const event = events[0];
+        expect(event?._tag).toBe("TunnelStarting");
+        if (event?._tag === "TunnelStarting" && event.launch._tag === "ManagedProcess") {
+          expect(event.launch.command).toContain(`${process.execPath} -e`);
+          expect(event.launch.command).toContain("--api-key <redacted>");
+          expect(event.launch.command).not.toContain("--api-key secret");
+        }
       }),
     ),
   );
@@ -88,45 +108,50 @@ describe("startDev", () => {
   );
 });
 
-const testLayer = Layer.mergeAll(
-  ProjectDiscovery.live,
-  DevProcess.live,
-  Layer.succeed(PortAllocator, PortAllocator.of({ freePort: Effect.succeed(6000) })),
-  Layer.succeed(
-    Entropy,
-    Entropy.of({
-      deploySlug: Effect.succeed("deploy"),
-      tunnelSlug: Effect.succeed("generated"),
-      relaySecret: Effect.succeed(Redacted.make("secret", { label: "relay-secret" })),
-    }),
-  ),
-  Layer.succeed(
-    LocalConfigStore,
-    LocalConfigStore.of({
-      read: Effect.succeed({
-        slug: "demo",
-        relayDomain: "localhost",
-        relaySecret: "secret",
-        relayUrl: "http://127.0.0.1:3002",
+const makeTestLayer = (events: Array<LifecycleEvent>) =>
+  Layer.mergeAll(
+    ProjectDiscovery.live,
+    DevProcess.live,
+    Layer.succeed(PortAllocator, PortAllocator.of({ freePort: Effect.succeed(6000) })),
+    Layer.succeed(
+      Entropy,
+      Entropy.of({
+        deploySlug: Effect.succeed("deploy"),
+        tunnelSlug: Effect.succeed("generated"),
+        relaySecret: Effect.succeed(Redacted.make("secret", { label: "relay-secret" })),
       }),
-      write: () => Effect.void,
-    }),
-  ),
-  Layer.succeed(
-    LocalAppProbe,
-    LocalAppProbe.of({
-      assertReachable: () => Effect.void,
-      waitUntilReachable: () => Effect.never,
-    }),
-  ),
-  Layer.succeed(
-    TunnelRuntime,
-    TunnelRuntime.of({
-      run: (_config, beforeConnect = Effect.void) =>
-        beforeConnect.pipe(Effect.andThen(Effect.never)),
-    }),
-  ),
-);
+    ),
+    Layer.succeed(
+      LocalConfigStore,
+      LocalConfigStore.of({
+        read: Effect.succeed({
+          slug: "demo",
+          relayDomain: "localhost",
+          relaySecret: "secret",
+          relayUrl: "http://127.0.0.1:3002",
+        }),
+        write: () => Effect.void,
+      }),
+    ),
+    Layer.succeed(
+      LocalAppProbe,
+      LocalAppProbe.of({
+        assertReachable: () => Effect.void,
+        waitUntilReachable: () => Effect.never,
+      }),
+    ),
+    Layer.succeed(
+      TunnelRuntime,
+      TunnelRuntime.of({
+        run: (_config, beforeConnect = Effect.void) =>
+          beforeConnect.pipe(Effect.andThen(Effect.never)),
+      }),
+    ),
+    Layer.succeed(
+      TunnelReporter,
+      TunnelReporter.of({ emit: (event) => Effect.sync(() => events.push(event)) }),
+    ),
+  );
 
 const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
   Layer.mergeAll(
@@ -172,4 +197,5 @@ const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
           beforeConnect.pipe(Effect.andThen(Effect.never)),
       }),
     ),
+    Layer.succeed(TunnelReporter, TunnelReporter.of({ emit: () => Effect.void })),
   );

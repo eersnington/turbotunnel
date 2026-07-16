@@ -8,6 +8,7 @@ import { GatewayWorkspace } from "../src/adapters/gateway-workspace.js";
 import { LocalConfigStore, type LocalConfig } from "../src/adapters/local-config-store.js";
 import { VercelCli } from "../src/adapters/vercel-cli.js";
 import { CliOutput, type CliMessage } from "../src/cli/output.js";
+import { TerminalSurface } from "../src/cli/terminal-surface.js";
 import type { SavedDeployConfig } from "../src/domain/deploy-plan.js";
 import { GatewayVerificationError, VercelCliFailed } from "../src/errors.js";
 import { deployGateway } from "../src/programs/deploy-gateway.js";
@@ -37,15 +38,10 @@ describe("deployGateway", () => {
         relaySecret: "ttsec_test",
         queueRegion: "iad1",
       });
-      expect(recorder.outputMessages).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            _tag: "Text",
-            stream: "stderr",
-            text: expect.stringMatching(/Gateway[\s\S]*deployed|deployed[\s\S]*Gateway/),
-          }),
-        ]),
+      expect(recorder.terminalWrites.join("\n")).toMatch(
+        /Gateway[\s\S]*deployed|deployed[\s\S]*Gateway/,
       );
+      expect(recorder.terminalWrites.join("\n")).not.toContain("\u001B");
     }),
   );
 
@@ -134,6 +130,7 @@ describe("deployGateway", () => {
 class DeployRecorder {
   readonly vercelOperations: Array<string> = [];
   readonly outputMessages: Array<CliMessage> = [];
+  readonly terminalWrites: Array<string> = [];
   workspaceGenerated: string | undefined;
   verifiedHost: string | undefined;
   writtenConfig: Required<SavedDeployConfig> | undefined;
@@ -235,6 +232,10 @@ class DeployRecorder {
             }),
         }),
       ),
+      TerminalSurface.layer({
+        capabilities: { interactive: false, color: false },
+        write: (text) => Effect.sync(() => this.terminalWrites.push(text)),
+      }),
     );
   }
 }

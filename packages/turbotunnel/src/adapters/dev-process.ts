@@ -4,6 +4,7 @@ import { constants } from "node:os";
 import { Context, Deferred, Effect, Exit, Layer, Scope } from "effect";
 
 import { DevProcessError } from "../errors.js";
+import { formatProcessCommand } from "../domain/process-command.js";
 
 export type DevProcessSpec = {
   readonly executable: string;
@@ -34,7 +35,7 @@ export class DevProcess extends Context.Service<DevProcess, DevProcessShape>()(
 const spawnDevProcess = Effect.fn("DevProcess.spawn")(function* (
   spec: DevProcessSpec,
 ): Effect.fn.Return<RunningDevProcess, DevProcessError, Scope.Scope> {
-  const command = [spec.executable, ...spec.args].join(" ");
+  const command = formatProcessCommand(spec.executable, []);
   const exitCode = yield* Deferred.make<number>();
   const child = yield* startChild(spec, command, exitCode);
   const pid = child.pid;

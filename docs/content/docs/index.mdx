@@ -35,10 +35,16 @@ tt http 5173
 ```
 
 ```text
-Starting tunnel
+. turbotunnel 0.0.2
 
-  Public URL       https://ttdemo123-turbotunnel.vercel.app/
-  Local app        http://localhost:5173
+  Public           https://ttdemo123-turbotunnel.vercel.app/
+  Local            http://localhost:5173
+  Relays           2 sockets
+
+✓ Local app ready
+✓ Tunnel ready in 1.2s
+
+  Press Ctrl-C to stop
 ```
 
 The public URL works until you press `Ctrl-C` or the process exits.
@@ -49,6 +55,8 @@ You can also let Turbotunnel start the package's `dev` script:
 tt dev
 ```
 
+`tt dev` prints the resolved tunnel and command before handing the terminal to the child process. It separates child logs from tunnel lifecycle messages so reconnects and readiness remain easy to find.
+
 Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to see recent tunnel presence reported by the configured gateway.
 
 <CardGroup cols={2}>
@@ -57,6 +65,9 @@ Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to se
   </Card>
   <Card title="HTTP command" href="/docs/http">
     Slugs, local hosts, socket pools, and development overrides.
+  </Card>
+  <Card title="Dev command" href="/docs/dev">
+    Managed dev servers, custom commands, ports, and child logs.
   </Card>
   <Card title="Configuration" href="/docs/configuration">
     Saved settings and environment variables.

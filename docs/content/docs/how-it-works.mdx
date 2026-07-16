@@ -6,11 +6,11 @@ description: Follow a request through the Vercel gateway to your local app.
 Turbotunnel has two runtime pieces:
 
 1. A gateway deployed to your Vercel account.
-2. The `tt http` process running beside your local app.
+2. A local `tt http` or `tt dev` process connected to your app.
 
 ![Browser to gateway to tt http to local app, with Vercel Queue fallback](/architecture.png)
 
-`tt http` opens a pool of persistent WebSocket connections to the gateway. A browser request reaches the public gateway, travels over one of those connections, and is replayed against your local HTTP server. The response returns over the same path.
+The local process opens a pool of persistent WebSocket connections to the gateway. A browser request reaches the public gateway, travels over one of those connections, and is replayed against your local HTTP server. The response returns over the same path.
 
 WebSocket upgrade requests use the same tunnel and remain connected to the local app.
 
@@ -34,6 +34,12 @@ Each relay connection publishes a heartbeat to Vercel Queue. `tt list` calls the
 
 The response reports `consistency: "bounded"`. A relay can remain in the list for up to its lease window after an unclean disconnect, so this is not an instantaneous global snapshot. `tt status` uses authenticated local process sockets instead when you need the state of tunnels on the current machine.
 
+Each local process registers a private control socket under `~/.turbotunnel`. `tt status` authenticates to that socket with a per-process token and reads the current relay state and counters. Stale process records are removed when they no longer answer.
+
+## Disconnects and retries
+
+Relay slots reconnect independently with exponential backoff. Once the full pool has connected, a later outage produces one reconnect notice instead of one line per retry. The tunnel returns to ready only after every configured relay is connected again.
+
 ## Ownership and availability
 
-The gateway project, domain, environment variables, and usage belong to your Vercel account. The public tunnel is available only while `tt http` is connected.
+The gateway project, domain, environment variables, and usage belong to your Vercel account. The public tunnel is available only while `tt http` or `tt dev` is connected.

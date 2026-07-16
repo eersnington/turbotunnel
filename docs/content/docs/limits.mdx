@@ -5,7 +5,7 @@ description: Current tunnel limits and common setup failures.
 
 ## Current limits
 
-- The public URL works only while `tt http` is running.
+- The public URL works only while `tt http` or `tt dev` is running.
 - HTTP requests time out after 30 seconds.
 - Request and response bodies are limited to 4 MB each.
 - A tunnel accepts up to 32 concurrent public WebSocket connections.
@@ -20,6 +20,8 @@ tt http 5173 --host 127.0.0.1
 ```
 
 The preflight request has a three-second timeout.
+
+If the app is visibly running but the check still fails, compare its printed URL with the `Local` row. Fixed-port scripts need the same value passed to `tt dev --port`, and servers bound to another interface need `tt http --host`.
 
 ## No gateway is configured
 

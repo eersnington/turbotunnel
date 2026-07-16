@@ -17,9 +17,10 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { LocalControl } from "../src/adapters/local-control.js";
 import { RuntimeRegistry } from "../src/adapters/runtime-registry.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
-import { CliOutput } from "../src/cli/output.js";
 import type { TunnelLifecycleSnapshot } from "../src/domain/tunnel-lifecycle.js";
 import type { LocalControlError, RuntimeRegistryError } from "../src/errors.js";
+import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
+import type { LifecycleEvent } from "../src/runtime/lifecycle-event.js";
 
 describe("TunnelRuntime", () => {
   it.effect("registers a starting snapshot while waiting for the local app", () =>
@@ -31,7 +32,9 @@ describe("TunnelRuntime", () => {
       ).pipe(Layer.provide(NodeServices.layer));
       const runtimeLayer = TunnelRuntime.live.pipe(
         Layer.provide(localRuntime),
-        Layer.provide(Layer.succeed(CliOutput, CliOutput.of({ write: () => Effect.void }))),
+        Layer.provide(
+          Layer.succeed(TunnelReporter, TunnelReporter.of({ emit: () => Effect.void })),
+        ),
       );
       const services = Layer.merge(localRuntime, runtimeLayer);
 
@@ -67,6 +70,7 @@ describe("TunnelRuntime", () => {
     Effect.gen(function* () {
       const sessionsDir = yield* temporaryDirectory;
       const server = yield* listenWebSocketServer();
+      const events: Array<LifecycleEvent> = [];
       const clients: Array<WebSocket> = [];
       const hellos: Array<LocalClientHello> = [];
       server.on("connection", (socket) => {
@@ -85,7 +89,12 @@ describe("TunnelRuntime", () => {
       ).pipe(Layer.provide(NodeServices.layer));
       const runtimeLayer = TunnelRuntime.live.pipe(
         Layer.provide(localRuntime),
-        Layer.provide(Layer.succeed(CliOutput, CliOutput.of({ write: () => Effect.void }))),
+        Layer.provide(
+          Layer.succeed(
+            TunnelReporter,
+            TunnelReporter.of({ emit: (event) => Effect.sync(() => events.push(event)) }),
+          ),
+        ),
       );
       const services = Layer.merge(localRuntime, runtimeLayer);
 
@@ -130,6 +139,15 @@ describe("TunnelRuntime", () => {
           generation: 2,
           connectedAt: firstHello.connectedAt,
         });
+        yield* waitForLifecycleEvent(events, "RelayRestored");
+        expect(events.map((event) => event._tag)).toEqual(
+          expect.arrayContaining([
+            "RelaysConnecting",
+            "TunnelReady",
+            "RelayReconnecting",
+            "RelayRestored",
+          ]),
+        );
       }).pipe(Effect.scoped, Effect.provide(services));
     }),
   );
@@ -164,6 +182,19 @@ function waitForHello(
       yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
     }
     return yield* Effect.die(`relay did not send hello ${count}`);
+  });
+}
+
+function waitForLifecycleEvent(
+  events: ReadonlyArray<LifecycleEvent>,
+  tag: LifecycleEvent["_tag"],
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (events.some((event) => event._tag === tag)) return;
+      yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
+    }
+    return yield* Effect.die(`lifecycle did not emit ${tag}`);
   });
 }
 

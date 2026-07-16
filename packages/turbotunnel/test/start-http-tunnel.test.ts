@@ -8,6 +8,7 @@ import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
 import type { HttpTunnelConfig, LocalTarget } from "../src/domain/tunnel-config.js";
 import { LocalTargetNotReachable } from "../src/errors.js";
 import { startHttpTunnel } from "../src/programs/start-http-tunnel.js";
+import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
 
 describe("startHttpTunnel", () => {
   it.effect("resolves saved config, probes local app, then starts runtime", () =>
@@ -23,6 +24,11 @@ describe("startHttpTunnel", () => {
       expect(recorder.probedTarget).toEqual({ protocol: "http", host: "localhost", port: 5173 });
       expect(recorder.startedConfig?.slug).toBe("demo");
       expect(recorder.startedConfig?.relayDomain).toBe("tunnel.example.com");
+      expect(recorder.events[0]).toMatchObject({
+        _tag: "TunnelStarting",
+        launch: { _tag: "ExistingApplication" },
+        config: { target: { host: "localhost", port: 5173 } },
+      });
     }),
   );
 
@@ -60,6 +66,7 @@ describe("startHttpTunnel", () => {
 class TunnelRecorder {
   probedTarget: LocalTarget | undefined;
   startedConfig: HttpTunnelConfig | undefined;
+  readonly events: Array<Parameters<TunnelReporter["Service"]["emit"]>[0]> = [];
   failProbe = false;
 
   constructor(private readonly options: { readonly savedGateway?: boolean } = {}) {}
@@ -116,6 +123,10 @@ class TunnelRecorder {
               this.startedConfig = config;
             }).pipe(Effect.andThen(Effect.never)),
         }),
+      ),
+      Layer.succeed(
+        TunnelReporter,
+        TunnelReporter.of({ emit: (event) => Effect.sync(() => this.events.push(event)) }),
       ),
     );
   }
