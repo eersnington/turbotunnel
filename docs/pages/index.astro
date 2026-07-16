@@ -23,7 +23,7 @@ const { config } = data;
   ogEnabled={config.og.enabled}
   page={{
     title: "Turbotunnel",
-    description: "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
+    description: "Expose your local HTTP or WebSocket app through a gateway in your Vercel account.",
     route: "/",
   }}
 >
@@ -48,7 +48,7 @@ const { config } = data;
           href="/docs"
           class="inline-flex h-11 items-center gap-1.5 rounded-md px-4 font-medium text-sm transition-colors hover:bg-muted"
         >
-          Quickstart
+          Get started
           <svg
             aria-hidden="true"
             class="size-4"
@@ -69,11 +69,9 @@ const { config } = data;
 
   <section class="border-border border-b">
     <div class="mx-auto max-w-6xl px-6 py-20 lg:py-24">
-      <h2 class="text-balance font-medium text-2xl tracking-tight sm:text-3xl">How it Works</h2>
+      <h2 class="text-balance font-medium text-2xl tracking-tight sm:text-3xl">How it works</h2>
       <p class="mt-3 max-w-[72ch] text-balance text-base text-muted-foreground leading-relaxed">
-        Turbotunnel connects your machine to the gateway over WebSockets, carrying requests to your
-        local app and responses back. If a request lands on an instance without that connection,
-        Vercel Queue sends it to one that has it.
+        Turbotunnel connects your machine to the gateway through a pool of relay WebSockets. If a gateway instance has no eligible relay, Vercel Queue forwards the request to an instance connected to your machine.
       </p>
       <div class="mt-10">
         <FlowDiagram client:visible />
@@ -101,7 +99,7 @@ const { config } = data;
           href="/docs"
           class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border bg-background px-5 font-medium text-sm transition-colors hover:bg-muted"
         >
-          Read the docs
+          Get started
           <svg
             aria-hidden="true"
             class="size-4"

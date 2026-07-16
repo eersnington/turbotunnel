@@ -7,7 +7,7 @@ description: Expose an already-running local HTTP or WebSocket app.
 tt http <port> [options]
 ```
 
-The command checks that the local app responds, opens relay sockets to the configured gateway, and forwards HTTP and WebSocket traffic until the process stops.
+`tt http` exposes an already-running local app through the configured gateway. It checks the local target, opens a pool of relay WebSockets, and forwards traffic until the process stops.
 
 Before connecting, terminal output shows the resolved public URL, local target, and relay count. The loading line becomes a stable readiness message after every relay connects. Redirected output and continuous integration (CI) runs use plain, non-animated milestones.
 
@@ -46,7 +46,7 @@ tt http 5173 --slug demo
 
 This produces `https://demo.tunnel.example.com/`. The default `<slug>-turbotunnel.vercel.app` domain supports only the slug in the deployed Vercel project name.
 
-Increase the connection pool for concurrent traffic:
+Increase the relay pool to add direct HTTP capacity and independent relay connections:
 
 ```sh
 tt http 5173 --pool 4
@@ -67,8 +67,6 @@ When `--relay-url` is set, Turbotunnel still uses the configured domain to build
 
 ## Startup checks
 
-Turbotunnel requests `http://<host>:<port>/` before connecting. The check times out after three seconds. Any HTTP response proves the app is reachable; the response does not need to be successful.
-
-The check works when you launch the repository CLI through Bun or the published CLI through Node.js.
+Turbotunnel sends `HEAD /` to `http://<host>:<port>/` before connecting. Any HTTP response proves the app is reachable. The check times out after three seconds.
 
 If no gateway settings are available from options, environment variables, or the saved config, run `tt deploy` first.

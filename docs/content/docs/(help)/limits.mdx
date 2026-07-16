@@ -1,17 +1,23 @@
 ---
-title: Limits
+title: Turbotunnel limits
 description: Check request, connection, and startup limits before opening a tunnel.
 ---
 
-These limits apply to gateway instances, local relay processes, and Vercel Queue traffic.
+Use these limits to determine how Turbotunnel handles request volume, large bodies, slow applications, and connection pressure.
 
-- The public URL works only while `tt http` or `tt dev` is running.
-- HTTP requests time out after 30 seconds.
-- Request and response bodies are limited to 4 MiB (4,194,304 bytes) each.
-- Each gateway instance accepts up to 32 concurrent public WebSocket connections per tunnel slug.
-- The local relay socket pool can contain 1 to 16 connections and defaults to 2.
-- `tt dev` waits up to 60 seconds for the local server before it stops the managed process and tunnel.
-- `tt list` waits up to five seconds for a response and accepts response bodies up to 1 MiB.
-- Gateway tunnel listing stops after 10,000 presence events rather than returning a partial result.
+| Surface | Limit | Scope and result |
+| --- | --- | --- |
+| Tunnel availability | While `tt http` or `tt dev` runs | The public URL needs a connected local process |
+| HTTP request duration | 30s | A gateway timeout returns `504`; a local forwarding failure returns `502` |
+| Request body | 4 MiB (4,194,304 bytes) | The gateway rejects a larger request with `413` before contacting the local app |
+| Response body | 4 MiB (4,194,304 bytes) | A larger local response returns `502` |
+| Direct HTTP capacity | 32 in-flight requests per relay socket | The gateway uses Vercel Queue when no relay socket has capacity |
+| Public WebSockets | 32 per tunnel slug per gateway instance | The gateway closes excess connections with code `1013` |
+| Local relay pool | 1 to 16 sockets; default 2 | Each socket connects independently |
+| `tt dev` startup | 60s | Turbotunnel stops the managed process and tunnel after the deadline |
+| `tt list` request | 5s and a 1 MiB response | The command fails instead of returning incomplete data |
+| Gateway presence replay | 10,000 events | The endpoint returns an error instead of a partial list |
 
-Vercel may run several gateway instances. The WebSocket connection limit applies independently to each instance.
+Vercel may run several gateway instances. Do not multiply the public WebSocket limit by an assumed instance count because the active instance count can change.
+
+An HTTP request may still reach the local app before a `504` response. Avoid retrying non-idempotent requests unless your application can detect duplicates.

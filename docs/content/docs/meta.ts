@@ -1,6 +1,6 @@
 import { defineMeta } from "blume";
 
 export default defineMeta({
-  title: "Docs",
+  title: "Turbotunnel docs",
   pages: ["index", "installation", "commands", "learn", "help"],
 });

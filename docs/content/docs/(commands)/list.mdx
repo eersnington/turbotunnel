@@ -7,7 +7,7 @@ description: List tunnels recently reported to the configured gateway.
 tt list [--format json]
 ```
 
-`tt list` queries the configured gateway for tunnel presence. It reconstructs recent sessions from every machine using that gateway. Use `tt status` for processes on the current machine.
+`tt list` queries the configured gateway for recently reported tunnel sessions across machines. Its results are bounded by Queue event delivery and a 30-second presence lease, so use `tt status` for exact state on the current machine.
 
 The request is authenticated with the relay secret stored in `~/.turbotunnel/config.json`. Run `tt deploy` first if no gateway is configured.
 
@@ -65,9 +65,9 @@ Human output goes to stderr. JSON output goes to stdout without ANSI styling.
 
 ## Bounded consistency
 
-Each relay publishes presence transitions and periodic heartbeats through Vercel Queue. The gateway rebuilds the list from recent events, so the response reports `"consistency": "bounded"` rather than claiming to be an instantaneous global snapshot.
+Each relay publishes connection changes and periodic heartbeat events through Vercel Queue. A heartbeat renews the relay's 30-second presence lease. The gateway rebuilds the list from valid recent events, so the response reports `"consistency": "bounded"` instead of claiming to be an instantaneous global snapshot.
 
-After an unclean disconnect, a tunnel can remain visible for up to the 30-second presence lease. A new connection appears after the gateway replays its presence event. Treat this command as gateway-wide discovery, not as a process liveness check.
+After an unclean disconnect, a tunnel can remain visible until its lease expires. Event delivery can also delay a new connection, and the gateway discards malformed events instead of failing the whole response. Treat this command as gateway-wide discovery, not as a process liveness check.
 
 ## Choose local or gateway status
 
@@ -80,13 +80,13 @@ After an unclean disconnect, a tunnel can remain visible for up to the 30-second
 
 Use [`tt status`](/docs/status) when exact local process state matters.
 
-## Request limits
+## Request behavior
 
-`tt list` waits five seconds for the gateway and accepts responses up to 1 MiB. The gateway stops presence replay after 10,000 events and returns an error instead of a partial list.
+`tt list` waits five seconds for the gateway and accepts responses up to 1 MiB. See [Turbotunnel limits](/docs/limits) for the gateway replay limit.
 
-## Recover from list failures
+## List errors
 
-- `NoGatewayConfigured`: run `tt deploy` or restore `~/.turbotunnel/config.json`.
-- Authentication failures mean the saved relay secret does not match the gateway. Run `tt deploy` to synchronize them.
-- Timeouts and request failures mean the CLI could not reach the gateway. Verify the gateway URL and inspect the Vercel deployment logs.
-- Invalid responses exceed 1 MiB, contain invalid JSON, or do not match the supported contract. Update the CLI and gateway together.
+- **`NoGatewayConfigured`**: run `tt deploy` or restore `~/.turbotunnel/config.json`
+- **Authentication failure**: run `tt deploy` to synchronize the saved relay secret with the gateway
+- **Timeout or request failure**: verify the gateway URL and inspect the Vercel deployment logs
+- **Invalid response**: update the CLI and gateway together; the response exceeded 1 MiB, contained invalid JSON, or used an unsupported contract

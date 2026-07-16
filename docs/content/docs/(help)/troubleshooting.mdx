@@ -1,21 +1,23 @@
 ---
-title: Troubleshooting
+title: Troubleshoot Turbotunnel
 description: Diagnose gateway, local app, configuration, and deployment failures.
 ---
 
-Start with the error message from `tt`. Expected failures describe what stopped, what remains unchanged, and what to try next.
+Find the symptom that matches your failure, apply the suggested check, and retry the command. Turbotunnel preserves saved configuration when deployment or gateway verification fails.
 
 ## The local app is not reachable
 
-Start the app before opening the tunnel. Confirm the port and, if needed, pass the interface it listens on:
+Turbotunnel sends `HEAD /` to the local app before it opens relay connections. The check accepts any HTTP status but fails if the app does not respond within three seconds.
+
+Start the app and confirm its port. If it listens on a different interface, pass that host:
 
 ```sh
 tt http 5173 --host 127.0.0.1
 ```
 
-The preflight request has a three-second timeout.
-
 If the app is running but the check still fails, compare its URL with the `Local` row. Fixed-port scripts need the same value passed to `tt dev --port`. Servers bound to another interface need `tt http --host`.
+
+Confirm that the app accepts `HEAD /`. A server that rejects or closes `HEAD` requests will fail the startup check even if `GET /` works.
 
 ## No gateway is configured
 
@@ -25,7 +27,7 @@ Deploy a gateway:
 tt deploy
 ```
 
-For local gateway development, provide a domain, relay URL, and secret through options or environment variables instead.
+For local gateway development, provide the domain, relay URL, and relay secret described in the [`tt http` reference](/docs/http#local-gateway-development).
 
 ## The Vercel CLI is missing or logged out
 
@@ -41,12 +43,41 @@ Then retry `tt deploy`.
 
 ## A custom domain fails
 
-The active Vercel account must own or have access to the domain. Review the Vercel CLI output and complete any required Domain Name System (DNS) verification. Run `tt deploy` again afterward. Turbotunnel keeps the previous local config when deployment or verification fails.
+Confirm that the active Vercel account can use the domain. Review the Vercel CLI output and complete any required Domain Name System (DNS) verification, then run `tt deploy` again.
+
+Turbotunnel keeps your previous local configuration when deployment or verification fails.
 
 ## The config file is invalid
 
-Fix the JavaScript Object Notation (JSON) in `~/.turbotunnel/config.json`, or remove the file and deploy again. All supported fields are strings.
+Fix the JavaScript Object Notation (JSON) in `~/.turbotunnel/config.json`. If you remove the file, you must run `tt deploy` again to recreate the saved gateway settings.
+
+## A public request fails
+
+Use the response status to identify where the request failed:
+
+- **`413`**: the request body exceeded 4 MiB, and the gateway did not contact the local app
+- **`502`**: the local request failed, timed out, or returned a body larger than 4 MiB
+- **`504`**: the gateway did not receive a response within 30s; the local app may still have received the request
+
+See [Turbotunnel limits](/docs/limits) for the complete limits and scopes.
+
+## A public WebSocket closes
+
+Use the close code to narrow the cause:
+
+| Code | Cause |
+| --- | --- |
+| `1008` | The tunnel host or request target is invalid |
+| `1011` | The local WebSocket app was unreachable or Queue delivery lost sequence |
+| `1013` | The gateway instance reached its connection limit or lost the local relay |
 
 ## Gateway verification fails
 
-Open a gateway status URL such as `https://gateway.example.com/_turbotunnel/status` and inspect the Vercel deployment logs. Verification retries after 1, 2, 4, and 8 seconds. Each request has a 15-second timeout. The saved config changes only after verification passes.
+Request the gateway status as JSON, then inspect the Vercel deployment logs:
+
+```sh
+curl -H 'Accept: application/json' \
+  https://gateway.example.com/_turbotunnel/status
+```
+
+The saved configuration changes only after verification passes.

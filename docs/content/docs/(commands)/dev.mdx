@@ -8,7 +8,7 @@ tt dev [--port <port>]
 tt dev [--port <port>] -- <command> [args...]
 ```
 
-`tt dev` finds the nearest `package.json` and starts its `dev` script. Pass a command after `--` to run another executable. Turbotunnel waits for the local HTTP server and then opens the tunnel. Press `Ctrl-C` to stop both processes.
+`tt dev` runs a development server and public tunnel in one lifecycle. It starts the nearest package's `dev` script or a command passed after `--`, waits for HTTP readiness, and stops both processes when you press `Ctrl-C`.
 
 ## Select a port
 

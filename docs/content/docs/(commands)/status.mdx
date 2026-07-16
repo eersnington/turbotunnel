@@ -7,7 +7,7 @@ description: Inspect every live Turbotunnel process running on this machine.
 tt status [--format json]
 ```
 
-`tt status` asks each local Turbotunnel process for its lifecycle state. It reports running tunnels, relay health, and gateway reachability.
+`tt status` reports lifecycle state, relay health, traffic counters, and gateway reachability for Turbotunnel processes on this machine.
 
 Unlike `tt list`, this command reads authenticated local control sockets. It does not depend on gateway presence events and does not show tunnels running on other machines.
 
@@ -31,7 +31,7 @@ Local tunnels
 | `Tunnel`  | Current lifecycle state: starting, connecting, ready, or reconnecting.      |
 | `Public`  | URL served by the configured gateway.                                       |
 | `Local`   | Local HTTP target receiving forwarded requests.                             |
-| `Gateway` | Whether the gateway status endpoint answered when the command was run.      |
+| `Gateway` | Whether the gateway returned valid JSON within three seconds.                |
 | `Relays`  | Connected relay sockets compared with the configured pool size.             |
 | `Uptime`  | Time since the process started, rounded down to seconds, minutes, or hours. |
 
@@ -77,7 +77,7 @@ The command writes a JSON array to stdout. Each item includes the terminal field
 ]
 ```
 
-The `version` field identifies the snapshot schema. Consumers should read only the counters they need.
+The `version` field identifies the snapshot schema. The `gateway` field is either `"running"` or `"unreachable"`. A timeout, non-200 response, invalid response, or network failure produces `"unreachable"` without failing `tt status`.
 
 Human output goes to stderr. JSON output goes to stdout without ANSI styling.
 
@@ -87,11 +87,11 @@ Every `tt http` and `tt dev` process registers a private record under `~/.turbot
 
 Records whose process is gone are removed automatically. A process that is temporarily unavailable is preserved and causes the command to fail instead of incorrectly reporting that the tunnel stopped.
 
-## When to use status
+## Use local status
 
 - Check whether a local tunnel reached `ready` before running an end-to-end test.
 - Diagnose a degraded relay pool or repeated reconnects.
 - Find the public and local URLs for tunnels started in other terminals.
 - Collect versioned process and traffic counters for local tooling.
 
-Use [`tt list`](/docs/list) instead when you need gateway-reported tunnels across machines.
+Use [`tt list`](/docs/list) instead when you need gateway-reported tunnels across machines. Its results are bounded by presence-event delivery and leases.
