@@ -22,8 +22,6 @@ export const tunnelReporterLive = Layer.effect(
             Effect.andThen(surface.progress(`Starting ${event.command}`)),
             Effect.andThen(surface.releaseToChild(`Process ${event.command}`)),
           );
-        case "DevelopmentProcessStarted":
-          return Effect.void;
         case "LocalApplicationWaiting":
           return surface.progress(`Waiting for ${event.target.host}:${event.target.port}`);
         case "RelaysConnecting":
@@ -32,8 +30,6 @@ export const tunnelReporterLive = Layer.effect(
           return Ref.get(processCommand).pipe(
             Effect.flatMap((command) => surface.settle(renderReady(event, command, colors))),
           );
-        case "RelayDisconnected":
-          return Ref.set(reconnectNoticeVisible, false);
         case "RelayReconnecting":
           return Ref.getAndSet(reconnectNoticeVisible, true).pipe(
             Effect.flatMap((alreadyVisible) =>
@@ -56,8 +52,6 @@ export const tunnelReporterLive = Layer.effect(
           return surface.append(
             `${colors.yellow("!")} ${terminalText(event.warning.failure)}\n  ${terminalText(event.warning.attemptedRecovery)} ${terminalText(event.warning.impact)}`,
           );
-        case "Stopping":
-          return Effect.void;
         case "TunnelStopped":
           return event.summary.wasReady
             ? surface.settle(renderStopped(event.summary, colors))

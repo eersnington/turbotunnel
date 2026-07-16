@@ -76,7 +76,6 @@ export const startDev = Effect.fn("startDev")(function* (options: {
           TURBOTUNNEL_SLUG: config.slug,
         },
       });
-      yield* reporter.emit({ _tag: "DevelopmentProcessStarted" });
       const childExit = child.exitCode.pipe(
         Effect.map((exitCode) => ({ _tag: "Exited" as const, exitCode })),
       );

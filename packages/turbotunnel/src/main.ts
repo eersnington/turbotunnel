@@ -29,10 +29,7 @@ import type { CliFailure } from "./errors.js";
 import { TunnelReporter } from "./runtime/tunnel-reporter.js";
 
 const localRuntimeLayer = Layer.mergeAll(RuntimeRegistry.live, LocalControl.live);
-const terminalUiLayer = Layer.merge(
-  TerminalSurface.live,
-  tunnelReporterLive.pipe(Layer.provide(TerminalSurface.live)),
-);
+const terminalUiLayer = tunnelReporterLive.pipe(Layer.provideMerge(TerminalSurface.live));
 const tunnelRuntimeLayer = TunnelRuntime.live.pipe(
   Layer.provide(Layer.merge(localRuntimeLayer, terminalUiLayer)),
 );
@@ -73,7 +70,7 @@ const handleExpectedFailure = Effect.fn("handleExpectedFailure")(function* (
 ) {
   const output = yield* CliOutput;
   const reporter = yield* TunnelReporter;
-  yield* reporter.emit({ _tag: "UnrecoverableFailure", reason: error._tag });
+  yield* reporter.emit({ _tag: "UnrecoverableFailure" });
   yield* Effect.sync(() => {
     process.exitCode = 1;
   });
@@ -89,7 +86,7 @@ const handleExpectedFailure = Effect.fn("handleExpectedFailure")(function* (
 const handleUnexpectedFailure = Effect.fn("handleUnexpectedFailure")(function* (defect: unknown) {
   const output = yield* CliOutput;
   const reporter = yield* TunnelReporter;
-  yield* reporter.emit({ _tag: "UnrecoverableFailure", reason: "unexpected_failure" });
+  yield* reporter.emit({ _tag: "UnrecoverableFailure" });
   yield* Effect.logError("unexpected Turbotunnel defect", defect);
   yield* Effect.sync(() => {
     process.exitCode = 1;

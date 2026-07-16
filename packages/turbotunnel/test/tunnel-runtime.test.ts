@@ -144,7 +144,6 @@ describe("TunnelRuntime", () => {
           expect.arrayContaining([
             "RelaysConnecting",
             "TunnelReady",
-            "RelayDisconnected",
             "RelayReconnecting",
             "RelayRestored",
           ]),

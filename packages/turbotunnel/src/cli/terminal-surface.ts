@@ -4,7 +4,6 @@ import { Context, Effect, FiberHandle, Layer, SynchronizedRef, type Scope } from
 export type TerminalCapabilities = {
   readonly interactive: boolean;
   readonly color: boolean;
-  readonly columns?: number;
 };
 
 type SurfaceState =
@@ -16,12 +15,10 @@ type SurfaceState =
       readonly frame: number;
     }
   | { readonly _tag: "ChildOwned"; readonly opened: boolean }
-  | { readonly _tag: "Stable"; readonly opened: boolean }
   | { readonly _tag: "Closed"; readonly opened: boolean };
 
-export type TerminalSurfaceShape = {
+type TerminalSurfaceShape = {
   readonly capabilities: TerminalCapabilities;
-  readonly open: Effect.Effect<void>;
   readonly progress: (text: string) => Effect.Effect<void>;
   readonly settle: (text: string) => Effect.Effect<void>;
   readonly append: (text: string) => Effect.Effect<void>;
@@ -29,7 +26,7 @@ export type TerminalSurfaceShape = {
   readonly close: Effect.Effect<void>;
 };
 
-export type TerminalSurfaceOptions = {
+type TerminalSurfaceOptions = {
   readonly capabilities: TerminalCapabilities;
   readonly write: (text: string) => Effect.Effect<void>;
 };
@@ -57,10 +54,13 @@ function makeTerminalSurface(
     const state = yield* SynchronizedRef.make<SurfaceState>({ _tag: "Idle", opened: false });
     const spinner = yield* FiberHandle.make<void>();
 
-    const stateResult = (next: SurfaceState): readonly [void, SurfaceState] => [undefined, next];
+    const stateResult = <A>(value: A, next: SurfaceState): readonly [A, SurfaceState] => [
+      value,
+      next,
+    ];
 
     const openState = (current: SurfaceState): Effect.Effect<SurfaceState> => {
-      if (current.opened) return Effect.succeed(current);
+      if (current._tag === "Closed" || current.opened) return Effect.succeed(current);
       const heading = options.capabilities.interactive
         ? `${CLEAR_VIEWPORT}  TURBOTUNNEL v${TURBOTUNNEL_VERSION}\n\n`
         : `Turbotunnel v${TURBOTUNNEL_VERSION}\n`;
@@ -71,10 +71,10 @@ function makeTerminalSurface(
       options.write(`${CLEAR_LINE}${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`);
 
     const tick = SynchronizedRef.modifyEffect(state, (current) => {
-      if (current._tag !== "Progress") return Effect.succeed(stateResult(current));
+      if (current._tag !== "Progress") return Effect.succeed(stateResult(undefined, current));
       const nextFrame = (current.frame + 1) % SPINNER_FRAMES.length;
       return renderProgress(current.text, nextFrame).pipe(
-        Effect.as(stateResult({ ...current, frame: nextFrame })),
+        Effect.as(stateResult(undefined, { ...current, frame: nextFrame })),
       );
     });
 
@@ -85,29 +85,27 @@ function makeTerminalSurface(
       }
     });
 
-    const open = SynchronizedRef.modifyEffect(state, (current) =>
-      openState(current).pipe(Effect.map(stateResult)),
-    );
-
     const progress = (text: string) =>
       SynchronizedRef.modifyEffect(state, (current) =>
         openState(current).pipe(
           Effect.flatMap((opened) => {
-            if (opened._tag === "Closed") return Effect.succeed(stateResult(opened));
+            if (opened._tag === "Closed") return Effect.succeed(stateResult(false, opened));
             if (opened._tag === "ChildOwned") {
-              return options.write(`${text}\n`).pipe(Effect.as(stateResult(opened)));
+              return options.write(`${text}\n`).pipe(Effect.as(stateResult(false, opened)));
             }
             if (!options.capabilities.interactive) {
               if (opened._tag === "Progress" && opened.text === text) {
-                return Effect.succeed(stateResult(opened));
+                return Effect.succeed(stateResult(false, opened));
               }
               return options
                 .write(`${text}\n`)
-                .pipe(Effect.as(stateResult({ _tag: "Progress", opened: true, text, frame: 0 })));
+                .pipe(
+                  Effect.as(stateResult(false, { _tag: "Progress", opened: true, text, frame: 0 })),
+                );
             }
             return renderProgress(text, opened._tag === "Progress" ? opened.frame : 0).pipe(
               Effect.as(
-                stateResult({
+                stateResult(true, {
                   _tag: "Progress",
                   opened: true,
                   text,
@@ -118,8 +116,8 @@ function makeTerminalSurface(
           }),
         ),
       ).pipe(
-        Effect.andThen(
-          options.capabilities.interactive
+        Effect.flatMap((shouldSpin) =>
+          shouldSpin
             ? FiberHandle.run(spinner, { onlyIfMissing: true })(spinnerLoop).pipe(Effect.asVoid)
             : Effect.void,
         ),
@@ -131,12 +129,14 @@ function makeTerminalSurface(
           SynchronizedRef.modifyEffect(state, (current) =>
             openState(current).pipe(
               Effect.flatMap((opened) => {
-                if (opened._tag === "Closed") return Effect.succeed(stateResult(opened));
+                if (opened._tag === "Closed") {
+                  return Effect.succeed(stateResult(undefined, opened));
+                }
                 const prefix =
                   options.capabilities.interactive && opened._tag === "Progress" ? CLEAR_LINE : "";
                 return options
                   .write(`${prefix}${ensureNewline(text)}`)
-                  .pipe(Effect.as(stateResult({ _tag: "Stable", opened: true })));
+                  .pipe(Effect.as(stateResult(undefined, { _tag: "Idle", opened: true })));
               }),
             ),
           ),
@@ -147,14 +147,18 @@ function makeTerminalSurface(
       SynchronizedRef.modifyEffect(state, (current) =>
         openState(current).pipe(
           Effect.flatMap((opened) => {
-            if (opened._tag === "Closed") return Effect.succeed(stateResult(opened));
+            if (opened._tag === "Closed") {
+              return Effect.succeed(stateResult(undefined, opened));
+            }
             if (options.capabilities.interactive && opened._tag === "Progress") {
               const frame = SPINNER_FRAMES[opened.frame % SPINNER_FRAMES.length];
               return options
                 .write(`${CLEAR_LINE}${ensureNewline(text)}${frame} ${opened.text}`)
-                .pipe(Effect.as(stateResult(opened)));
+                .pipe(Effect.as(stateResult(undefined, opened)));
             }
-            return options.write(ensureNewline(text)).pipe(Effect.as(stateResult(opened)));
+            return options
+              .write(ensureNewline(text))
+              .pipe(Effect.as(stateResult(undefined, opened)));
           }),
         ),
       );
@@ -165,13 +169,15 @@ function makeTerminalSurface(
           SynchronizedRef.modifyEffect(state, (current) =>
             openState(current).pipe(
               Effect.flatMap((opened) => {
-                if (opened._tag === "Closed") return Effect.succeed(stateResult(opened));
+                if (opened._tag === "Closed") {
+                  return Effect.succeed(stateResult(undefined, opened));
+                }
                 const finishProgress =
                   options.capabilities.interactive && opened._tag === "Progress"
                     ? options.write(`${CLEAR_LINE}  ${stableText}\n`)
                     : Effect.void;
                 return finishProgress.pipe(
-                  Effect.as(stateResult({ _tag: "ChildOwned", opened: true })),
+                  Effect.as(stateResult(undefined, { _tag: "ChildOwned", opened: true })),
                 );
               }),
             ),
@@ -182,12 +188,16 @@ function makeTerminalSurface(
     const close = FiberHandle.clear(spinner).pipe(
       Effect.andThen(
         SynchronizedRef.modifyEffect(state, (current) => {
-          if (current._tag === "Closed") return Effect.succeed(stateResult(current));
+          if (current._tag === "Closed") {
+            return Effect.succeed(stateResult(undefined, current));
+          }
           const cleanup =
             options.capabilities.interactive && current._tag === "Progress"
               ? options.write(`${CLEAR_LINE}\n`)
               : Effect.void;
-          return cleanup.pipe(Effect.as(stateResult({ _tag: "Closed", opened: current.opened })));
+          return cleanup.pipe(
+            Effect.as(stateResult(undefined, { _tag: "Closed", opened: current.opened })),
+          );
         }),
       ),
     );
@@ -196,7 +206,6 @@ function makeTerminalSurface(
 
     return TerminalSurface.of({
       capabilities: options.capabilities,
-      open,
       progress,
       settle,
       append,
@@ -208,13 +217,12 @@ function makeTerminalSurface(
 
 export function terminalCapabilities(
   env: NodeJS.ProcessEnv,
-  stream: { readonly isTTY?: boolean; readonly columns?: number },
+  stream: { readonly isTTY?: boolean },
 ): TerminalCapabilities {
   const interactive = stream.isTTY === true && env.CI === undefined && env.TERM !== "dumb";
   return {
     interactive,
     color: interactive && env.NO_COLOR === undefined,
-    ...(stream.columns === undefined ? {} : { columns: stream.columns }),
   };
 }
 

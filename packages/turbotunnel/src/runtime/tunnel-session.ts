@@ -4,7 +4,7 @@ import type { HttpTunnelConfig } from "../domain/tunnel-config.js";
 import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
 import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { LifecycleEvent, TunnelStoppedSummary } from "./lifecycle-event.js";
-import type { TunnelReporterShape } from "./tunnel-reporter.js";
+import type { TunnelReporter } from "./tunnel-reporter.js";
 
 type TunnelCounters = {
   readonly relayConnects: number;
@@ -23,7 +23,6 @@ type TunnelCounters = {
 type TunnelSessionState = {
   readonly relayWorkersStarted: boolean;
   readonly relays: ReadonlyArray<boolean>;
-  readonly retryAttempts: ReadonlyArray<number>;
   readonly reachedConfiguredPool: boolean;
   readonly disconnectedAtMs?: number;
   readonly initialWarningSlots: ReadonlySet<number>;
@@ -39,7 +38,7 @@ export type TunnelSession = {
     readonly nowMs: number;
     readonly failure?: string;
   }) => Effect.Effect<void>;
-  readonly relayReconnecting: (slot: number, retryInMs: number) => Effect.Effect<void>;
+  readonly relayReconnecting: (retryInMs: number) => Effect.Effect<void>;
   readonly recordFrameReceived: Effect.Effect<void>;
   readonly recordFrameSent: Effect.Effect<void>;
   readonly recordInvalidFrame: Effect.Effect<boolean>;
@@ -56,12 +55,11 @@ export const makeTunnelSession = Effect.fn("TunnelSession.make")(function* (opti
   readonly sessionId: string;
   readonly pid: number;
   readonly startedAtMs: number;
-  readonly reporter: TunnelReporterShape;
+  readonly reporter: TunnelReporter["Service"];
 }) {
   const state = yield* SynchronizedRef.make<TunnelSessionState>({
     relayWorkersStarted: false,
     relays: Array.from({ length: options.config.poolSize }, () => false),
-    retryAttempts: Array.from({ length: options.config.poolSize }, () => 0),
     reachedConfiguredPool: false,
     initialWarningSlots: new Set(),
     invalidFrameWarningEmitted: false,
@@ -116,7 +114,6 @@ export const makeTunnelSession = Effect.fn("TunnelSession.make")(function* (opti
           state: {
             ...current,
             relays,
-            retryAttempts: replaceNumber(current.retryAttempts, slot, 0),
             reachedConfiguredPool: current.reachedConfiguredPool || fullPool,
             disconnectedAtMs: fullPool ? undefined : current.disconnectedAtMs,
             counters: {
@@ -136,18 +133,6 @@ export const makeTunnelSession = Effect.fn("TunnelSession.make")(function* (opti
             ? (current.disconnectedAtMs ?? nowMs)
             : current.disconnectedAtMs;
         const events: Array<LifecycleEvent> = [];
-        if (
-          current.reachedConfiguredPool &&
-          wasConnected &&
-          current.disconnectedAtMs === undefined
-        ) {
-          events.push({
-            _tag: "RelayDisconnected",
-            connectedRelays: countConnected(relays),
-            configuredRelays: options.config.poolSize,
-          });
-        }
-
         let initialWarningSlots = current.initialWarningSlots;
         if (
           failure !== undefined &&
@@ -181,19 +166,11 @@ export const makeTunnelSession = Effect.fn("TunnelSession.make")(function* (opti
           events,
         };
       }),
-    relayReconnecting: (slot, retryInMs) =>
-      transition((current) => {
-        const attempt = (current.retryAttempts[slot] ?? 0) + 1;
-        return {
-          state: {
-            ...current,
-            retryAttempts: replaceNumber(current.retryAttempts, slot, attempt),
-          },
-          events: current.reachedConfiguredPool
-            ? [{ _tag: "RelayReconnecting", slot, attempt, retryInMs }]
-            : [],
-        };
-      }),
+    relayReconnecting: (retryInMs) =>
+      transition((current) => ({
+        state: current,
+        events: current.reachedConfiguredPool ? [{ _tag: "RelayReconnecting", retryInMs }] : [],
+      })),
     recordFrameReceived: updateCounters((counters) => ({
       ...counters,
       framesReceived: counters.framesReceived + 1,
@@ -259,10 +236,6 @@ const emptyCounters: TunnelCounters = {
 
 function replaceRelay(relays: ReadonlyArray<boolean>, slot: number, connected: boolean) {
   return relays.map((value, index) => (index === slot ? connected : value));
-}
-
-function replaceNumber(values: ReadonlyArray<number>, slot: number, value: number) {
-  return values.map((current, index) => (index === slot ? value : current));
 }
 
 function countConnected(relays: ReadonlyArray<boolean>): number {

@@ -5,7 +5,7 @@ import type { HttpTunnelConfig } from "../domain/tunnel-config.js";
 import type { LocalControlError, RuntimeRegistryError } from "../errors.js";
 import { runRelayConnection } from "../runtime/relay-connection.js";
 import { makeTunnelSession } from "../runtime/tunnel-session.js";
-import { TunnelReporter, type TunnelReporterShape } from "../runtime/tunnel-reporter.js";
+import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 import { LocalControl } from "./local-control.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
 
@@ -38,7 +38,7 @@ const runTunnel = <E, R>(
   beforeConnect: Effect.Effect<void, E, R>,
   registry: RuntimeRegistry["Service"],
   control: LocalControl["Service"],
-  reporter: TunnelReporterShape,
+  reporter: TunnelReporter["Service"],
 ): Effect.Effect<never, RuntimeRegistryError | LocalControlError | E, R> =>
   Effect.scoped(runTunnelSession(config, beforeConnect, registry, control, reporter));
 
@@ -47,7 +47,7 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
   beforeConnect: Effect.Effect<void, E, R>,
   registry: RuntimeRegistry["Service"],
   control: LocalControl["Service"],
-  reporter: TunnelReporterShape,
+  reporter: TunnelReporter["Service"],
 ): Effect.fn.Return<never, RuntimeRegistryError | LocalControlError | E, Scope.Scope | R> {
   const startedAtMs = yield* Clock.currentTimeMillis;
   const sessionId = `ses_${nanoid(12)}`;
@@ -59,8 +59,7 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
     reporter,
   });
   yield* Effect.addFinalizer(() =>
-    reporter.emit({ _tag: "Stopping" }).pipe(
-      Effect.andThen(Clock.currentTimeMillis),
+    Clock.currentTimeMillis.pipe(
       Effect.flatMap((stoppedAtMs) =>
         reporter.emit({
           _tag: "TunnelStopped",
@@ -85,7 +84,7 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
   });
 
   yield* beforeConnect;
-  yield* reporter.emit({ _tag: "RelaysConnecting", config });
+  yield* reporter.emit({ _tag: "RelaysConnecting" });
   yield* session.relayWorkersStarted;
   yield* Effect.forEach(
     Array.from({ length: config.poolSize }, (_, index) => index),

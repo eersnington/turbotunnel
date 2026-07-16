@@ -60,27 +60,22 @@ describe("TerminalSurface", () => {
 
 describe("terminalCapabilities", () => {
   it("disables interaction for CI, dumb terminals, and redirected stderr", () => {
-    expect(terminalCapabilities({ CI: "1" }, { isTTY: true, columns: 100 }).interactive).toBe(
-      false,
-    );
-    expect(terminalCapabilities({ TERM: "dumb" }, { isTTY: true, columns: 100 }).interactive).toBe(
-      false,
-    );
-    expect(terminalCapabilities({}, { isTTY: false, columns: undefined }).interactive).toBe(false);
+    expect(terminalCapabilities({ CI: "1" }, { isTTY: true }).interactive).toBe(false);
+    expect(terminalCapabilities({ TERM: "dumb" }, { isTTY: true }).interactive).toBe(false);
+    expect(terminalCapabilities({}, { isTTY: false }).interactive).toBe(false);
   });
 
   it("respects NO_COLOR independently of TTY interaction", () => {
-    expect(terminalCapabilities({ NO_COLOR: "1" }, { isTTY: true, columns: 100 })).toEqual({
+    expect(terminalCapabilities({ NO_COLOR: "1" }, { isTTY: true })).toEqual({
       interactive: true,
       color: false,
-      columns: 100,
     });
   });
 });
 
 function interactiveLayer(writes: Array<string>) {
   return TerminalSurface.layer({
-    capabilities: { interactive: true, color: false, columns: 100 },
+    capabilities: { interactive: true, color: false },
     write: (text) => Effect.sync(() => writes.push(text)),
   });
 }

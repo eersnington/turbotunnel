@@ -27,10 +27,14 @@ vercel login
 tt deploy
 tt http 5173
 
-Starting tunnel
+  TURBOTUNNEL v0.1.0
 
-  Public URL       https://ttdemo123-turbotunnel.vercel.app/
-  Local app        http://localhost:5173
+✓ Tunnel ready
+
+  Public           https://ttdemo123-turbotunnel.vercel.app/
+  Local            http://localhost:5173
+
+  Press Ctrl-C to stop
 ```
 
 You need the Vercel CLI installed and logged in for `tt deploy`. Get it with `npm i -g vercel` or [read this](https://vercel.com/docs/cli).

@@ -17,12 +17,8 @@ import { relayHeaders, relaySocketUrl } from "../domain/tunnel-url.js";
 import type { RelayWebSocketConnectError, RelayWebSocketWriteError } from "../errors.js";
 import { forwardHttpToLocalApp } from "./forward-http.js";
 import { openLocalWebSocket, type LocalWebSocketHandle } from "./forward-ws.js";
-import type { TunnelReporterShape } from "./tunnel-reporter.js";
+import type { TunnelReporter } from "./tunnel-reporter.js";
 import type { TunnelSession } from "./tunnel-session.js";
-
-type LocalConnection = {
-  readonly handle: LocalWebSocketHandle;
-};
 
 /** Runs one relay pool slot, reconnecting until its parent Scope is closed. */
 export const runRelayConnection = Effect.fn("runRelayConnection")(function* (
@@ -30,7 +26,7 @@ export const runRelayConnection = Effect.fn("runRelayConnection")(function* (
   index: number,
   sessionId: string,
   session: TunnelSession,
-  reporter: TunnelReporterShape,
+  reporter: TunnelReporter["Service"],
 ): Effect.fn.Return<never> {
   const localClientId = `client_${nanoid(12)}`;
   let generation = 0;
@@ -71,7 +67,7 @@ export const runRelayConnection = Effect.fn("runRelayConnection")(function* (
       nowMs,
       failure: failureMessage,
     });
-    yield* session.relayReconnecting(index, retryInMs);
+    yield* session.relayReconnecting(retryInMs);
     yield* Effect.sleep(retryInMs);
     reconnectDelayMs = connected ? 1_000 : Math.min(retryInMs * 2, 30_000);
   }
@@ -84,12 +80,12 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
   localClientId: string,
   generation: number,
   session: TunnelSession,
-  reporter: TunnelReporterShape,
+  reporter: TunnelReporter["Service"],
   onConnected: () => void,
 ): Effect.fn.Return<void, RelayWebSocketConnectError | RelayWebSocketWriteError, Scope.Scope> {
   const parentScope = yield* Scope.Scope;
   const messageFibers = yield* FiberSet.make<void>();
-  const localWebSockets = new Map<string, LocalConnection>();
+  const localWebSockets = new Map<string, LocalWebSocketHandle>();
   const socket = yield* acquireRelayWebSocket({
     url: relaySocketUrl(config),
     protocol: LOCAL_CLIENT_SUBPROTOCOL,
@@ -196,7 +192,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
 function decodeRelayMessage(
   text: string,
   session: TunnelSession,
-  reporter: TunnelReporterShape,
+  reporter: TunnelReporter["Service"],
 ): Effect.Effect<LocalClientInboundFrame | undefined> {
   return decodeLocalClientInboundFrameJson(text).pipe(
     Effect.catchTags({
@@ -211,8 +207,8 @@ const handleRelayFrame = Effect.fn("handleRelayFrame")(function* (
   decoded: LocalClientInboundFrame,
   config: HttpTunnelConfig,
   session: TunnelSession,
-  reporter: TunnelReporterShape,
-  localWebSockets: Map<string, LocalConnection>,
+  reporter: TunnelReporter["Service"],
+  localWebSockets: Map<string, LocalWebSocketHandle>,
   parentScope: Scope.Scope,
   messageFibers: FiberSet.FiberSet<void>,
 ): Effect.fn.Return<void, RelayWebSocketWriteError> {
@@ -248,7 +244,7 @@ const handleRelayFrame = Effect.fn("handleRelayFrame")(function* (
           );
           return;
         }
-        yield* connection.handle.sendData(decoded);
+        yield* connection.sendData(decoded);
         yield* ack(socket, session, decoded.frameId);
       }
       return;
@@ -258,7 +254,7 @@ const handleRelayFrame = Effect.fn("handleRelayFrame")(function* (
         yield* reject(socket, session, decoded.frameId, "local websocket connection was not found");
         return;
       }
-      yield* connection.handle.close(decoded);
+      yield* connection.close(decoded);
       yield* ack(socket, session, decoded.frameId);
       return;
     }
@@ -280,7 +276,7 @@ const openLocalConnection = Effect.fn("openLocalConnection")(function* (
   frame: Extract<LocalClientInboundFrame, { readonly type: "ws.open" }>,
   config: HttpTunnelConfig,
   session: TunnelSession,
-  localWebSockets: Map<string, LocalConnection>,
+  localWebSockets: Map<string, LocalWebSocketHandle>,
   parentScope: Scope.Scope,
   messageFibers: FiberSet.FiberSet<void>,
 ): Effect.fn.Return<void, RelayWebSocketWriteError> {
@@ -295,7 +291,7 @@ const openLocalConnection = Effect.fn("openLocalConnection")(function* (
   );
   if (handle === undefined) return;
 
-  localWebSockets.set(frame.connId, { handle });
+  localWebSockets.set(frame.connId, handle);
   yield* FiberSet.run(
     messageFibers,
     handle.closed.pipe(
@@ -313,7 +309,7 @@ const openLocalConnection = Effect.fn("openLocalConnection")(function* (
 
 function invalidFrame(
   session: TunnelSession,
-  reporter: TunnelReporterShape,
+  reporter: TunnelReporter["Service"],
   message: string,
 ): Effect.Effect<undefined> {
   return Effect.gen(function* () {
@@ -323,7 +319,10 @@ function invalidFrame(
   });
 }
 
-function reportInvalidFrame(reporter: TunnelReporterShape, message: string): Effect.Effect<void> {
+function reportInvalidFrame(
+  reporter: TunnelReporter["Service"],
+  message: string,
+): Effect.Effect<void> {
   return reporter.emit({
     _tag: "RecoverableWarning",
     warning: {

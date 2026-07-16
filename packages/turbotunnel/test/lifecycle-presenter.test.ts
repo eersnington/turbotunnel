@@ -38,28 +38,18 @@ describe("lifecycle presenter", () => {
     return Effect.gen(function* () {
       const reporter = yield* TunnelReporter;
       yield* reporter.emit({ _tag: "DevelopmentProcessStarting", command: "pnpm dev" });
-      yield* reporter.emit({ _tag: "DevelopmentProcessStarted" });
       yield* reporter.emit({
         _tag: "LocalApplicationWaiting",
         target: config.target,
       });
-      yield* reporter.emit({ _tag: "RelaysConnecting", config });
+      yield* reporter.emit({ _tag: "RelaysConnecting" });
       yield* reporter.emit({ _tag: "TunnelReady", config, readyAfterMs: 1_400 });
       yield* reporter.emit({
-        _tag: "RelayDisconnected",
-        connectedRelays: 1,
-        configuredRelays: 2,
-      });
-      yield* reporter.emit({
         _tag: "RelayReconnecting",
-        slot: 0,
-        attempt: 1,
         retryInMs: 1_000,
       });
       yield* reporter.emit({
         _tag: "RelayReconnecting",
-        slot: 0,
-        attempt: 2,
         retryInMs: 2_000,
       });
       yield* reporter.emit({ _tag: "RelayRestored", disconnectedForMs: 3_000 });
