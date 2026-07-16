@@ -6,6 +6,7 @@ import { Context, Layer } from "effect";
 export type AppPathsShape = {
   readonly configPath: string;
   readonly deployDir: string;
+  readonly runtimeDir: string;
 };
 
 export class AppPaths extends Context.Service<AppPaths, AppPathsShape>()(
@@ -16,6 +17,7 @@ export class AppPaths extends Context.Service<AppPaths, AppPathsShape>()(
     return this.of({
       configPath: join(root, "config.json"),
       deployDir: join(root, "relay"),
+      runtimeDir: join(root, "runtime"),
     });
   });
 }

@@ -113,6 +113,27 @@ export class LocalTargetNotReachable extends Schema.TaggedErrorClass<LocalTarget
   },
 ) {}
 
+export class RuntimeRegistryError extends Schema.TaggedErrorClass<RuntimeRegistryError>()(
+  "RuntimeRegistryError",
+  {
+    operation: Schema.Literals(["create-directory", "read", "write", "rename", "remove"]),
+    path: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalControlError extends Schema.TaggedErrorClass<LocalControlError>()(
+  "LocalControlError",
+  {
+    operation: Schema.Literals(["listen", "connect", "read", "protocol"]),
+    reason: Schema.Literals(["stale-record", "temporarily-unavailable", "invalid-protocol"]),
+    endpoint: Schema.String,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 export class LocalHttpRequestFailed extends Schema.TaggedErrorClass<LocalHttpRequestFailed>()(
   "LocalHttpRequestFailed",
   {
@@ -199,6 +220,10 @@ export type StartHttpTunnelError =
   | ConfigFileParseError
   | CliConfigError
   | NoGatewayConfigured
-  | LocalTargetNotReachable;
+  | LocalTargetNotReachable
+  | RuntimeRegistryError
+  | LocalControlError;
 
-export type CliFailure = DeployGatewayError | StartHttpTunnelError;
+export type StatusError = RuntimeRegistryError;
+
+export type CliFailure = DeployGatewayError | StartHttpTunnelError | StatusError;

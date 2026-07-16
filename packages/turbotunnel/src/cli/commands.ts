@@ -2,6 +2,7 @@ import { Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { deployGateway } from "../programs/deploy-gateway.js";
+import { showStatus, type StatusFormat } from "../programs/show-status.js";
 import { startHttpTunnel, tunnelEnvironmentFromProcess } from "../programs/start-http-tunnel.js";
 import { CliConfigError } from "../errors.js";
 import type { DeployOutput } from "../domain/deploy-plan.js";
@@ -105,6 +106,27 @@ export const deployCommand = Command.make(
   ]),
 );
 
+export const statusCommand = Command.make(
+  "status",
+  {
+    format: Flag.string("format").pipe(
+      Flag.withDescription("set output format to json"),
+      Flag.optional,
+    ),
+  },
+  Effect.fn("statusCommand")(function* ({ format }) {
+    yield* showStatus({
+      format: yield* parseStatusFormat(Option.getOrUndefined(format)),
+    });
+  }),
+).pipe(
+  Command.withDescription("Show all live tunnels running on this machine"),
+  Command.withExamples([
+    { command: "tt status", description: "Show live local tunnels" },
+    { command: "tt status --format json", description: "Print machine-readable status" },
+  ]),
+);
+
 export function requestedDeployOutput(argv: ReadonlyArray<string>): DeployOutput {
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--format" && argv[index + 1] === "json") {
@@ -131,9 +153,17 @@ function parseDeployOutput(
   return new CliConfigError({ message: "Format must be `json`." });
 }
 
+function parseStatusFormat(
+  format: string | undefined,
+): Effect.Effect<StatusFormat, CliConfigError> {
+  if (format === undefined) return Effect.succeed("terminal");
+  if (format === "json") return Effect.succeed("json");
+  return Effect.fail(new CliConfigError({ message: "Format must be `json`." }));
+}
+
 export const turbotunnelCommand = Command.make("turbotunnel").pipe(
   Command.withDescription(
     "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
   ),
-  Command.withSubcommands([httpCommand, deployCommand]),
+  Command.withSubcommands([httpCommand, deployCommand, statusCommand]),
 );

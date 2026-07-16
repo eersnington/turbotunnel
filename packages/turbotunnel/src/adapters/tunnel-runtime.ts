@@ -4,11 +4,19 @@ import { nanoid } from "nanoid";
 import { renderTunnel } from "../cli/messages.js";
 import { CliOutput } from "../cli/output.js";
 import type { HttpTunnelConfig } from "../domain/tunnel-config.js";
+import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
+import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
+import type { LocalControlError, RuntimeRegistryError } from "../errors.js";
 import { runRelayConnection, type TunnelSessionStats } from "../runtime/relay-connection.js";
 import { TunnelReporter, type TunnelReporterShape } from "../runtime/tunnel-reporter.js";
+import { LocalControl } from "./local-control.js";
+import { RuntimeRegistry } from "./runtime-registry.js";
 
 export type TunnelRuntimeShape = {
-  readonly run: (config: HttpTunnelConfig) => Effect.Effect<never>;
+  readonly run: (
+    config: HttpTunnelConfig,
+  ) => Effect.Effect<never, RuntimeRegistryError | LocalControlError>;
+  readonly snapshot: Effect.Effect<TunnelLifecycleSnapshot | undefined>;
 };
 
 export class TunnelRuntime extends Context.Service<TunnelRuntime, TunnelRuntimeShape>()(
@@ -18,6 +26,9 @@ export class TunnelRuntime extends Context.Service<TunnelRuntime, TunnelRuntimeS
     this,
     Effect.gen(function* () {
       const output = yield* CliOutput;
+      const registry = yield* RuntimeRegistry;
+      const control = yield* LocalControl;
+      let currentSnapshot: (() => TunnelLifecycleSnapshot) | undefined;
       const reporter: TunnelReporterShape = {
         starting: (config) => output.write(renderTunnel({ _tag: "Starting", config })),
         ready: () => output.write(renderTunnel({ _tag: "Ready" })),
@@ -25,18 +36,37 @@ export class TunnelRuntime extends Context.Service<TunnelRuntime, TunnelRuntimeS
         warning: (message) => output.write(renderTunnel({ _tag: "Warning", message })),
       };
       return TunnelRuntime.of({
-        run: (config) => runTunnel(config).pipe(Effect.provideService(TunnelReporter, reporter)),
+        run: (config) =>
+          runTunnel(config, registry, control, (snapshot) => {
+            currentSnapshot = snapshot;
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                currentSnapshot = undefined;
+              }),
+            ),
+            Effect.provideService(TunnelReporter, reporter),
+          ),
+        snapshot: Effect.sync(() => currentSnapshot?.()),
       });
     }),
   );
 }
 
-const runTunnel = (config: HttpTunnelConfig): Effect.Effect<never, never, TunnelReporter> =>
-  Effect.scoped(runTunnelSession(config));
+const runTunnel = (
+  config: HttpTunnelConfig,
+  registry: RuntimeRegistry["Service"],
+  control: LocalControl["Service"],
+  setSnapshot: (snapshot: () => TunnelLifecycleSnapshot) => void,
+): Effect.Effect<never, RuntimeRegistryError | LocalControlError, TunnelReporter> =>
+  Effect.scoped(runTunnelSession(config, registry, control, setSnapshot));
 
 const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
   config: HttpTunnelConfig,
-): Effect.fn.Return<never, never, TunnelReporter | Scope.Scope> {
+  registry: RuntimeRegistry["Service"],
+  control: LocalControl["Service"],
+  setSnapshot: (snapshot: () => TunnelLifecycleSnapshot) => void,
+): Effect.fn.Return<never, RuntimeRegistryError | LocalControlError, TunnelReporter | Scope.Scope> {
   const reporter = yield* TunnelReporter;
   const startedAtMs = yield* Clock.currentTimeMillis;
   const stats: TunnelSessionStats = {
@@ -52,8 +82,28 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
     httpResponses: 0,
     webSocketsOpened: 0,
     webSocketsClosed: 0,
+    activeRelayConnections: 0,
+    relayWorkersStarted: false,
+    reachedConfiguredPool: false,
     readyPrinted: false,
   };
+
+  const sessionId = `ses_${nanoid(12)}`;
+  const snapshot = () => makeSnapshot(config, sessionId, stats);
+  setSnapshot(snapshot);
+  const processToken = nanoid(32);
+  const controlHandle = yield* control.open({ sessionId, processToken, snapshot });
+  yield* registry.register({
+    version: 1,
+    sessionId,
+    pid: process.pid,
+    processToken,
+    startedAt: startedAtMs,
+    slug: config.slug,
+    publicUrl: publicTunnelUrl(config),
+    localUrl: `http://${config.target.host}:${config.target.port}`,
+    controlSocketPath: controlHandle.endpoint,
+  });
 
   yield* reporter.starting(config);
   yield* Effect.addFinalizer(() =>
@@ -68,7 +118,7 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
     ),
   );
 
-  const sessionId = `ses_${nanoid(12)}`;
+  stats.relayWorkersStarted = true;
   yield* Effect.forEach(
     Array.from({ length: config.poolSize }, (_, index) => index),
     (index) => runRelayConnection(config, index, sessionId, stats),
@@ -76,3 +126,40 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
   );
   return yield* Effect.never;
 });
+
+function makeSnapshot(
+  config: HttpTunnelConfig,
+  sessionId: string,
+  stats: TunnelSessionStats,
+): TunnelLifecycleSnapshot {
+  const gateway = gatewayUrl(config);
+  return {
+    version: 1,
+    sessionId,
+    pid: process.pid,
+    state: !stats.relayWorkersStarted
+      ? "starting"
+      : stats.activeRelayConnections === config.poolSize
+        ? "ready"
+        : stats.reachedConfiguredPool
+          ? "reconnecting"
+          : "connecting",
+    startedAtMs: stats.startedAtMs,
+    publicUrl: publicTunnelUrl(config),
+    localUrl: `http://${config.target.host}:${config.target.port}`,
+    gatewayStatusUrl: new URL("/_turbotunnel/status", gateway).toString(),
+    configuredRelays: config.poolSize,
+    connectedRelays: stats.activeRelayConnections,
+    relayConnects: stats.relayConnects,
+    relayCloses: stats.relayCloses,
+    relayErrors: stats.relayErrors,
+    reconnects: stats.reconnects,
+    framesReceived: stats.framesReceived,
+    framesSent: stats.framesSent,
+    invalidFrames: stats.invalidFrames,
+    httpRequests: stats.httpRequests,
+    httpResponses: stats.httpResponses,
+    webSocketsOpened: stats.webSocketsOpened,
+    webSocketsClosed: stats.webSocketsClosed,
+  };
+}

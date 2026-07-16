@@ -7,15 +7,21 @@ import { type CliError, Command } from "effect/unstable/cli";
 import { AppPaths } from "./adapters/app-paths.js";
 import { Entropy } from "./adapters/entropy.js";
 import { GatewayVerifier } from "./adapters/gateway-verifier.js";
+import { GatewayStatusChecker } from "./adapters/gateway-status-checker.js";
 import { GatewayWorkspace } from "./adapters/gateway-workspace.js";
 import { LocalAppProbe } from "./adapters/local-app-probe.js";
 import { LocalConfigStore } from "./adapters/local-config-store.js";
+import { LocalControl } from "./adapters/local-control.js";
+import { RuntimeRegistry } from "./adapters/runtime-registry.js";
 import { TunnelRuntime } from "./adapters/tunnel-runtime.js";
 import { VercelCli } from "./adapters/vercel-cli.js";
 import { requestedDeployOutput, turbotunnelCommand } from "./cli/commands.js";
 import { renderFailure } from "./cli/messages.js";
 import { CliOutput } from "./cli/output.js";
 import type { CliFailure } from "./errors.js";
+
+const localRuntimeLayer = Layer.mergeAll(RuntimeRegistry.live, LocalControl.live);
+const tunnelRuntimeLayer = TunnelRuntime.live.pipe(Layer.provide(localRuntimeLayer));
 
 const liveLayer = Layer.mergeAll(
   Entropy.live,
@@ -24,7 +30,9 @@ const liveLayer = Layer.mergeAll(
   GatewayWorkspace.live,
   GatewayVerifier.live,
   LocalAppProbe.live,
-  TunnelRuntime.live,
+  GatewayStatusChecker.live,
+  localRuntimeLayer,
+  tunnelRuntimeLayer,
 ).pipe(
   Layer.provideMerge(AppPaths.live),
   Layer.provideMerge(CliOutput.live),
@@ -92,6 +100,8 @@ turbotunnelCommand.pipe(
     GatewayVerificationError: handleExpectedFailure,
     NoGatewayConfigured: handleExpectedFailure,
     LocalTargetNotReachable: handleExpectedFailure,
+    RuntimeRegistryError: handleExpectedFailure,
+    LocalControlError: handleExpectedFailure,
   }),
   Effect.catchDefect(handleUnexpectedFailure),
   Effect.provide(liveLayer),

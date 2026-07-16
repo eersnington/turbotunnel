@@ -4,8 +4,10 @@ import type { CliError } from "effect/unstable/cli";
 import type { CliMessage } from "./output.js";
 import type { DeployOutput, DeployPlan } from "../domain/deploy-plan.js";
 import type { HttpTunnelConfig } from "../domain/tunnel-config.js";
+import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
 import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { CliFailure } from "../errors.js";
+import type { GatewayStatusCheck } from "../adapters/gateway-status-checker.js";
 
 export type DeployMessage =
   | {
@@ -41,6 +43,16 @@ export type TunnelMessage =
   | { readonly _tag: "Ready" }
   | { readonly _tag: "Stopped"; readonly summary: TunnelStoppedSummary }
   | { readonly _tag: "Warning"; readonly message: string };
+
+export type StatusOutput = {
+  readonly tunnels: ReadonlyArray<TunnelLifecycleSnapshot>;
+  readonly gateways: ReadonlyArray<GatewayStatusCheck>;
+};
+
+export type StatusMessage = {
+  readonly format: "terminal" | "json";
+  readonly status: StatusOutput;
+};
 
 export type FailureMessage =
   | {
@@ -87,6 +99,13 @@ export function renderTunnel(message: TunnelMessage): CliMessage {
     case "Warning":
       return { _tag: "Text", stream: "stderr", text: message.message };
   }
+}
+
+/** Renders local runtime status to stderr for humans or stdout for automation. */
+export function renderStatus(message: StatusMessage): CliMessage {
+  return message.format === "json"
+    ? { _tag: "Json", stream: "stdout", value: statusJson(message.status) }
+    : { _tag: "Text", stream: "stderr", text: statusText(message.status) };
 }
 
 /** Renders expected and unexpected failures for terminal or JSON output. */
@@ -182,6 +201,39 @@ function tunnelStoppedText(summary: TunnelStoppedSummary): string {
       value: `${summary.httpRequests} HTTP, ${summary.webSocketsOpened} WebSocket`,
     },
   ])}\n`;
+}
+
+function statusText(status: StatusOutput): string {
+  if (status.tunnels.length === 0) return "No local tunnels are running.";
+
+  const tunnels = status.tunnels.map((tunnel) => {
+    const gateway = status.gateways.find((candidate) => candidate.url === tunnel.gatewayStatusUrl);
+    const uptimeSeconds = Math.max(0, Math.floor((Date.now() - tunnel.startedAtMs) / 1_000));
+    return formatRows([
+      { label: "Gateway", value: gateway?.status === "running" ? "reachable" : "unreachable" },
+      { label: "Tunnel", value: tunnel.state === "ready" ? "connected" : tunnel.state },
+      { label: "Public", value: pc.cyan(tunnel.publicUrl) },
+      { label: "Local", value: tunnel.localUrl },
+      { label: "Relays", value: `${tunnel.connectedRelays}/${tunnel.configuredRelays}` },
+      { label: "Uptime", value: formatDuration(uptimeSeconds) },
+    ]);
+  });
+  return `\n${pc.bold("Local tunnels")}\n\n${tunnels.join("\n\n")}\n`;
+}
+
+function statusJson(status: StatusOutput): unknown {
+  return status.tunnels.map((tunnel) => ({
+    ...tunnel,
+    gateway:
+      status.gateways.find((candidate) => candidate.url === tunnel.gatewayStatusUrl)?.status ??
+      "unreachable",
+  }));
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3_600)}h`;
 }
 
 function errorJson(error: CliFailure | CliError.CliError): unknown {
