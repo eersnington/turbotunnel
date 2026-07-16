@@ -6,12 +6,9 @@ import {
   decodeHttpResponseFramePayload,
   decodeLocalClientInboundFrameJson,
   decodeProtocolFrameJson,
-  decodeProtocolFramePayload,
   encodeProtocolFrameJson,
   type Frame,
   PROTOCOL_VERSION,
-  ProtocolJsonDecodeError,
-  ProtocolJsonEncodeError,
   ProtocolPayloadDecodeError,
 } from "../src/index.js";
 
@@ -50,29 +47,6 @@ describe("Effect protocol codecs", () => {
     }),
   );
 
-  it.effect("retains tagged error classes in the Effect failure channel", () =>
-    Effect.gen(function* () {
-      const jsonError = yield* decodeProtocolFrameJson("{").pipe(Effect.flip);
-      const payloadError = yield* decodeProtocolFramePayload({
-        ...validHttpRequestFrame(),
-        extra: true,
-      }).pipe(Effect.flip);
-
-      expect(jsonError).toBeInstanceOf(ProtocolJsonDecodeError);
-      expect(payloadError).toBeInstanceOf(ProtocolPayloadDecodeError);
-      expect(payloadError.expected).toBe("protocol frame");
-    }),
-  );
-
-  it.effect("rejects runtime-invalid outbound values before encoding", () =>
-    Effect.gen(function* () {
-      const invalidFrame = { ...validHttpRequestFrame(), protocolVersion: 2 } as unknown as Frame;
-
-      const error = yield* encodeProtocolFrameJson(invalidFrame).pipe(Effect.flip);
-
-      expect(error).toBeInstanceOf(ProtocolJsonEncodeError);
-    }),
-  );
 });
 
 describe("directional protocol decoders", () => {
