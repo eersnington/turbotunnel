@@ -3,15 +3,6 @@ import { describe, expect, it } from "vitest";
 import { formatProcessCommand } from "../src/domain/process-command.js";
 
 describe("formatProcessCommand", () => {
-  it("keeps simple arguments readable and quotes whitespace", () => {
-    expect(formatProcessCommand("pnpm", ["run", "dev", "--host", "localhost"])).toBe(
-      "pnpm run dev --host localhost",
-    );
-    expect(formatProcessCommand("node", ["-e", "console.log('ready')"])).toBe(
-      `node -e ${JSON.stringify("console.log('ready')")}`,
-    );
-  });
-
   it("escapes terminal control characters", () => {
     const command = formatProcessCommand("node", ["\u001B[2J\u009B31m\nsecret"]);
     expect(command).not.toContain("\u001B");

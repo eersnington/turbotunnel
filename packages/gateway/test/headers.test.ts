@@ -3,8 +3,6 @@ import { describe, expect, test } from "vitest";
 import {
   parseGatewayRequestHeaders,
   publicWebSocketHeaders,
-  requestHeadersForLocalApp,
-  responseHeadersForBrowser,
 } from "../src/headers.js";
 
 describe("parseGatewayRequestHeaders", () => {
@@ -32,19 +30,6 @@ describe("parseGatewayRequestHeaders", () => {
     ).toEqual({ _tag: "err", header: "X-Vercel-OIDC-Token" });
   });
 
-  test("defaults forwardedProto to https", () => {
-    expect(parseGatewayRequestHeaders([])).toEqual({
-      _tag: "ok",
-      value: {
-        host: undefined,
-        authorization: undefined,
-        oidcToken: undefined,
-        forwardedProto: "https",
-        secWebSocketProtocols: [],
-      },
-    });
-  });
-
   test("picks the first comma-separated x-forwarded-proto value", () => {
     const result = parseGatewayRequestHeaders(["X-Forwarded-Proto", " http , https"]);
 
@@ -69,61 +54,6 @@ describe("parseGatewayRequestHeaders", () => {
   });
 });
 
-describe("requestHeadersForLocalApp", () => {
-  test("removes hop-by-hop headers", () => {
-    expect(
-      requestHeadersForLocalApp({
-        rawHeaders: [
-          "Connection",
-          "upgrade",
-          "Upgrade",
-          "websocket",
-          "Keep-Alive",
-          "timeout=5",
-          "X-Custom",
-          "preserved",
-        ],
-        localHost: "127.0.0.1:3000",
-        forwardedHost: "demo.example.com",
-        forwardedProto: "https",
-        requestId: "req_1",
-      }),
-    ).toEqual([
-      ["x-custom", "preserved"],
-      ["host", "127.0.0.1:3000"],
-      ["x-forwarded-host", "demo.example.com"],
-      ["x-forwarded-proto", "https"],
-      ["x-turbotunnel-request-id", "req_1"],
-    ]);
-  });
-
-  test("overrides gateway-owned request headers", () => {
-    expect(
-      requestHeadersForLocalApp({
-        rawHeaders: [
-          "Host",
-          "old-host",
-          "X-Forwarded-Host",
-          "old-forwarded-host",
-          "X-Forwarded-Proto",
-          "http",
-          "X-Turbotunnel-Request-Id",
-          "old-request-id",
-        ],
-        localHost: "127.0.0.1:4000",
-        forwardedHost: "demo.tunnel.example.com",
-        forwardedProto: "https",
-        requestId: "req_new",
-      }),
-    ).toEqual([
-      ["host", "127.0.0.1:4000"],
-      ["x-forwarded-host", "demo.tunnel.example.com"],
-      ["x-forwarded-proto", "https"],
-      ["x-turbotunnel-request-id", "req_new"],
-    ]);
-  });
-});
-
 describe("publicWebSocketHeaders", () => {
   test("removes hop-by-hop headers and host", () => {
     expect(
@@ -143,30 +73,5 @@ describe("publicWebSocketHeaders", () => {
       ["sec-websocket-protocol", "chat"],
       ["x-custom", "preserved"],
     ]);
-  });
-});
-
-describe("responseHeadersForBrowser", () => {
-  test("groups duplicate response headers", () => {
-    expect(
-      responseHeadersForBrowser([
-        ["Set-Cookie", "a=1"],
-        ["set-cookie", "b=2"],
-        ["Content-Type", "text/plain"],
-      ]),
-    ).toEqual({
-      "set-cookie": ["a=1", "b=2"],
-      "content-type": "text/plain",
-    });
-  });
-
-  test("removes hop-by-hop headers", () => {
-    expect(
-      responseHeadersForBrowser([
-        ["Connection", "close"],
-        ["Transfer-Encoding", "chunked"],
-        ["X-Custom", "preserved"],
-      ]),
-    ).toEqual({ "x-custom": "preserved" });
   });
 });

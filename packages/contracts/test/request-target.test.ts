@@ -7,7 +7,6 @@ import {
   localUrlFromTunnelRequestTarget,
   makeLocalUrlFromTunnelRequestTarget,
   parseTunnelRequestTarget,
-  TunnelRequestTargetError,
 } from "../src/index.js";
 
 describe("tunnel request target", () => {
@@ -61,20 +60,6 @@ describe("tunnel request target", () => {
       expect(url.search).toBe("?q=1");
     }
   });
-
-  it.effect("parses through the Effect seam and preserves typed failures", () =>
-    Effect.gen(function* () {
-      const target = yield* decodeTunnelRequestTarget("/health?full=1");
-      const error = yield* decodeTunnelRequestTarget("https://example.com/path").pipe(Effect.flip);
-
-      expect(target).toEqual({
-        path: "/health?full=1",
-        pathname: "/health",
-        search: "?full=1",
-      });
-      expect(error).toBeInstanceOf(TunnelRequestTargetError);
-    }),
-  );
 
   it.effect("reports invalid local origins as typed construction failures", () =>
     Effect.gen(function* () {

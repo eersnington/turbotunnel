@@ -9,7 +9,7 @@ import { Result, Schema } from "effect";
 describe("presence contracts", () => {
   it("decodes the versioned presence event and bounded list response", () => {
     const target = { protocol: "http", host: "127.0.0.1", port: 3000 } as const;
-    const event = Schema.decodeUnknownResult(tunnelPresenceEventSchema)({
+    const eventInput = {
       version: 1,
       type: "upsert",
       slug: "demo",
@@ -19,31 +19,46 @@ describe("presence contracts", () => {
       sequence: 1,
       target,
       connectedAt: 1_000,
-    });
-    const tunnel = Schema.decodeUnknownResult(listedTunnelSchema)({
+    } as const;
+    const tunnelInput = {
       slug: "demo",
       sessionId: "session_1",
       target,
       connectedAt: 1_000,
       relayCount: 2,
-    });
-    const response = Schema.decodeUnknownResult(tunnelListResponseSchema)({
+    } as const;
+    const responseInput = {
       version: 1,
       consistency: "bounded",
       generatedAt: 2_000,
-      tunnels: Result.isSuccess(tunnel) ? [tunnel.success] : [],
-    });
+      tunnels: [Schema.decodeUnknownSync(listedTunnelSchema)(tunnelInput)],
+    } as const;
 
-    expect(Result.isSuccess(event)).toBe(true);
-    expect(Result.isSuccess(tunnel)).toBe(true);
-    expect(Result.isSuccess(response)).toBe(true);
+    const event = Schema.decodeUnknownResult(tunnelPresenceEventSchema)(eventInput);
+    const response = Schema.decodeUnknownResult(tunnelListResponseSchema)(responseInput);
+
+    expect(event).toEqual(Result.succeed(eventInput));
+    expect(response).toEqual(Result.succeed(responseInput));
   });
 
-  it("rejects unsupported response versions and invalid timestamps", () => {
+  it("rejects unsupported response versions", () => {
     expect(
       Result.isFailure(
         Schema.decodeUnknownResult(tunnelListResponseSchema)({
           version: 2,
+          consistency: "bounded",
+          generatedAt: 1,
+          tunnels: [],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects negative response timestamps", () => {
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(tunnelListResponseSchema)({
+          version: 1,
           consistency: "bounded",
           generatedAt: -1,
           tunnels: [],

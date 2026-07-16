@@ -53,6 +53,31 @@ describe("gateway runtime", () => {
       broker: "memory",
       activeLocalClients: 0,
     });
+    expect(response.headers["content-type"]).toContain("application/json");
+
+    const landing = await request(gateway.server, {
+      path: "/",
+      host: "tunnel.test",
+    });
+    expect(landing.status).toBe(200);
+    expect(landing.headers["content-type"]).toContain("text/plain");
+    expect(landing.body).toContain("tunnel.test");
+  });
+
+  test("rejects hosts outside the configured tunnel domain", async () => {
+    const gateway = await startGateway();
+
+    const wrongDomain = await request(gateway.server, {
+      path: "/",
+      host: "demo.other.test",
+    });
+    const invalidSlug = await request(gateway.server, {
+      path: "/",
+      host: "bad_slug.tunnel.test",
+    });
+
+    expect(wrongDomain.status).toBe(404);
+    expect(invalidSlug.status).toBe(404);
   });
 
   test("authenticates the exact tunnel-list route with the relay secret", async () => {
@@ -187,12 +212,29 @@ describe("gateway runtime", () => {
       host: "demo.tunnel.test",
       method: "POST",
       body: "request-body",
+      headers: {
+        connection: "keep-alive",
+        "keep-alive": "timeout=5",
+        "x-custom": "preserved",
+        "x-forwarded-host": "attacker.test",
+        "x-forwarded-proto": "http",
+        "x-turbotunnel-request-id": "attacker-controlled",
+      },
     });
     const forwarded = await localFrames.take(
       (frame): frame is HttpRequest => frame.type === "http.request",
     );
     expect(forwarded.path).toBe("/hello?name=effect");
     expect(Buffer.from(forwarded.body, "base64").toString("utf8")).toBe("request-body");
+    expect(headerValues(forwarded.headers, "x-custom")).toEqual(["preserved"]);
+    expect(headerValues(forwarded.headers, "connection")).toEqual([]);
+    expect(headerValues(forwarded.headers, "keep-alive")).toEqual([]);
+    expect(headerValues(forwarded.headers, "host")).toEqual(["127.0.0.1:4321"]);
+    expect(headerValues(forwarded.headers, "x-forwarded-host")).toEqual(["demo.tunnel.test"]);
+    expect(headerValues(forwarded.headers, "x-forwarded-proto")).toEqual(["http"]);
+    expect(headerValues(forwarded.headers, "x-turbotunnel-request-id")).toEqual([
+      forwarded.requestId,
+    ]);
     local.send(
       JSON.stringify({
         protocolVersion: PROTOCOL_VERSION,
@@ -201,7 +243,12 @@ describe("gateway runtime", () => {
         requestId: forwarded.requestId,
         responseTopic: forwarded.responseTopic,
         status: 201,
-        headers: [["x-local-app", "yes"]],
+        headers: [
+          ["x-local-app", "yes"],
+          ["set-cookie", "first=1"],
+          ["set-cookie", "second=2"],
+          ["connection", "close"],
+        ],
         body: Buffer.from("response-body").toString("base64"),
       }),
     );
@@ -210,6 +257,8 @@ describe("gateway runtime", () => {
       body: "response-body",
       headers: expect.objectContaining({ "x-local-app": "yes" }),
     });
+    const completedHttp = await pendingHttp;
+    expect(completedHttp.headers["set-cookie"]).toEqual(["first=1", "second=2"]);
 
     const browser = await gateway.openPublicWebSocket("demo", "/socket");
     const open = await localFrames.take((frame): frame is WsOpen => frame.type === "ws.open");
@@ -578,6 +627,7 @@ type RequestInput = {
   readonly accept?: string;
   readonly authorization?: string;
   readonly body?: string;
+  readonly headers?: Readonly<Record<string, string>>;
 };
 
 function request(server: Server, input: RequestInput): Promise<HttpResponseResult> {
@@ -591,6 +641,7 @@ function request(server: Server, input: RequestInput): Promise<HttpResponseResul
           method: input.method ?? "GET",
           path: input.path,
           headers: {
+            ...input.headers,
             host: input.host,
             ...(input.accept === undefined ? {} : { accept: input.accept }),
             ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
@@ -612,6 +663,13 @@ function request(server: Server, input: RequestInput): Promise<HttpResponseResul
       request.end(input.body);
     }),
   );
+}
+
+function headerValues(
+  headers: HttpRequest["headers"],
+  name: string,
+): ReadonlyArray<string> {
+  return headers.filter(([header]) => header === name).map(([, value]) => value);
 }
 
 function sendHello(
