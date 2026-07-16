@@ -1,0 +1,63 @@
+---
+const commands = [
+  {
+    name: "tt deploy",
+    args: "",
+    description:
+      "Provisions the gateway on your Vercel account. Run once to create your public endpoint.",
+    href: "/docs/deploy",
+  },
+  {
+    name: "tt http",
+    args: "<port>",
+    description: "Start a tunnel to a local port and print a public URL.",
+    href: "/docs/http",
+  },
+] as const;
+---
+
+<section class="border-border border-b">
+  <div class="mx-auto max-w-6xl px-6 py-20 lg:py-24">
+    <h2 class="text-balance font-medium text-2xl tracking-tight sm:text-3xl">
+      CLI Reference
+    </h2>
+    <p class="mt-3 max-w-[52ch] text-balance text-base text-muted-foreground leading-relaxed">
+      Deploy the gateway once, then open a tunnel to any local port.
+    </p>
+
+    <div class="mt-10 divide-y divide-border overflow-hidden rounded-lg border border-border">
+      {
+        commands.map((command) => (
+          <div class="grid gap-2 bg-background px-5 py-5 sm:grid-cols-[16rem_minmax(0,1fr)_auto] sm:items-baseline sm:gap-8 sm:px-6">
+            <code class="font-mono text-sm">
+              <span class="text-foreground">{command.name}</span>
+              {command.args && <span class="text-muted-foreground"> {command.args}</span>}
+            </code>
+            <p class="max-w-[72ch] text-balance text-muted-foreground text-sm leading-relaxed">
+              {command.description}
+            </p>
+            <a
+              href={command.href}
+              class="inline-flex items-center gap-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground"
+            >
+              View docs
+              <svg
+                aria-hidden="true"
+                class="size-3.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

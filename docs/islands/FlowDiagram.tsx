@@ -1,5 +1,3 @@
-"use client";
-
 import { useId, type ReactNode } from "react";
 import { gsap } from "gsap";
 import { MotionPathPlugin } from "gsap/MotionPathPlugin";
@@ -10,7 +8,7 @@ const FALLBACK_PATH = "M395,240 V315 H475 V240";
 const PACKET_COUNT = 3;
 const TRAVEL_TIME = 4.8;
 
-export function FlowDiagram() {
+export default function FlowDiagram() {
   const titleId = useId();
   const descriptionId = useId();
 
@@ -75,7 +73,7 @@ export function FlowDiagram() {
   };
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-fd-border bg-fd-card">
+    <div className="overflow-x-auto rounded-lg border border-border bg-background">
       <svg
         ref={mountAnimation}
         viewBox="0 0 1100 430"
@@ -84,10 +82,10 @@ export function FlowDiagram() {
         aria-labelledby={`${titleId} ${descriptionId}`}
         preserveAspectRatio="xMidYMid meet"
       >
-        <title id={titleId}>TurboTunnel request architecture</title>
+        <title id={titleId}>Turbotunnel request architecture</title>
         <desc id={descriptionId}>
           Browser traffic reaches a gateway web server in a Vercel deployment, crosses a WebSocket
-          to TurboTunnel, and is forwarded to the local app. Responses return along the same route.
+          to Turbotunnel, and is forwarded to the local app. Responses return along the same route.
           Vercel Queue provides cross-instance fallback inside the deployment.
         </desc>
 
@@ -120,10 +118,10 @@ function DeploymentBoundary() {
         fillOpacity="0.012"
         stroke="currentColor"
         strokeOpacity="0.18"
-        className="text-fd-foreground"
+        className="text-foreground"
       />
-      <path d="M278 68 l8 14 h-16 z" className="fill-fd-foreground" />
-      <text x="302" y="81" fontSize="11" letterSpacing="1.4" className="fill-fd-muted-foreground">
+      <path d="M278 68 l8 14 h-16 z" className="fill-foreground" />
+      <text x="302" y="81" fontSize="11" letterSpacing="1.4" className="fill-muted-foreground">
         VERCEL DEPLOYMENT
       </text>
     </g>
@@ -160,26 +158,20 @@ function Connections() {
         stroke="currentColor"
         strokeWidth="1.4"
         strokeDasharray="3 5"
-        className="text-fd-muted-foreground"
+        className="text-muted-foreground"
         opacity="0.65"
       />
 
-      <text
-        x="237.5"
-        y="174"
-        textAnchor="middle"
-        fontSize="11"
-        className="fill-fd-muted-foreground"
-      >
+      <text x="237.5" y="174" textAnchor="middle" fontSize="11" className="fill-muted-foreground">
         HTTP / WS
       </text>
-      <text x="635" y="174" textAnchor="middle" fontSize="11" className="fill-fd-muted-foreground">
+      <text x="635" y="174" textAnchor="middle" fontSize="11" className="fill-muted-foreground">
         WebSocket
       </text>
-      <text x="885" y="174" textAnchor="middle" fontSize="11" className="fill-fd-muted-foreground">
+      <text x="885" y="174" textAnchor="middle" fontSize="11" className="fill-muted-foreground">
         localhost
       </text>
-      <text x="435" y="280" textAnchor="middle" fontSize="10" className="fill-fd-muted-foreground">
+      <text x="435" y="280" textAnchor="middle" fontSize="10" className="fill-muted-foreground">
         cross-instance fallback
       </text>
     </g>
@@ -229,12 +221,12 @@ function BrowserNode() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.4"
-        className="text-fd-muted-foreground"
+        className="text-muted-foreground"
       >
         <circle cx="9" cy="9" r="8" />
         <path d="M1 9 h16 M9 1 c5 5 5 11 0 16 M9 1 c-5 5 -5 11 0 16" />
       </g>
-      <text x="88" y="212" fontFamily="sans-serif" fontSize="16" className="fill-fd-foreground">
+      <text x="88" y="212" fontFamily="sans-serif" fontSize="16" className="fill-foreground">
         Browser
       </text>
     </Node>
@@ -249,14 +241,14 @@ function GatewayNode() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
-        className="text-fd-muted-foreground"
+        className="text-muted-foreground"
       >
         <rect x="7" y="0" width="7" height="7" rx="1" />
         <rect x="0" y="18" width="7" height="7" rx="1" />
         <rect x="14" y="18" width="7" height="7" rx="1" />
         <path d="M10.5 7 v6 M3.5 13 h14 M3.5 13 v5 M17.5 13 v5" />
       </g>
-      <text x="367" y="212" fontFamily="sans-serif" fontSize="16" className="fill-fd-foreground">
+      <text x="367" y="212" fontFamily="sans-serif" fontSize="16" className="fill-foreground">
         Gateway Web Server
       </text>
     </Node>
@@ -271,12 +263,12 @@ function QueueNode() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.2"
-        className="text-fd-muted-foreground"
+        className="text-muted-foreground"
       >
         <ellipse cx="7" cy="3" rx="7" ry="3" />
         <path d="M0 3 v14 c0 4 14 4 14 0 V3 M0 10 c0 4 14 4 14 0" />
       </g>
-      <text x="396" y="334" fontFamily="sans-serif" fontSize="15" className="fill-fd-foreground">
+      <text x="396" y="334" fontFamily="sans-serif" fontSize="15" className="fill-foreground">
         Vercel Queue
       </text>
     </Node>
@@ -291,12 +283,12 @@ function CliNode() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.4"
-        className="text-fd-muted-foreground"
+        className="text-muted-foreground"
       >
         <path d="M0 0 l8 8 -8 8 M11 16 h9" />
       </g>
-      <text x="748" y="212" fontFamily="sans-serif" fontSize="15" className="fill-fd-foreground">
-        TurboTunnel
+      <text x="748" y="212" fontFamily="sans-serif" fontSize="15" className="fill-foreground">
+        Turbotunnel
       </text>
     </Node>
   );
@@ -310,12 +302,12 @@ function LocalAppNode() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.3"
-        className="text-fd-muted-foreground"
+        className="text-muted-foreground"
       >
         <rect x="0" y="0" width="21" height="17" rx="2" />
         <path d="M0 5 h21 M3 2.5 h1 M6 2.5 h1" />
       </g>
-      <text x="976" y="212" fontFamily="sans-serif" fontSize="16" className="fill-fd-foreground">
+      <text x="976" y="212" fontFamily="sans-serif" fontSize="16" className="fill-foreground">
         Local App
       </text>
     </Node>
@@ -350,7 +342,7 @@ function Node({
         fill="var(--home-surface)"
         stroke="currentColor"
         strokeOpacity="0.3"
-        className="text-fd-foreground"
+        className="text-foreground"
       />
       <rect
         x={x}
@@ -360,7 +352,7 @@ function Node({
         rx={radius}
         fill="currentColor"
         fillOpacity={tintOpacity}
-        className="text-fd-foreground"
+        className="text-foreground"
       />
       {children}
     </g>
@@ -371,15 +363,15 @@ function Legend() {
   return (
     <g transform="translate(34 400)">
       <circle cx="4" cy="-4" r="4" fill="var(--home-ok)" />
-      <text x="16" y="0" fontSize="11" className="fill-fd-muted-foreground">
+      <text x="16" y="0" fontSize="11" className="fill-muted-foreground">
         request
       </text>
       <circle cx="104" cy="-4" r="4" fill="var(--home-response)" />
-      <text x="116" y="0" fontSize="11" className="fill-fd-muted-foreground">
+      <text x="116" y="0" fontSize="11" className="fill-muted-foreground">
         response
       </text>
       <circle cx="220" cy="-4" r="4" fill="var(--home-queue)" />
-      <text x="232" y="0" fontSize="11" className="fill-fd-muted-foreground">
+      <text x="232" y="0" fontSize="11" className="fill-muted-foreground">
         fallback
       </text>
     </g>

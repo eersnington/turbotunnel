@@ -1,24 +1,5 @@
 {
-  "extends": "@turbotunnel/typescript-config/nextjs.json",
-  "compilerOptions": {
-    "declaration": false,
-    "declarationMap": false,
-    "paths": {
-      "@/*": ["./*"],
-      "collections/*": ["./.source/*"]
-    },
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
-  },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
-  ],
-  "exclude": ["node_modules"]
+  "extends": "astro/tsconfigs/strict",
+  "include": [".blume/.astro/types.d.ts", ".blume/src/env.d.ts", "**/*"],
+  "exclude": ["dist"]
 }

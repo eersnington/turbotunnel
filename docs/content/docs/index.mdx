@@ -1,6 +1,6 @@
 ---
 title: Get started
-description: Deploy a gateway and give your local app a public URL.
+description: Tunnel your local dev server with a public URL, powered by Vercel WebSockets.
 ---
 
 Turbotunnel forwards HTTP and WebSocket traffic from a public URL to an app running on your machine. The gateway runs in your Vercel account.
@@ -43,9 +43,17 @@ Starting tunnel
 
 The public URL works until you press `Ctrl-C` or the process exits.
 
-<Cards>
-  <Card title="Deploy command" href="/docs/deploy" description="Projects, domains, regions, and JSON output." />
-  <Card title="HTTP command" href="/docs/http" description="Slugs, local hosts, socket pools, and development overrides." />
-  <Card title="Configuration" href="/docs/configuration" description="Saved settings and environment variables." />
-  <Card title="How it works" href="/docs/how-it-works" description="Gateway, queue, and relay architecture." />
-</Cards>
+<CardGroup cols={2}>
+  <Card title="Deploy command" href="/docs/deploy">
+    Projects, domains, regions, and JSON output.
+  </Card>
+  <Card title="HTTP command" href="/docs/http">
+    Slugs, local hosts, socket pools, and development overrides.
+  </Card>
+  <Card title="Configuration" href="/docs/configuration">
+    Saved settings and environment variables.
+  </Card>
+  <Card title="How it works" href="/docs/how-it-works">
+    Gateway, queue, and relay architecture.
+  </Card>
+</CardGroup>
