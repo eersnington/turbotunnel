@@ -11,15 +11,15 @@ The command checks that the local app responds, opens relay sockets to the confi
 
 ## Arguments and options
 
-| Input | Description | Default |
-| --- | --- | --- |
-| `<port>` | Local TCP port, from 1 to 65535. | Required |
-| `--slug <slug>` | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters. | Saved slug or a random slug |
-| `--host <host>` | Local app host. | `localhost` |
-| `--pool <count>` | Number of local relay sockets, from 1 to 16. | `2` |
-| `--domain <domain>` | Base tunnel domain or `{slug}` host pattern for this run. | Saved domain |
-| `--secret <secret>` | Relay secret for local gateway development. | Saved secret |
-| `--relay-url <url>` | Explicit `http`, `https`, `ws`, or `wss` relay origin. | Derived from the tunnel domain |
+| Input               | Description                                                                            | Default                        |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
+| `<port>`            | Local TCP port, from 1 to 65535.                                                       | Required                       |
+| `--slug <slug>`     | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters. | Saved slug or a random slug    |
+| `--host <host>`     | Local app host.                                                                        | `localhost`                    |
+| `--pool <count>`    | Number of local relay sockets, from 1 to 16.                                           | `2`                            |
+| `--domain <domain>` | Base tunnel domain or `{slug}` host pattern for this run.                              | Saved domain                   |
+| `--secret <secret>` | Relay secret for local gateway development.                                            | Saved secret                   |
+| `--relay-url <url>` | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                 | Derived from the tunnel domain |
 
 ## Examples
 

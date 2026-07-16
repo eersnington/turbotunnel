@@ -25,13 +25,13 @@ The relay secret grants access to your gateway. Do not commit or share this file
 
 `tt http` reads these variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `TURBOTUNNEL_SLUG` | Public slug for the current tunnel. |
-| `TURBOTUNNEL_BASE_DOMAIN` | Base domain or `{slug}` host pattern. |
-| `TURBOTUNNEL_RELAY_DOMAIN` | Older alias for `TURBOTUNNEL_BASE_DOMAIN`. |
-| `TURBOTUNNEL_RELAY_SECRET` | Gateway bearer secret. |
-| `TURBOTUNNEL_RELAY_URL` | Explicit relay origin for local development. |
+| Variable                   | Purpose                                      |
+| -------------------------- | -------------------------------------------- |
+| `TURBOTUNNEL_SLUG`         | Public slug for the current tunnel.          |
+| `TURBOTUNNEL_BASE_DOMAIN`  | Base domain or `{slug}` host pattern.        |
+| `TURBOTUNNEL_RELAY_DOMAIN` | Older alias for `TURBOTUNNEL_BASE_DOMAIN`.   |
+| `TURBOTUNNEL_RELAY_SECRET` | Gateway bearer secret.                       |
+| `TURBOTUNNEL_RELAY_URL`    | Explicit relay origin for local development. |
 
 Command-line options take precedence over environment variables, which take precedence over the saved config. A generated value is used only when none of those sources provides one.
 
@@ -41,8 +41,8 @@ For the domain, `TURBOTUNNEL_BASE_DOMAIN` takes precedence over `TURBOTUNNEL_REL
 
 `tt deploy` sets these variables in the project's Production environment:
 
-| Variable | Value |
-| --- | --- |
-| `TURBOTUNNEL_BASE_DOMAIN` | The configured base domain or host pattern. |
-| `TURBOTUNNEL_RELAY_SECRET` | The generated or reused relay secret. |
-| `TURBOTUNNEL_QUEUE_REGION` | The configured queue region. |
+| Variable                   | Value                                       |
+| -------------------------- | ------------------------------------------- |
+| `TURBOTUNNEL_BASE_DOMAIN`  | The configured base domain or host pattern. |
+| `TURBOTUNNEL_RELAY_SECRET` | The generated or reused relay secret.       |
+| `TURBOTUNNEL_QUEUE_REGION` | The configured queue region.                |

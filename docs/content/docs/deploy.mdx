@@ -11,12 +11,12 @@ tt deploy [--project <name>] [--domain <domain>] [--region <region>] [--format j
 
 ## Options
 
-| Option | Description | Default |
-| --- | --- | --- |
-| `--project <name>` | Vercel project name. Without `--domain`, the name must use the `<slug>-turbotunnel` form. | Generated `<slug>-turbotunnel` |
-| `--domain <domain>` | Base tunnel domain or a host pattern containing `{slug}`. | `{slug}-turbotunnel.vercel.app` |
-| `--region <region>` | Vercel Queue region. | `iad1` |
-| `--format json` | Print the final result as JSON. No other format is accepted. | Terminal output |
+| Option              | Description                                                                               | Default                         |
+| ------------------- | ----------------------------------------------------------------------------------------- | ------------------------------- |
+| `--project <name>`  | Vercel project name. Without `--domain`, the name must use the `<slug>-turbotunnel` form. | Generated `<slug>-turbotunnel`  |
+| `--domain <domain>` | Base tunnel domain or a host pattern containing `{slug}`.                                 | `{slug}-turbotunnel.vercel.app` |
+| `--region <region>` | Vercel Queue region.                                                                      | `iad1`                          |
+| `--format json`     | Print the final result as JSON. No other format is accepted.                              | Terminal output                 |
 
 Running the command again without options reuses the saved project, slug, domain, region, and relay secret.
 
