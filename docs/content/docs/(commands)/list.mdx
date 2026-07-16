@@ -1,0 +1,88 @@
+---
+title: tt list
+description: List tunnels recently reported to the configured gateway.
+---
+
+```sh
+tt list [--format json]
+```
+
+`tt list` queries the configured gateway for tunnel presence. It shows connected tunnels reported by any machine using that gateway, rather than only processes on the current machine.
+
+The request is authenticated with the relay secret stored in `~/.turbotunnel/config.json`. Run `tt deploy` first if no gateway is configured.
+
+## Output
+
+The terminal view prints a compact table:
+
+```text
+Connected tunnels
+
+SLUG      TARGET          CONNECTED  RELAYS
+checkout  127.0.0.1:3000  1m         3
+docs      localhost:5173  30s        1
+```
+
+| Column      | Meaning                                                     |
+| ----------- | ----------------------------------------------------------- |
+| `SLUG`      | Public tunnel slug.                                         |
+| `TARGET`    | Host and port reported by the local tunnel process.         |
+| `CONNECTED` | Approximate time since this tunnel session connected.       |
+| `RELAYS`    | Number of relay sockets represented by the presence record. |
+
+If the gateway has no current presence records, the command prints `No tunnels are connected.`
+
+## JSON output
+
+Use the versioned gateway response directly in scripts:
+
+```sh
+tt list --format json
+```
+
+```json
+{
+  "version": 1,
+  "consistency": "bounded",
+  "generatedAt": 1752667200000,
+  "tunnels": [
+    {
+      "slug": "docs",
+      "sessionId": "session_docs",
+      "target": {
+        "protocol": "http",
+        "host": "localhost",
+        "port": 5173
+      },
+      "connectedAt": 1752667170000,
+      "relayCount": 2
+    }
+  ]
+}
+```
+
+Human output goes to stderr. JSON output goes to stdout without ANSI styling.
+
+## Bounded consistency
+
+Each relay publishes presence transitions and periodic heartbeats through Vercel Queue. The gateway rebuilds the list from recent events, so the response reports `"consistency": "bounded"` rather than claiming to be an instantaneous global snapshot.
+
+After an unclean disconnect, a tunnel can remain visible until its presence lease expires. A newly connected tunnel can also take a short time to appear. Treat this command as gateway-wide discovery, not as a process liveness check.
+
+## Status or list?
+
+| Question                                             | Command     |
+| ---------------------------------------------------- | ----------- |
+| What is running on this machine right now?           | `tt status` |
+| Is each local relay pool ready or reconnecting?      | `tt status` |
+| Which tunnels has this gateway recently seen?        | `tt list`   |
+| What is running from another machine or environment? | `tt list`   |
+
+Use [`tt status`](/docs/status) when exact local process state matters.
+
+## Common failures
+
+- `NoGatewayConfigured`: run `tt deploy` or restore `~/.turbotunnel/config.json`.
+- `unauthorized`: the saved relay secret does not match the gateway. Redeploy to synchronize the gateway and local config.
+- `timeout` or `request-failed`: verify the gateway URL and inspect the Vercel deployment logs.
+- `invalid-response`: the endpoint returned data that does not match the supported versioned contract. Confirm that the CLI and gateway versions belong to the same release.

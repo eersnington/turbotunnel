@@ -1,10 +1,10 @@
 ---
 title: tt dev
-description: Start a local dev server and tunnel it in one managed process.
+description: Run a project dev server and public tunnel as one managed process.
 ---
 
 ```sh
-tt dev [--port <port>] [-- <command>]
+tt dev [--port <port>]
 ```
 
 `tt dev` finds the nearest `package.json`, starts its `dev` script, waits for the local HTTP server, and opens the tunnel. Pressing `Ctrl-C` stops both the tunnel and the managed process group.

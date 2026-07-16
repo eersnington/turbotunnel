@@ -1,0 +1,90 @@
+---
+title: tt status
+description: Inspect every live Turbotunnel process running on this machine.
+---
+
+```sh
+tt status [--format json]
+```
+
+`tt status` asks each local Turbotunnel process for its current lifecycle state. Use it to confirm which tunnels are running on this machine, whether their relay pools are healthy, and whether their gateways are reachable.
+
+Unlike `tt list`, this command reads authenticated local control sockets. It does not depend on gateway presence events and does not show tunnels running on other machines.
+
+## Output
+
+The terminal view prints one block per tunnel:
+
+```text
+Local tunnels
+
+✓ Tunnel           ready
+  Public           https://docs-turbotunnel.vercel.app/
+  Local            http://localhost:5173
+  Gateway          reachable
+  Relays           2/2
+  Uptime           12m
+```
+
+| Field     | Meaning                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| `Tunnel`  | Current lifecycle state: starting, connecting, ready, or reconnecting.   |
+| `Public`  | URL served by the configured gateway.                                    |
+| `Local`   | Local HTTP target receiving forwarded requests.                          |
+| `Gateway` | Whether the gateway status endpoint answered when the command was run.   |
+| `Relays`  | Connected relay sockets compared with the configured pool size.          |
+| `Uptime`  | Time since the local tunnel process started, rounded to seconds/minutes. |
+
+If no tunnel process is running, the command prints `No local tunnels are running.`
+
+## JSON output
+
+Use JSON when another program needs the full lifecycle snapshot:
+
+```sh
+tt status --format json
+```
+
+The command writes a JSON array to stdout. Each item includes the terminal fields plus process and traffic counters:
+
+```json
+[
+  {
+    "version": 1,
+    "sessionId": "ses_example",
+    "pid": 24817,
+    "state": "ready",
+    "startedAtMs": 1752667200000,
+    "publicUrl": "https://docs-turbotunnel.vercel.app/",
+    "localUrl": "http://localhost:5173",
+    "configuredRelays": 2,
+    "connectedRelays": 2,
+    "reconnects": 0,
+    "httpRequests": 14,
+    "httpResponses": 14,
+    "webSocketsOpened": 1,
+    "webSocketsClosed": 0,
+    "uptimeSeconds": 720,
+    "gateway": "running"
+  }
+]
+```
+
+Additional counters report relay connects, closes, and errors; frames sent, received, or rejected; and HTTP/WebSocket activity. Fields may be added as the versioned snapshot evolves, so consumers should read only the fields they need.
+
+Human output goes to stderr. JSON output goes to stdout without ANSI styling.
+
+## Local process discovery
+
+Every `tt http` and `tt dev` process registers a private record under `~/.turbotunnel` and listens on an authenticated local control socket. `tt status` queries up to eight records concurrently.
+
+Records whose process is gone are removed automatically. A process that is temporarily unavailable is preserved and causes the command to fail instead of incorrectly reporting that the tunnel stopped.
+
+## When to use status
+
+- Check whether a local tunnel reached `ready` before running an end-to-end test.
+- Diagnose a degraded relay pool or repeated reconnects.
+- Find the public and local URLs for tunnels started in other terminals.
+- Collect versioned process and traffic counters for local tooling.
+
+Use [`tt list`](/docs/list) instead when you need gateway-reported tunnels across machines.

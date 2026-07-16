@@ -8,28 +8,28 @@ const commands = [
     href: "/docs/deploy",
   },
   {
+    name: "tt dev",
+    args: "[--port <port>]",
+    description: "Start a dev server and tunnel it in one managed process.",
+    href: "/docs/dev",
+  },
+  {
     name: "tt http",
     args: "<port>",
     description: "Connect a running local app to the gateway and print its public URL.",
     href: "/docs/http",
   },
   {
-    name: "tt dev",
-    args: "[--port <port>] [-- <command>]",
-    description: "Start a dev server and tunnel it in one managed process.",
-    href: "/docs/dev",
-  },
-  {
     name: "tt status",
     args: "[--format json]",
     description: "Inspect live tunnel processes on this machine.",
-    href: "/docs/how-it-works#tunnel-presence",
+    href: "/docs/status",
   },
   {
     name: "tt list",
     args: "[--format json]",
     description: "List recent tunnels reported by the configured gateway.",
-    href: "/docs/how-it-works#tunnel-presence",
+    href: "/docs/list",
   },
 ] as const;
 ---
