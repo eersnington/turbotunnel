@@ -9,6 +9,8 @@ tt http <port> [options]
 
 The command checks that the local app responds, opens relay sockets to the configured gateway, and forwards HTTP and WebSocket traffic until the process stops.
 
+Before connecting, terminal output shows the resolved public URL, local target, and relay count. The loading line is replaced with a stable readiness message after every relay connects. Redirected output and CI runs use plain, non-animated milestones.
+
 ## Arguments and options
 
 | Input               | Description                                                                            | Default                        |
@@ -65,5 +67,7 @@ When `--relay-url` is set, Turbotunnel still uses the configured domain to build
 ## Startup checks
 
 Turbotunnel requests `http://<host>:<port>/` before connecting. The check times out after three seconds. Any HTTP response proves the app is reachable; the response does not need to be successful.
+
+The check uses the runtime's Fetch implementation, so the same command works when the repository CLI is launched through Bun or the published CLI is launched through Node.js.
 
 If no gateway settings are available from options, environment variables, or the saved config, run `tt deploy` first.

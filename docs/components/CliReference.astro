@@ -10,8 +10,26 @@ const commands = [
   {
     name: "tt http",
     args: "<port>",
-    description: "Start a tunnel to a local port and print a public URL.",
+    description: "Connect a running local app to the gateway and print its public URL.",
     href: "/docs/http",
+  },
+  {
+    name: "tt dev",
+    args: "[--port <port>] [-- <command>]",
+    description: "Start a dev server and tunnel it in one managed process.",
+    href: "/docs/dev",
+  },
+  {
+    name: "tt status",
+    args: "[--format json]",
+    description: "Inspect live tunnel processes on this machine.",
+    href: "/docs/how-it-works#tunnel-presence",
+  },
+  {
+    name: "tt list",
+    args: "[--format json]",
+    description: "List recent tunnels reported by the configured gateway.",
+    href: "/docs/how-it-works#tunnel-presence",
   },
 ] as const;
 ---
@@ -22,7 +40,7 @@ const commands = [
       CLI Reference
     </h2>
     <p class="mt-3 max-w-[52ch] text-balance text-base text-muted-foreground leading-relaxed">
-      Deploy the gateway once, then open a tunnel to any local port.
+      Deploy a gateway, run tunnels, and inspect their local or gateway state.
     </p>
 
     <div class="mt-10 divide-y divide-border overflow-hidden rounded-lg border border-border">
