@@ -28,6 +28,7 @@ import { GatewayState, type LocalClient } from "./gateway-state.js";
 import type { GatewayRequestHeaders } from "./headers.js";
 import { extractSlugFromHost } from "./host.js";
 import { routeWebSocketFrameToBrowser } from "./public-websocket.js";
+import { publishPresence } from "./presence.js";
 import {
   Queue,
   type QueueAckError,
@@ -80,12 +81,15 @@ export const runLocalClient = Effect.fn("runLocalClient")(function* (
 
   const state = yield* GatewayState;
   const frame = firstFrame.value;
+  const connectedAt =
+    frame.connectedAt === undefined ? yield* Clock.currentTimeMillis : frame.connectedAt;
   const localClient = yield* state.registerLocalClient({
     slug: frame.slug,
     socket,
     clientId: frame.localClientId,
     sessionId: frame.sessionId,
     generation: frame.generation,
+    connectedAt,
     target: frame.target,
     capacity: Math.min(frame.capacity, LOCAL_CLIENT_CAPACITY),
   });
@@ -99,11 +103,22 @@ export const runLocalClient = Effect.fn("runLocalClient")(function* (
     }),
   );
 
-  const messages = processRegisteredLocalClient(socket, localClient);
-  const pump = startLocalQueuePump(localClient, connectionFibers);
-  yield* Effect.raceFirst(messages, pump).pipe(
+  yield* Effect.addFinalizer(() =>
+    publishPresence(localClient, "remove").pipe(
+      Effect.catchTags({
+        QueueAuthError: (error) => logPresenceRemovalFailure(localClient, error),
+        QueueSendError: (error) => logPresenceRemovalFailure(localClient, error),
+      }),
+    ),
+  );
+  const connection = Effect.gen(function* () {
+    yield* publishPresence(localClient, "upsert");
+    const messages = processRegisteredLocalClient(socket, localClient);
+    const pump = startLocalQueuePump(localClient, connectionFibers);
+    yield* Effect.raceFirst(messages, pump).pipe(Effect.ensuring(FiberSet.clear(connectionFibers)));
+  });
+  yield* connection.pipe(
     terminateLocalConnectionOnPumpFailure(socket, localClient.slug, "local client handling"),
-    Effect.ensuring(FiberSet.clear(connectionFibers)),
   );
 });
 
@@ -137,6 +152,7 @@ const processRegisteredLocalClient = Effect.fn("processRegisteredLocalClient")(f
           yield* socket.close(1008, "invalid local client heartbeat");
           return;
         }
+        yield* publishPresence(localClient, "refresh");
         break;
       case "delivery.ack":
         yield* state.completeDeliveryAck(localClient, frame.ackFrameId, true);
@@ -154,6 +170,20 @@ const processRegisteredLocalClient = Effect.fn("processRegisteredLocalClient")(f
     }
   }
 });
+
+function logPresenceRemovalFailure(
+  localClient: LocalClient,
+  error: QueueAuthError | QueueSendError,
+): Effect.Effect<void> {
+  return Effect.logWarning("could not publish local tunnel disconnect presence").pipe(
+    Effect.annotateLogs({
+      errorTag: error._tag,
+      slug: localClient.slug,
+      localClientId: localClient.clientId,
+      generation: localClient.generation,
+    }),
+  );
+}
 
 /** Applies the invalid-protocol policy at the local-client socket boundary. */
 function decodeLocalClientMessage(

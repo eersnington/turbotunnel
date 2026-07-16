@@ -20,6 +20,7 @@ type LocalClientFields = {
   readonly clientId: string;
   readonly sessionId: string;
   readonly generation: number;
+  readonly connectedAt: number;
   readonly target: LocalTarget;
 };
 
@@ -96,6 +97,7 @@ type LocalClientRecord = {
   readonly capacity: number;
   draining: boolean;
   emptyQueueReceives: number;
+  presenceSequence: number;
 };
 
 type PendingHttpRequest = {
@@ -128,6 +130,7 @@ export class GatewayState extends Context.Service<
       client: LocalClient,
       receivedMessages: boolean,
     ) => Effect.Effect<number>;
+    readonly nextPresenceSequence: (client: LocalClient) => Effect.Effect<number>;
     readonly completeDeliveryAck: (
       client: LocalClient | undefined,
       frameId: string,
@@ -205,6 +208,7 @@ export class GatewayState extends Context.Service<
               capacity: input.capacity,
               draining: false,
               emptyQueueReceives: 0,
+              presenceSequence: 0,
             };
             const client: LocalClient = {
               slug: input.slug,
@@ -212,6 +216,7 @@ export class GatewayState extends Context.Service<
               clientId: input.clientId,
               sessionId: input.sessionId,
               generation: input.generation,
+              connectedAt: input.connectedAt,
               target: input.target,
               [localClientRecordKey]: record,
             };
@@ -293,6 +298,12 @@ export class GatewayState extends Context.Service<
             const record = client[localClientRecordKey];
             record.emptyQueueReceives = receivedMessages ? 0 : record.emptyQueueReceives + 1;
             return record.emptyQueueReceives;
+          }),
+        nextPresenceSequence: (client) =>
+          Effect.sync(() => {
+            const record = client[localClientRecordKey];
+            record.presenceSequence += 1;
+            return record.presenceSequence;
           }),
         completeDeliveryAck: (client, frameId, accepted) =>
           Effect.gen(function* () {

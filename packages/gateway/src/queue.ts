@@ -2,6 +2,8 @@ import { Context, Effect, Schema } from "effect";
 
 export type QueueMessage = {
   readonly id: string;
+  /** Broker-assigned Unix timestamp in milliseconds. */
+  readonly sentAt: number;
   readonly payload: unknown;
   readonly ack: Effect.Effect<void, QueueAckError | QueueAuthError>;
 };

@@ -76,6 +76,30 @@ describe("Effect protocol codecs", () => {
 });
 
 describe("directional protocol decoders", () => {
+  it.effect("accepts local hello frames with and without session connectedAt", () =>
+    Effect.gen(function* () {
+      const hello = {
+        type: "local.hello",
+        protocolVersion: PROTOCOL_VERSION,
+        frameId: "frm_hello",
+        slug: "demo",
+        localClientId: "client_1",
+        sessionId: "session_1",
+        generation: 1,
+        capacity: 1,
+        target: { protocol: "http", host: "127.0.0.1", port: 3000 },
+      } as const;
+
+      const compatible = yield* decodeGatewayInboundFrameJson(JSON.stringify(hello));
+      const timestamped = yield* decodeGatewayInboundFrameJson(
+        JSON.stringify({ ...hello, connectedAt: 1_000 }),
+      );
+
+      expect(compatible).not.toHaveProperty("connectedAt");
+      expect(timestamped).toMatchObject({ connectedAt: 1_000 });
+    }),
+  );
+
   it.effect("accepts frames expected by each endpoint", () =>
     Effect.gen(function* () {
       const toLocalJson = yield* encodeProtocolFrameJson(validWsDataToLocalFrame());

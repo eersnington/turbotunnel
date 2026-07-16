@@ -1,6 +1,5 @@
 /** Bridges raw Node/ws callbacks into scoped gateway Effect workflows and owned fibers. */
 import { Buffer } from "node:buffer";
-import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
 
@@ -9,6 +8,7 @@ import { Effect, FiberSet, Redacted, Scope } from "effect";
 import { WebSocketServer } from "ws";
 
 import { GatewayConfig } from "./gateway-config.js";
+import { hasValidBearerAuth } from "./auth.js";
 import { GatewayState } from "./gateway-state.js";
 import { parseGatewayRequestHeaders } from "./headers.js";
 import { runLocalClient, type LocalClientError } from "./local-client.js";
@@ -45,7 +45,7 @@ export const makeNodeGatewayServer = Effect.fn("makeNodeGatewayServer")(
                     Effect.sync(() =>
                       writeServiceUnavailable(
                         response,
-                        "Gateway queue operation failed. The local tunnel app was not contacted or did not receive the response.",
+                        "A gateway dependency operation failed. The local tunnel app was not contacted or did not receive the response.",
                       ),
                     ),
                   ),
@@ -193,16 +193,4 @@ function writeServiceUnavailable(
   }
   response.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
   response.end(`${message}\n`);
-}
-
-/** Compares a local-client bearer token without data-dependent byte comparison. */
-function hasValidBearerAuth(value: string | undefined, expectedSecret: string): boolean {
-  if (value === undefined || !value.startsWith("Bearer ")) {
-    return false;
-  }
-  const tokenBytes = Buffer.from(value.slice("Bearer ".length));
-  const expectedBytes = Buffer.from(expectedSecret);
-  return (
-    tokenBytes.byteLength === expectedBytes.byteLength && timingSafeEqual(tokenBytes, expectedBytes)
-  );
 }

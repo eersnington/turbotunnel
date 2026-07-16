@@ -140,6 +140,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     localClientId,
     sessionId,
     generation,
+    connectedAt: stats.startedAtMs,
     capacity: LOCAL_CLIENT_CAPACITY,
     target: config.target,
   });

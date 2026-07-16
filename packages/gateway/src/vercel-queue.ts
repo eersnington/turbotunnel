@@ -18,6 +18,7 @@ import {
 const ndjsonQueueMessageSchema = Schema.Struct({
   messageId: Schema.NonEmptyString,
   receiptHandle: Schema.NonEmptyString,
+  timestamp: Schema.NonEmptyString,
   body: Schema.NonEmptyString,
 });
 
@@ -162,6 +163,7 @@ class VercelQueueLive {
 
       const received: Array<QueueMessage> = [];
       for (const message of messages) {
+        const sentAt = yield* parseVercelQueueTimestamp(message.timestamp, options.topic);
         const payload = yield* Effect.try({
           try: (): unknown => JSON.parse(Buffer.from(message.body, "base64").toString("utf8")),
           catch: (cause) =>
@@ -175,6 +177,7 @@ class VercelQueueLive {
 
         received.push({
           id: message.messageId,
+          sentAt,
           payload,
           ack: ackMessage({
             region,
@@ -253,4 +256,22 @@ function authHeaders(
 
 function baseUrl(region: string): string {
   return `https://${region}.vercel-queue.com/api/v3`;
+}
+
+/** Parses the server-assigned timestamp carried by the Vercel NDJSON envelope. */
+export function parseVercelQueueTimestamp(
+  timestamp: string,
+  topic: string,
+): Effect.Effect<number, QueueReceiveError> {
+  const sentAt = Date.parse(timestamp);
+  return Number.isFinite(sentAt)
+    ? Effect.succeed(sentAt)
+    : Effect.fail(
+        new QueueReceiveError({
+          operation: "parse Vercel Queue message timestamp",
+          topic,
+          cause: { timestamp },
+          message: "Vercel Queue returned a message with an invalid server timestamp.",
+        }),
+      );
 }

@@ -4,9 +4,14 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
 import { NodeServices } from "@effect/platform-node";
-import { LOCAL_CLIENT_SUBPROTOCOL } from "@turbotunnel/contracts";
+import {
+  LOCAL_CLIENT_SUBPROTOCOL,
+  parseProtocolFrameJson,
+  type LocalClientHello,
+} from "@turbotunnel/contracts";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted, Result } from "effect";
+import { TestClock } from "effect/testing";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import { LocalControl } from "../src/adapters/local-control.js";
@@ -21,7 +26,16 @@ describe("TunnelRuntime", () => {
       const sessionsDir = yield* temporaryDirectory;
       const server = yield* listenWebSocketServer();
       const clients: Array<WebSocket> = [];
-      server.on("connection", (socket) => clients.push(socket));
+      const hellos: Array<LocalClientHello> = [];
+      server.on("connection", (socket) => {
+        clients.push(socket);
+        socket.on("message", (data) => {
+          const decoded = parseProtocolFrameJson(data.toString());
+          if (Result.isSuccess(decoded) && decoded.success.type === "local.hello") {
+            hellos.push(decoded.success);
+          }
+        });
+      });
       const port = (server.address() as AddressInfo).port;
       const localRuntime = Layer.mergeAll(
         RuntimeRegistry.layer(sessionsDir),
@@ -48,6 +62,8 @@ describe("TunnelRuntime", () => {
         const ready = yield* waitForSnapshot(runtime, (snapshot) => snapshot.state === "ready");
         expect(ready.connectedRelays).toBe(1);
         expect(ready.relayConnects).toBe(1);
+        const firstHello = yield* waitForHello(hellos, 1);
+        expect(firstHello.connectedAt).toBe(ready.startedAtMs);
 
         clients[0]?.terminate();
         const reconnecting = yield* waitForSnapshot(
@@ -56,6 +72,14 @@ describe("TunnelRuntime", () => {
         );
         expect(reconnecting.connectedRelays).toBe(0);
         expect(reconnecting.relayCloses).toBe(1);
+        yield* TestClock.adjust("1 second");
+        const reconnectedHello = yield* waitForHello(hellos, 2);
+        expect(reconnectedHello).toMatchObject({
+          sessionId: firstHello.sessionId,
+          localClientId: firstHello.localClientId,
+          generation: 2,
+          connectedAt: firstHello.connectedAt,
+        });
       }).pipe(Effect.scoped, Effect.provide(runtimeLayer));
     }),
   );
@@ -72,6 +96,20 @@ function waitForSnapshot(
       yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
     }
     return yield* Effect.die("runtime snapshot did not reach the expected phase");
+  });
+}
+
+function waitForHello(
+  hellos: ReadonlyArray<LocalClientHello>,
+  count: number,
+): Effect.Effect<LocalClientHello> {
+  return Effect.gen(function* () {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const hello = hellos[count - 1];
+      if (hello !== undefined) return hello;
+      yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
+    }
+    return yield* Effect.die(`relay did not send hello ${count}`);
   });
 }
 

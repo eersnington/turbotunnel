@@ -13,10 +13,11 @@ import {
   type HttpRequest,
   type HttpResponse,
 } from "@turbotunnel/contracts";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Option, Redacted, Schema } from "effect";
 import { nanoid } from "nanoid";
 
 import { GatewayConfig } from "./gateway-config.js";
+import { hasValidBearerAuth } from "./auth.js";
 import { GatewayState, type LocalClient } from "./gateway-state.js";
 import {
   parseGatewayRequestHeaders,
@@ -25,6 +26,7 @@ import {
 } from "./headers.js";
 import { extractSlugFromHost, isGatewayRootHost } from "./host.js";
 import { OidcToken } from "./oidc-token.js";
+import { listTunnels, type PresenceReplayLimitError } from "./presence.js";
 import {
   Queue,
   type QueueAckError,
@@ -39,6 +41,7 @@ import type { GatewayWebSocketWriteError } from "./websocket.js";
 /** Expected dependency failures while serving one public HTTP request. */
 export type PublicHttpError =
   | GatewayWebSocketWriteError
+  | PresenceReplayLimitError
   | QueueAckError
   | QueueAuthError
   | QueueReceiveError
@@ -66,6 +69,17 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
   const headers = headersResult.value;
   if (headers.oidcToken !== undefined) {
     yield* oidcToken.set(headers.oidcToken);
+  }
+  const pathname = URL.parse(request.url ?? "/", "http://gateway.invalid")?.pathname;
+  if (request.method === "GET" && pathname === "/_turbotunnel/tunnels") {
+    if (!hasValidBearerAuth(headers.authorization, Redacted.value(config.relaySecret))) {
+      writePlainResponse(response, 401, "A valid relay bearer token is required.");
+      return;
+    }
+    const body = yield* listTunnels();
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(`${JSON.stringify(body)}\n`);
+    return;
   }
   if (request.url === "/_turbotunnel/status") {
     yield* writeGatewayStatus(response, request, config, state);

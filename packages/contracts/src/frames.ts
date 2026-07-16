@@ -26,6 +26,7 @@ export const localClientHelloSchema = Schema.Struct({
   localClientId: Schema.NonEmptyString,
   sessionId: Schema.NonEmptyString,
   generation: positiveIntSchema,
+  connectedAt: Schema.optionalKey(nonNegativeIntSchema),
   capacity: positiveIntSchema,
   target: Schema.Struct({
     protocol: Schema.Literal("http"),

@@ -64,6 +64,7 @@ function localRegistration(generation: number) {
     clientId: "local_generation_test",
     sessionId: "session_generation_test",
     generation,
+    connectedAt: 1_000,
     capacity: 1,
     target: { protocol: "http", host: "127.0.0.1", port: 4321 },
   } as const;
