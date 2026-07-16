@@ -37,6 +37,8 @@ You need the Vercel CLI installed and logged in for `tt deploy`. Get it with `np
 
 `tt deploy` creates a Vercel project for the gateway and checks that it responds before saving anything to `~/.turbotunnel/config.json`. `tt http` prints a public URL and forwards traffic to your local app until you press `Ctrl-C`.
 
+Use `tt dev` to start the package's `dev` script and tunnel it in one process. `tt status` shows tunnels running on this machine, while `tt list` asks the configured gateway which tunnels are connected.
+
 ## Custom domain
 
 By default your gateway lives on `{slug}-turbotunnel.vercel.app`. If you have a domain configured in your Vercel workspace, then pass `--domain` to use your own:
@@ -105,6 +107,34 @@ Flags:
 - **`--relay-url <url>`**: connect to an explicit relay origin, such as `ws://127.0.0.1:3002`.
 
 Checks that the local app is reachable before opening the tunnel. Start your app first.
+
+### `tt dev`
+
+```sh
+tt dev
+tt dev --port 5173
+tt dev -- vite --host 0.0.0.0
+```
+
+Starts the nearest package's `dev` script, waits for its HTTP server, and keeps the child process and tunnel in one lifecycle. Pass a custom command after `--`. The child receives `PORT`, `TURBOTUNNEL_URL`, `TURBOTUNNEL_HOST`, and `TURBOTUNNEL_SLUG`.
+
+### `tt status`
+
+```sh
+tt status
+tt status --format json
+```
+
+Shows every live tunnel process on this machine. JSON is written to stdout; terminal output is written to stderr.
+
+### `tt list`
+
+```sh
+tt list
+tt list --format json
+```
+
+Lists tunnels connected to the saved gateway. The result has bounded consistency because it is rebuilt from recent Queue presence events.
 
 ### Environment variables
 
