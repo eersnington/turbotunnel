@@ -1,6 +1,6 @@
 ---
 title: Get started
-description: Tunnel your local dev server with a public URL, powered by Vercel WebSockets.
+description: Deploy a gateway and open a public URL for your local development server.
 ---
 
 Turbotunnel forwards HTTP and WebSocket traffic from a public URL to an app running on your machine. The gateway runs in your Vercel account.
@@ -11,6 +11,8 @@ Turbotunnel forwards HTTP and WebSocket traffic from a public URL to an app runn
 - A Vercel account
 - The Vercel CLI, installed and logged in
 
+Install the CLIs and authenticate with Vercel:
+
 ```sh
 npm i -g turbotunnel vercel
 vercel login
@@ -18,7 +20,7 @@ vercel login
 
 ## Deploy your gateway
 
-Run this once:
+Deploy the gateway to your Vercel account:
 
 ```sh
 tt deploy
@@ -37,7 +39,7 @@ tt http 5173
 ```text
 . turbotunnel 0.0.2
 
-  Public           https://ttdemo123-turbotunnel.vercel.app/
+  Public           https://ttdemo12-turbotunnel.vercel.app/
   Local            http://localhost:5173
   Relays           2 sockets
 
@@ -49,15 +51,7 @@ tt http 5173
 
 The public URL works until you press `Ctrl-C` or the process exits.
 
-You can also let Turbotunnel start the package's `dev` script:
-
-```sh
-tt dev
-```
-
-`tt dev` prints the resolved tunnel and command before handing the terminal to the child process. It separates child logs from tunnel lifecycle messages so reconnects and readiness remain easy to find.
-
-Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to see recent tunnel presence reported by the configured gateway.
+Next, use [`tt dev`](/docs/dev) to start a package's development server and tunnel together, or [inspect running tunnels](/docs/status).
 
 <CardGroup cols={2}>
   <Card title="Deploy command" href="/docs/deploy">
@@ -69,10 +63,7 @@ Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to se
   <Card title="Dev command" href="/docs/dev">
     Managed dev servers, custom commands, ports, and child logs.
   </Card>
-  <Card title="Configuration" href="/docs/configuration">
-    Saved settings and environment variables.
-  </Card>
-  <Card title="How it works" href="/docs/how-it-works">
-    Gateway, queue, and relay architecture.
+  <Card title="Configure Turbotunnel" href="/docs/configuration">
+    Saved gateway settings, environment variables, and runtime overrides.
   </Card>
 </CardGroup>

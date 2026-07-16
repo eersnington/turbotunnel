@@ -1,15 +1,15 @@
 ---
 title: tt http
-description: Open a public tunnel to a local HTTP or WebSocket app.
+description: Expose an already-running local HTTP or WebSocket app.
 ---
 
 ```sh
 tt http <port> [options]
 ```
 
-The command checks that the local app responds, opens relay sockets to the configured gateway, and forwards HTTP and WebSocket traffic until the process stops.
+`tt http` exposes an already-running local app through the configured gateway. It checks the local target, opens a pool of relay WebSockets, and forwards traffic until the process stops.
 
-Before connecting, terminal output shows the resolved public URL, local target, and relay count. The loading line is replaced with a stable readiness message after every relay connects. Redirected output and CI runs use plain, non-animated milestones.
+Before connecting, terminal output shows the resolved public URL, local target, and relay count. The loading line becomes a stable readiness message after every relay connects. Redirected output and continuous integration (CI) runs use plain, non-animated milestones.
 
 ## Arguments and options
 
@@ -23,7 +23,7 @@ Before connecting, terminal output shows the resolved public URL, local target, 
 | `--secret <secret>` | Relay secret for local gateway development.                                            | Saved secret                   |
 | `--relay-url <url>` | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                 | Derived from the tunnel domain |
 
-## Examples
+## Common tunnel configurations
 
 Expose a Vite app:
 
@@ -37,15 +37,16 @@ Connect to an app listening on another interface:
 tt http 3000 --host 127.0.0.1
 ```
 
-Choose the public slug:
+Choose a public slug after deploying a wildcard custom domain:
 
 ```sh
+tt deploy --domain tunnel.example.com
 tt http 5173 --slug demo
 ```
 
-With the default gateway domain, this produces a URL like `https://demo-turbotunnel.vercel.app/`.
+This produces `https://demo.tunnel.example.com/`. The default `<slug>-turbotunnel.vercel.app` domain supports only the slug in the deployed Vercel project name.
 
-Increase the connection pool for concurrent traffic:
+Increase the relay pool to add direct HTTP capacity and independent relay connections:
 
 ```sh
 tt http 5173 --pool 4
@@ -66,8 +67,6 @@ When `--relay-url` is set, Turbotunnel still uses the configured domain to build
 
 ## Startup checks
 
-Turbotunnel requests `http://<host>:<port>/` before connecting. The check times out after three seconds. Any HTTP response proves the app is reachable; the response does not need to be successful.
-
-The check uses the runtime's Fetch implementation, so the same command works when the repository CLI is launched through Bun or the published CLI is launched through Node.js.
+Turbotunnel sends `HEAD /` to `http://<host>:<port>/` before connecting. Any HTTP response proves the app is reachable. The check times out after three seconds.
 
 If no gateway settings are available from options, environment variables, or the saved config, run `tt deploy` first.

@@ -23,100 +23,122 @@ const { config } = data;
   ogEnabled={config.og.enabled}
   page={{
     title: "Turbotunnel",
-    description: "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
+    description: "Expose your local HTTP or WebSocket app through a gateway in your Vercel account.",
     route: "/",
   }}
 >
-  <section>
-    <div
-      class="mx-auto flex max-w-3xl flex-col items-center px-6 pt-24 pb-20 text-center sm:pt-32 sm:pb-24 lg:pt-40 lg:pb-28"
-    >
-      <h1
-        class="max-w-[16ch] text-balance font-medium text-[2.4rem] leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl"
+  <main class="relative mx-auto max-w-7xl border-border border-x border-y">
+    <div aria-hidden="true" class="absolute top-4 left-4 z-10">
+      <span class="block h-px w-9 bg-muted-foreground/70"></span>
+      <span class="absolute top-0 left-0 block h-9 w-px bg-muted-foreground/70"></span>
+    </div>
+    <div aria-hidden="true" class="absolute top-4 right-4 z-10">
+      <span class="block h-px w-9 bg-muted-foreground/70"></span>
+      <span class="absolute top-0 right-0 block h-9 w-px bg-muted-foreground/70"></span>
+    </div>
+    <div aria-hidden="true" class="absolute bottom-4 left-4 z-10">
+      <span class="block h-px w-9 bg-muted-foreground/70"></span>
+      <span class="absolute bottom-0 left-0 block h-9 w-px bg-muted-foreground/70"></span>
+    </div>
+    <div aria-hidden="true" class="absolute right-4 bottom-4 z-10">
+      <span class="block h-px w-9 bg-muted-foreground/70"></span>
+      <span class="absolute right-0 bottom-0 block h-9 w-px bg-muted-foreground/70"></span>
+    </div>
+
+    <section class="border-border border-b">
+      <div
+        class="mx-auto flex min-h-[38rem] max-w-5xl flex-col items-center justify-center px-6 py-24 text-center sm:min-h-[44rem] sm:py-32"
       >
-        Connect the Web to your Localhost
-      </h1>
-      <p
-        class="mt-6 max-w-[48ch] text-balance text-base text-muted-foreground leading-relaxed sm:text-lg"
+        <p class="mb-7 font-mono text-muted-foreground text-xs uppercase tracking-[0.18em]">
+          Your Vercel gateway · Your local app
+        </p>
+        <h1
+          class="max-w-[14ch] text-balance font-medium text-[2.75rem] leading-[0.98] tracking-[-0.045em] sm:text-6xl lg:text-7xl"
+        >
+          Connect the Web to your Localhost
+        </h1>
+        <p
+          class="mt-7 max-w-[46ch] text-balance text-base text-muted-foreground leading-relaxed sm:text-lg"
+        >
+          A tunneling service which you can deploy to your Vercel account. Built on top of Fluid
+          Compute and WebSockets.
+        </p>
+        <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <InstallCommand client:load />
+          <a
+            href="/docs"
+            class="inline-flex h-11 items-center gap-1.5 rounded-md px-4 font-medium text-sm transition-[background-color,transform] duration-150 hover:bg-muted active:scale-[0.97]"
+          >
+            Get started
+            <svg
+              aria-hidden="true"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+            </svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="border-border border-b">
+      <div class="px-6 py-16 sm:px-10 sm:py-20 lg:px-16 lg:py-24">
+        <div class="grid gap-6 lg:grid-cols-[0.7fr_1.3fr] lg:items-end">
+          <h2 class="text-balance font-medium text-3xl tracking-tight sm:text-4xl">How it works</h2>
+          <div class="lg:flex lg:justify-end">
+            <p class="max-w-[58ch] text-balance text-base text-muted-foreground leading-relaxed lg:text-right">
+              Turbotunnel connects your machine to the gateway through a pool of relay WebSockets. If a gateway instance has no eligible relay, Vercel Queue forwards the request to an instance connected to your machine.
+            </p>
+          </div>
+        </div>
+        <div class="mt-12 border-border border-t pt-6 sm:mt-16 sm:pt-8">
+          <FlowDiagram client:visible />
+        </div>
+      </div>
+    </section>
+
+    <CliReference />
+
+    <section>
+      <div
+        class="flex flex-col gap-8 px-6 py-16 sm:flex-row sm:items-center sm:justify-between sm:px-10 lg:px-16 lg:py-20"
       >
-        A tunneling service which you can deploy to your Vercel account. Built on top of Fluid
-        Compute and WebSockets.
-      </p>
-      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-        <InstallCommand client:load />
-        <a
-          href="/docs"
-          class="inline-flex h-11 items-center gap-1.5 rounded-md px-4 font-medium text-sm transition-colors hover:bg-muted"
-        >
-          Quickstart
-          <svg
-            aria-hidden="true"
-            class="size-4"
-            fill="none"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
+        <div>
+          <p class="font-mono text-muted-foreground text-xs uppercase tracking-[0.16em]">Ready when you are</p>
+          <p class="mt-3 max-w-[30ch] text-balance font-medium text-2xl tracking-tight sm:text-3xl">
+            Put your local app on the Web.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <InstallCommand client:load />
+          <a
+            href="/docs"
+            class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border bg-background px-5 font-medium text-sm transition-[background-color,transform] duration-150 hover:bg-muted active:scale-[0.97]"
           >
-            <path d="M5 12h14" />
-            <path d="m12 5 7 7-7 7" />
-          </svg>
-        </a>
+            Get started
+            <svg
+              aria-hidden="true"
+              class="size-4"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+            </svg>
+          </a>
+        </div>
       </div>
-    </div>
-  </section>
-
-  <section class="border-border border-b">
-    <div class="mx-auto max-w-6xl px-6 py-20 lg:py-24">
-      <h2 class="text-balance font-medium text-2xl tracking-tight sm:text-3xl">How it Works</h2>
-      <p class="mt-3 max-w-[72ch] text-balance text-base text-muted-foreground leading-relaxed">
-        Turbotunnel connects your machine to the gateway over WebSockets, carrying requests to your
-        local app and responses back. If a request lands on an instance without that connection,
-        Vercel Queue sends it to one that has it.
-      </p>
-      <div class="mt-10">
-        <FlowDiagram client:visible />
-      </div>
-    </div>
-  </section>
-
-  <CliReference />
-
-  <section>
-    <div
-      class="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-20 sm:flex-row sm:items-center sm:justify-between lg:py-24"
-    >
-      <p class="max-w-[36ch] text-base text-muted-foreground leading-relaxed">
-        Built by <a
-          href="https://x.com/eersnington"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-foreground"
-        >eersnington</a>.
-      </p>
-      <div class="flex flex-wrap items-center gap-3">
-        <InstallCommand client:load />
-        <a
-          href="/docs"
-          class="inline-flex h-11 items-center gap-1.5 rounded-md border border-border bg-background px-5 font-medium text-sm transition-colors hover:bg-muted"
-        >
-          Read the docs
-          <svg
-            aria-hidden="true"
-            class="size-4"
-            fill="none"
-            stroke="currentColor"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path d="M5 12h14" />
-            <path d="m12 5 7 7-7 7" />
-          </svg>
-        </a>
-      </div>
-    </div>
-  </section>
+    </section>
+  </main>
 </PageLayout>
