@@ -13,8 +13,10 @@ import {
   resolveDevLaunch,
 } from "../domain/dev-project.js";
 import { resolveTunnelConfig, type TunnelEnvironment } from "../domain/tunnel-config.js";
+import { formatProcessCommand } from "../domain/process-command.js";
 import { publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
 import { DevServerReadinessTimeout, type StartDevError } from "../errors.js";
+import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 
 const DEV_SERVER_READINESS_TIMEOUT_SECONDS = 60;
 
@@ -32,6 +34,7 @@ export const startDev = Effect.fn("startDev")(function* (options: {
   | LocalConfigStore
   | LocalAppProbe
   | TunnelRuntime
+  | TunnelReporter
 > {
   const projectDiscovery = yield* ProjectDiscovery;
   const portAllocator = yield* PortAllocator;
@@ -40,6 +43,7 @@ export const startDev = Effect.fn("startDev")(function* (options: {
   const localConfigStore = yield* LocalConfigStore;
   const localAppProbe = yield* LocalAppProbe;
   const tunnelRuntime = yield* TunnelRuntime;
+  const reporter = yield* TunnelReporter;
 
   const project = yield* projectDiscovery.discover(options.cwd);
   const customPort =
@@ -53,9 +57,14 @@ export const startDev = Effect.fn("startDev")(function* (options: {
     generatedSlug: yield* entropy.tunnelSlug,
   });
   const publicUrl = publicTunnelUrl(config);
+  const command =
+    options.input.command.length === 0
+      ? formatProcessCommand(launch.executable, launch.args)
+      : `${formatProcessCommand(launch.executable, [])} (custom command)`;
 
   return yield* Effect.scoped(
     Effect.gen(function* () {
+      yield* reporter.emit({ _tag: "DevelopmentProcessStarting", command });
       const child = yield* devProcess.spawn({
         executable: launch.executable,
         args: launch.args,
@@ -67,23 +76,27 @@ export const startDev = Effect.fn("startDev")(function* (options: {
           TURBOTUNNEL_SLUG: config.slug,
         },
       });
+      yield* reporter.emit({ _tag: "DevelopmentProcessStarted" });
       const childExit = child.exitCode.pipe(
         Effect.map((exitCode) => ({ _tag: "Exited" as const, exitCode })),
       );
-      const readiness = localAppProbe.waitUntilReachable(config.target).pipe(
-        Effect.timeoutOrElse({
-          duration: `${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds`,
-          orElse: () =>
-            Effect.fail(
-              new DevServerReadinessTimeout({
-                host: config.target.host,
-                port: config.target.port,
-                timeoutSeconds: DEV_SERVER_READINESS_TIMEOUT_SECONDS,
-                message: `Dev server did not become reachable at http://${config.target.host}:${config.target.port} within ${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds. Check the child output and its host/port settings, then retry. The child process and tunnel were stopped.`,
-              }),
-            ),
-        }),
-      );
+      const readiness = reporter
+        .emit({ _tag: "LocalApplicationWaiting", target: config.target })
+        .pipe(
+          Effect.andThen(localAppProbe.waitUntilReachable(config.target)),
+          Effect.timeoutOrElse({
+            duration: `${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds`,
+            orElse: () =>
+              Effect.fail(
+                new DevServerReadinessTimeout({
+                  host: config.target.host,
+                  port: config.target.port,
+                  timeoutSeconds: DEV_SERVER_READINESS_TIMEOUT_SECONDS,
+                  message: `Dev server did not become reachable at http://${config.target.host}:${config.target.port} within ${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds. Check the child output and its host/port settings, then retry. The child process and tunnel were stopped.`,
+                }),
+              ),
+          }),
+        );
       const result = yield* Effect.raceFirst(tunnelRuntime.run(config, readiness), childExit);
       return result.exitCode;
     }),

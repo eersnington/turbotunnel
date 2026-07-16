@@ -8,6 +8,7 @@ import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
 import type { HttpTunnelConfig, LocalTarget } from "../src/domain/tunnel-config.js";
 import { LocalTargetNotReachable } from "../src/errors.js";
 import { startHttpTunnel } from "../src/programs/start-http-tunnel.js";
+import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
 
 describe("startHttpTunnel", () => {
   it.effect("resolves saved config, probes local app, then starts runtime", () =>
@@ -117,6 +118,7 @@ class TunnelRecorder {
             }).pipe(Effect.andThen(Effect.never)),
         }),
       ),
+      Layer.succeed(TunnelReporter, TunnelReporter.of({ emit: () => Effect.void })),
     );
   }
 }

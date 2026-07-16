@@ -23,10 +23,19 @@ import { requestedOutput, turbotunnelCommand } from "./cli/commands.js";
 import { prepareCliArgv } from "./cli/argv.js";
 import { renderFailure } from "./cli/messages.js";
 import { CliOutput } from "./cli/output.js";
+import { tunnelReporterLive } from "./cli/lifecycle-presenter.js";
+import { TerminalSurface } from "./cli/terminal-surface.js";
 import type { CliFailure } from "./errors.js";
+import { TunnelReporter } from "./runtime/tunnel-reporter.js";
 
 const localRuntimeLayer = Layer.mergeAll(RuntimeRegistry.live, LocalControl.live);
-const tunnelRuntimeLayer = TunnelRuntime.live.pipe(Layer.provide(localRuntimeLayer));
+const terminalUiLayer = Layer.merge(
+  TerminalSurface.live,
+  tunnelReporterLive.pipe(Layer.provide(TerminalSurface.live)),
+);
+const tunnelRuntimeLayer = TunnelRuntime.live.pipe(
+  Layer.provide(Layer.merge(localRuntimeLayer, terminalUiLayer)),
+);
 const gatewayControlLayer = GatewayControlClient.live.pipe(Layer.provide(LocalConfigStore.live));
 
 const liveLayer = Layer.mergeAll(
@@ -41,6 +50,7 @@ const liveLayer = Layer.mergeAll(
   DevProcess.live,
   PortAllocator.live,
   ProjectDiscovery.live,
+  terminalUiLayer,
   localRuntimeLayer,
   tunnelRuntimeLayer,
 ).pipe(
@@ -62,6 +72,8 @@ const handleExpectedFailure = Effect.fn("handleExpectedFailure")(function* (
   error: CliFailure | CliError.CliError,
 ) {
   const output = yield* CliOutput;
+  const reporter = yield* TunnelReporter;
+  yield* reporter.emit({ _tag: "UnrecoverableFailure", reason: error._tag });
   yield* Effect.sync(() => {
     process.exitCode = 1;
   });
@@ -76,6 +88,8 @@ const handleExpectedFailure = Effect.fn("handleExpectedFailure")(function* (
 
 const handleUnexpectedFailure = Effect.fn("handleUnexpectedFailure")(function* (defect: unknown) {
   const output = yield* CliOutput;
+  const reporter = yield* TunnelReporter;
+  yield* reporter.emit({ _tag: "UnrecoverableFailure", reason: "unexpected_failure" });
   yield* Effect.logError("unexpected Turbotunnel defect", defect);
   yield* Effect.sync(() => {
     process.exitCode = 1;

@@ -1,13 +1,10 @@
 import { Clock, Context, Effect, Layer, Scope } from "effect";
 import { nanoid } from "nanoid";
 
-import { renderTunnel } from "../cli/messages.js";
-import { CliOutput } from "../cli/output.js";
 import type { HttpTunnelConfig } from "../domain/tunnel-config.js";
-import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
-import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { LocalControlError, RuntimeRegistryError } from "../errors.js";
-import { runRelayConnection, type TunnelSessionStats } from "../runtime/relay-connection.js";
+import { runRelayConnection } from "../runtime/relay-connection.js";
+import { makeTunnelSession } from "../runtime/tunnel-session.js";
 import { TunnelReporter, type TunnelReporterShape } from "../runtime/tunnel-reporter.js";
 import { LocalControl } from "./local-control.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
@@ -25,20 +22,12 @@ export class TunnelRuntime extends Context.Service<TunnelRuntime, TunnelRuntimeS
   static readonly live = Layer.effect(
     this,
     Effect.gen(function* () {
-      const output = yield* CliOutput;
       const registry = yield* RuntimeRegistry;
       const control = yield* LocalControl;
-      const reporter: TunnelReporterShape = {
-        starting: (config) => output.write(renderTunnel({ _tag: "Starting", config })),
-        ready: () => output.write(renderTunnel({ _tag: "Ready" })),
-        stopped: (summary) => output.write(renderTunnel({ _tag: "Stopped", summary })),
-        warning: (message) => output.write(renderTunnel({ _tag: "Warning", message })),
-      };
+      const reporter = yield* TunnelReporter;
       return TunnelRuntime.of({
         run: (config, beforeConnect = Effect.void) =>
-          runTunnel(config, beforeConnect, registry, control).pipe(
-            Effect.provideService(TunnelReporter, reporter),
-          ),
+          runTunnel(config, beforeConnect, registry, control, reporter),
       });
     }),
   );
@@ -49,44 +38,43 @@ const runTunnel = <E, R>(
   beforeConnect: Effect.Effect<void, E, R>,
   registry: RuntimeRegistry["Service"],
   control: LocalControl["Service"],
-): Effect.Effect<never, RuntimeRegistryError | LocalControlError | E, TunnelReporter | R> =>
-  Effect.scoped(runTunnelSession(config, beforeConnect, registry, control));
+  reporter: TunnelReporterShape,
+): Effect.Effect<never, RuntimeRegistryError | LocalControlError | E, R> =>
+  Effect.scoped(runTunnelSession(config, beforeConnect, registry, control, reporter));
 
 const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
   config: HttpTunnelConfig,
   beforeConnect: Effect.Effect<void, E, R>,
   registry: RuntimeRegistry["Service"],
   control: LocalControl["Service"],
-): Effect.fn.Return<
-  never,
-  RuntimeRegistryError | LocalControlError | E,
-  TunnelReporter | Scope.Scope | R
-> {
-  const reporter = yield* TunnelReporter;
+  reporter: TunnelReporterShape,
+): Effect.fn.Return<never, RuntimeRegistryError | LocalControlError | E, Scope.Scope | R> {
   const startedAtMs = yield* Clock.currentTimeMillis;
-  const stats: TunnelSessionStats = {
-    startedAtMs,
-    relayConnects: 0,
-    relayCloses: 0,
-    relayErrors: 0,
-    reconnects: 0,
-    framesReceived: 0,
-    framesSent: 0,
-    invalidFrames: 0,
-    httpRequests: 0,
-    httpResponses: 0,
-    webSocketsOpened: 0,
-    webSocketsClosed: 0,
-    activeRelayConnections: 0,
-    reachedConfiguredPool: false,
-    readyPrinted: false,
-  };
-
   const sessionId = `ses_${nanoid(12)}`;
-  let relayWorkersStarted = false;
-  const snapshot = () => makeSnapshot(config, sessionId, stats, relayWorkersStarted);
+  const session = yield* makeTunnelSession({
+    config,
+    sessionId,
+    pid: process.pid,
+    startedAtMs,
+    reporter,
+  });
+  yield* Effect.addFinalizer(() =>
+    reporter.emit({ _tag: "Stopping" }).pipe(
+      Effect.andThen(Clock.currentTimeMillis),
+      Effect.flatMap((stoppedAtMs) =>
+        reporter.emit({
+          _tag: "TunnelStopped",
+          summary: session.stoppedSummary(stoppedAtMs),
+        }),
+      ),
+    ),
+  );
   const processToken = nanoid(32);
-  const controlHandle = yield* control.open({ sessionId, processToken, snapshot });
+  const controlHandle = yield* control.open({
+    sessionId,
+    processToken,
+    snapshot: session.snapshot,
+  });
   yield* registry.register({
     version: 1,
     sessionId,
@@ -97,65 +85,12 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
   });
 
   yield* beforeConnect;
-  yield* reporter.starting(config);
-  yield* Effect.addFinalizer(() =>
-    Clock.currentTimeMillis.pipe(
-      Effect.flatMap((stoppedAtMs) =>
-        reporter.stopped({
-          durationSeconds: Math.max(0, Math.round((stoppedAtMs - stats.startedAtMs) / 1000)),
-          httpRequests: stats.httpRequests,
-          webSocketsOpened: stats.webSocketsOpened,
-        }),
-      ),
-    ),
-  );
-
-  relayWorkersStarted = true;
+  yield* reporter.emit({ _tag: "RelaysConnecting", config });
+  yield* session.relayWorkersStarted;
   yield* Effect.forEach(
     Array.from({ length: config.poolSize }, (_, index) => index),
-    (index) => runRelayConnection(config, index, sessionId, stats),
+    (index) => runRelayConnection(config, index, sessionId, session, reporter),
     { concurrency: "unbounded", discard: true },
   );
   return yield* Effect.never;
 });
-
-function makeSnapshot(
-  config: HttpTunnelConfig,
-  sessionId: string,
-  stats: TunnelSessionStats,
-  relayWorkersStarted: boolean,
-): TunnelLifecycleSnapshot {
-  const gateway = gatewayUrl(config);
-  return {
-    version: 1,
-    sessionId,
-    pid: process.pid,
-    state: !relayWorkersStarted
-      ? "starting"
-      : stats.activeRelayConnections === config.poolSize
-        ? "ready"
-        : stats.reachedConfiguredPool
-          ? "reconnecting"
-          : "connecting",
-    startedAtMs: stats.startedAtMs,
-    publicUrl: publicTunnelUrl(config),
-    localUrl: `http://${config.target.host}:${config.target.port}`,
-    gatewayStatusUrl:
-      config.relayUrl === undefined
-        ? `${gateway.replace(/\/$/u, "")}/_turbotunnel/status`
-        : new URL("/_turbotunnel/status", gateway).toString(),
-    configuredRelays: config.poolSize,
-    connectedRelays: stats.activeRelayConnections,
-    relayConnects: stats.relayConnects,
-    relayCloses: stats.relayCloses,
-    relayErrors: stats.relayErrors,
-    reconnects: stats.reconnects,
-    framesReceived: stats.framesReceived,
-    framesSent: stats.framesSent,
-    invalidFrames: stats.invalidFrames,
-    httpRequests: stats.httpRequests,
-    httpResponses: stats.httpResponses,
-    webSocketsOpened: stats.webSocketsOpened,
-    webSocketsClosed: stats.webSocketsClosed,
-  };
-}

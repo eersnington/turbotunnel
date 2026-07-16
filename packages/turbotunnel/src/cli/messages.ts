@@ -3,9 +3,7 @@ import type { CliError } from "effect/unstable/cli";
 
 import type { CliMessage } from "./output.js";
 import type { DeployOutput, DeployPlan } from "../domain/deploy-plan.js";
-import type { HttpTunnelConfig } from "../domain/tunnel-config.js";
 import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
-import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { CliFailure } from "../errors.js";
 import type { GatewayStatusCheck } from "../adapters/gateway-status-checker.js";
 import type { TunnelListResponse } from "@turbotunnel/contracts";
@@ -18,7 +16,7 @@ export type DeployMessage =
     }
   | {
       readonly _tag: "Progress";
-      readonly message: string;
+      readonly phase: DeployPhase;
     }
   | {
       readonly _tag: "Summary";
@@ -27,23 +25,19 @@ export type DeployMessage =
       readonly deploymentUrl: string;
     };
 
+export type DeployPhase =
+  | "GeneratingWorkspace"
+  | "LinkingProject"
+  | "SettingEnvironment"
+  | "AddingDomain"
+  | "DeployingProduction"
+  | "VerifyingGateway";
+
 export type OutputRow = {
   readonly glyph?: "success" | "warning" | "info";
   readonly label: string;
   readonly value: string;
 };
-
-export type TunnelStoppedSummary = {
-  readonly durationSeconds: number;
-  readonly httpRequests: number;
-  readonly webSocketsOpened: number;
-};
-
-export type TunnelMessage =
-  | { readonly _tag: "Starting"; readonly config: HttpTunnelConfig }
-  | { readonly _tag: "Ready" }
-  | { readonly _tag: "Stopped"; readonly summary: TunnelStoppedSummary }
-  | { readonly _tag: "Warning"; readonly message: string };
 
 export type StatusOutput = {
   readonly generatedAt: number;
@@ -76,7 +70,7 @@ export type FailureMessage =
 
 const LABEL_WIDTH = 16;
 const UNEXPECTED_FAILURE_MESSAGE =
-  "Unexpected CLI failure. No gateway was deployed and no local tunnel was started.";
+  "Unexpected CLI failure. Local work was stopped; remote work may have completed.";
 
 /** Renders deploy progress and completion messages to the CLI output contract. */
 export function renderDeploy(message: DeployMessage): CliMessage {
@@ -88,7 +82,7 @@ export function renderDeploy(message: DeployMessage): CliMessage {
         text: deployPreviewText(message.plan, message.account),
       };
     case "Progress":
-      return { _tag: "Text", stream: "stderr", text: message.message };
+      return { _tag: "Text", stream: "stderr", text: deployProgressText(message.phase) };
     case "Summary":
       return message.output._tag === "Json"
         ? { _tag: "Json", stream: "stdout", value: deploySummaryJson(message) }
@@ -96,17 +90,14 @@ export function renderDeploy(message: DeployMessage): CliMessage {
   }
 }
 
-/** Renders tunnel lifecycle messages to stderr. */
-export function renderTunnel(message: TunnelMessage): CliMessage {
+export function renderDeployTerminal(message: DeployMessage, colors: ColorPalette = pc): string {
   switch (message._tag) {
-    case "Starting":
-      return { _tag: "Text", stream: "stderr", text: tunnelStartingText(message.config) };
-    case "Ready":
-      return { _tag: "Text", stream: "stderr", text: tunnelReadyText() };
-    case "Stopped":
-      return { _tag: "Text", stream: "stderr", text: tunnelStoppedText(message.summary) };
-    case "Warning":
-      return { _tag: "Text", stream: "stderr", text: message.message };
+    case "Preview":
+      return deployPreviewText(message.plan, message.account, colors);
+    case "Progress":
+      return deployProgressText(message.phase);
+    case "Summary":
+      return deploySummaryText(message, colors);
   }
 }
 
@@ -129,52 +120,77 @@ export function renderFailure(message: FailureMessage): CliMessage {
   if (message._tag === "Expected") {
     return message.output._tag === "Json"
       ? { _tag: "Json", stream: "stdout", value: errorJson(message.error) }
-      : { _tag: "Text", stream: "stderr", text: pc.red(message.error.message) };
+      : { _tag: "Text", stream: "stderr", text: failureText(message.error) };
   }
 
   return message.output._tag === "Json"
     ? { _tag: "Json", stream: "stdout", value: unexpectedErrorJson() }
-    : { _tag: "Text", stream: "stderr", text: pc.red(UNEXPECTED_FAILURE_MESSAGE) };
+    : { _tag: "Text", stream: "stderr", text: unexpectedFailureText() };
 }
 
-export function formatRows(rows: ReadonlyArray<OutputRow>): string {
+type ColorPalette = ReturnType<typeof pc.createColors>;
+
+export function formatRows(rows: ReadonlyArray<OutputRow>, colors: ColorPalette = pc): string {
   return rows
     .map((row) => {
-      const gutter = row.glyph === undefined ? "  " : `${formatGlyph(row.glyph)} `;
+      const gutter = row.glyph === undefined ? "  " : `${formatGlyph(row.glyph, colors)} `;
       return `${gutter}${row.label.padEnd(LABEL_WIDTH)} ${row.value}`;
     })
     .join("\n");
 }
 
-function deployPreviewText(plan: DeployPlan, account: string): string {
+function deployPreviewText(plan: DeployPlan, account: string, colors: ColorPalette = pc): string {
   const heading = plan.reusedSavedTarget
     ? "Redeploying Turbotunnel gateway"
     : "Deploying Turbotunnel gateway";
   const rows = [
     ...(account.length > 0 ? [{ label: "Vercel", value: account }] : []),
     { label: "Project", value: plan.project },
-    { label: "Gateway", value: pc.cyan(`https://${plan.publicHost}/`) },
+    { label: "Gateway", value: colors.cyan(`https://${plan.publicHost}/`) },
     { label: "Tunnel domain", value: plan.baseDomain },
     { label: "Queue region", value: plan.queueRegion },
     { label: "Config", value: plan.configPath },
   ];
 
-  return `\n${pc.bold(heading)}\n\n${formatRows(rows)}\n`;
+  return `\n${colors.bold(heading)}\n\n${formatRows(rows, colors)}\n`;
 }
 
-function deploySummaryText(summary: Extract<DeployMessage, { readonly _tag: "Summary" }>): string {
+function deployProgressText(phase: DeployPhase): string {
+  switch (phase) {
+    case "GeneratingWorkspace":
+      return "Generating gateway files";
+    case "LinkingProject":
+      return "Linking Vercel project";
+    case "SettingEnvironment":
+      return "Setting gateway Environment Variables";
+    case "AddingDomain":
+      return "Adding gateway domain";
+    case "DeployingProduction":
+      return "Deploying gateway";
+    case "VerifyingGateway":
+      return "Verifying gateway";
+  }
+}
+
+function deploySummaryText(
+  summary: Extract<DeployMessage, { readonly _tag: "Summary" }>,
+  colors: ColorPalette = pc,
+): string {
   const gateway = `https://${summary.plan.publicHost}/`;
-  return `\n${formatRows([
-    { glyph: "success", label: "Gateway", value: "deployed" },
-    { label: "Gateway", value: pc.cyan(gateway) },
-    ...(summary.deploymentUrl === gateway
-      ? []
-      : [{ label: "Deployment", value: pc.cyan(summary.deploymentUrl) }]),
-    { label: "Tunnel domain", value: summary.plan.baseDomain },
-    { label: "Queue region", value: summary.plan.queueRegion },
-    { label: "Config", value: summary.plan.configPath },
-    { label: "Next", value: "tt http 5173" },
-  ])}\n`;
+  return `\n${formatRows(
+    [
+      { glyph: "success", label: "Gateway", value: "deployed" },
+      { label: "Gateway", value: colors.cyan(gateway) },
+      ...(summary.deploymentUrl === gateway
+        ? []
+        : [{ label: "Deployment", value: colors.cyan(summary.deploymentUrl) }]),
+      { label: "Tunnel domain", value: summary.plan.baseDomain },
+      { label: "Queue region", value: summary.plan.queueRegion },
+      { label: "Config", value: summary.plan.configPath },
+      { label: "Next", value: "tt http 5173" },
+    ],
+    colors,
+  )}\n`;
 }
 
 function deploySummaryJson(summary: Extract<DeployMessage, { readonly _tag: "Summary" }>): unknown {
@@ -193,32 +209,6 @@ function deploySummaryJson(summary: Extract<DeployMessage, { readonly _tag: "Sum
   };
 }
 
-function tunnelStartingText(config: HttpTunnelConfig): string {
-  return `\n${pc.bold("Starting tunnel")}\n\n${formatRows([
-    { label: "Public URL", value: pc.cyan(publicTunnelUrl(config)) },
-    { label: "Local app", value: `http://${config.target.host}:${config.target.port}` },
-    { label: "Gateway", value: gatewayUrl(config) },
-  ])}\n\nConnecting relay sockets...\n`;
-}
-
-function tunnelReadyText(): string {
-  return `\n${formatRows([
-    { glyph: "success", label: "Tunnel", value: "ready" },
-    { label: "Stop", value: "Ctrl-C" },
-  ])}\n`;
-}
-
-function tunnelStoppedText(summary: TunnelStoppedSummary): string {
-  return `\n${formatRows([
-    { glyph: "success", label: "Tunnel", value: "stopped" },
-    { label: "Duration", value: `${summary.durationSeconds}s` },
-    {
-      label: "Requests",
-      value: `${summary.httpRequests} HTTP, ${summary.webSocketsOpened} WebSocket`,
-    },
-  ])}\n`;
-}
-
 function statusText(status: StatusOutput): string {
   if (status.tunnels.length === 0) return "No local tunnels are running.";
 
@@ -228,11 +218,17 @@ function statusText(status: StatusOutput): string {
       0,
       Math.floor((status.generatedAt - tunnel.startedAtMs) / 1_000),
     );
+    const tunnelRow: OutputRow =
+      tunnel.state === "ready"
+        ? { glyph: "success", label: "Tunnel", value: "ready" }
+        : tunnel.state === "reconnecting"
+          ? { glyph: "warning", label: "Tunnel", value: "reconnecting" }
+          : { label: "Tunnel", value: tunnel.state };
     return formatRows([
-      { label: "Gateway", value: gateway?.status === "running" ? "reachable" : "unreachable" },
-      { label: "Tunnel", value: tunnel.state === "ready" ? "connected" : tunnel.state },
+      tunnelRow,
       { label: "Public", value: pc.cyan(tunnel.publicUrl) },
       { label: "Local", value: tunnel.localUrl },
+      { label: "Gateway", value: gateway?.status === "running" ? "reachable" : "unreachable" },
       { label: "Relays", value: `${tunnel.connectedRelays}/${tunnel.configuredRelays}` },
       { label: "Uptime", value: formatDuration(uptimeSeconds) },
     ]);
@@ -263,7 +259,7 @@ function tunnelListText(response: TunnelListResponse): string {
   const widths = headings.map((heading, index) =>
     Math.max(heading.length, ...rows.map((row) => row[index]?.length ?? 0)),
   );
-  return [headings, ...rows]
+  const table = [headings, ...rows]
     .map((row) =>
       row
         .map((cell, index) =>
@@ -273,6 +269,7 @@ function tunnelListText(response: TunnelListResponse): string {
         .trimEnd(),
     )
     .join("\n");
+  return `\n${pc.bold("Connected tunnels")}\n\n${table}\n`;
 }
 
 function formatDuration(seconds: number): string {
@@ -297,13 +294,123 @@ function unexpectedErrorJson(): unknown {
   };
 }
 
-function formatGlyph(glyph: "success" | "warning" | "info"): string {
+function unexpectedFailureText(): string {
+  return `${pc.red("✖")} ${UNEXPECTED_FAILURE_MESSAGE}\n\n${formatRows([
+    { label: "Attempted", value: "Stopped local resources still controlled by this command." },
+    { label: "Preserved", value: "Existing saved configuration was not intentionally replaced." },
+    { label: "Next", value: "Rerun the command; report the failure if it repeats." },
+  ])}`;
+}
+
+function failureText(error: CliFailure | CliError.CliError): string {
+  const context = failureContext(error._tag);
+  return `${pc.red("✖")} ${error.message}\n\n${formatRows([
+    { label: "Attempted", value: context.attempted },
+    { label: "Preserved", value: context.preserved },
+    { label: "Next", value: context.next },
+  ])}`;
+}
+
+function failureContext(tag: string): {
+  readonly attempted: string;
+  readonly preserved: string;
+  readonly next: string;
+} {
+  if (
+    [
+      "ProjectNotFound",
+      "ProjectManifestError",
+      "UnsupportedPackageManager",
+      "ConflictingLockfiles",
+      "DevScriptNotFound",
+      "PortAllocationError",
+      "DevProcessError",
+      "DevServerReadinessTimeout",
+    ].includes(tag)
+  ) {
+    return {
+      attempted: "Resolved the project, process, local app, and tunnel requirements.",
+      preserved: "Turbotunnel requested shutdown for any managed process and tunnel it started.",
+      next: "Correct the issue above, then rerun `tt dev`.",
+    };
+  }
+  if (tag === "LocalTargetNotReachable") {
+    return {
+      attempted: "Checked the configured local host and port before opening the tunnel.",
+      preserved: "The local application was not changed and no tunnel was started.",
+      next: "Start the local app or correct `--host` and the port, then retry.",
+    };
+  }
+  if (["RuntimeRegistryError", "LocalControlError"].includes(tag)) {
+    return {
+      attempted: "Used the authenticated local runtime registry and control endpoint.",
+      preserved: "Tunnel processes not owned by this command were not stopped.",
+      next: "Apply the recovery action above, then rerun the original command.",
+    };
+  }
+  if (tag === "NoGatewayConfigured") {
+    return {
+      attempted: "Looked for a saved or explicitly provided gateway configuration.",
+      preserved: "No gateway or running tunnel was changed.",
+      next: "Run `tt deploy`, then retry the original command.",
+    };
+  }
+  if (tag === "GatewayControlError") {
+    return {
+      attempted: "Contacted the configured gateway using the saved relay credentials.",
+      preserved: "The gateway and connected tunnels were not changed.",
+      next: "Apply the recovery action above, then rerun `tt list`.",
+    };
+  }
+  if (tag === "GatewayVerificationError") {
+    return {
+      attempted: "Deployed the gateway, then checked its public status endpoint.",
+      preserved: "The previous local Turbotunnel configuration remains intact.",
+      next: "Check the deployment logs, then rerun `tt deploy`.",
+    };
+  }
+  if (tag === "VercelCliNotFound") {
+    return {
+      attempted: "Checked for the Vercel CLI before preparing a deployment.",
+      preserved: "No gateway was deployed and the saved configuration was not changed.",
+      next: "Install the Vercel CLI, then rerun `tt deploy`.",
+    };
+  }
+  if (tag === "GatewayWorkspaceError") {
+    return {
+      attempted: "Prepared the local gateway deployment workspace.",
+      preserved: "No Vercel deployment was started and saved configuration was not changed.",
+      next: "Resolve the file-system issue above, then rerun `tt deploy`.",
+    };
+  }
+  if (["VercelCliFailed", "DeployOutputParseError"].includes(tag)) {
+    return {
+      attempted: "Ran the current Vercel deployment step.",
+      preserved: "The saved local gateway configuration was not replaced.",
+      next: "Resolve the Vercel issue above, then rerun `tt deploy`.",
+    };
+  }
+  if (tag === "ConfigFileWriteError") {
+    return {
+      attempted: "Completed the operation, then tried to save its local configuration.",
+      preserved: "The completed remote work may still be active; inspect the local configuration.",
+      next: "Fix file permissions, inspect the configuration, then rerun the command if needed.",
+    };
+  }
+  return {
+    attempted: "Validated the command and available local configuration.",
+    preserved: "No new tunnel or deployment was completed.",
+    next: "Correct the issue above, then rerun the command.",
+  };
+}
+
+function formatGlyph(glyph: "success" | "warning" | "info", colors: ColorPalette): string {
   switch (glyph) {
     case "success":
-      return pc.green("✓");
+      return colors.green("✓");
     case "warning":
-      return pc.yellow("!");
+      return colors.yellow("!");
     case "info":
-      return pc.cyan("▲");
+      return colors.cyan("▲");
   }
 }

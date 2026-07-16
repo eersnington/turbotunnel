@@ -10,6 +10,7 @@ import {
   resolveTunnelConfig,
 } from "../domain/tunnel-config.js";
 import type { StartHttpTunnelError } from "../errors.js";
+import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 
 export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   input: HttpCommandInput,
@@ -17,12 +18,13 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
 ): Effect.fn.Return<
   never,
   StartHttpTunnelError,
-  Entropy | LocalConfigStore | LocalAppProbe | TunnelRuntime
+  Entropy | LocalConfigStore | LocalAppProbe | TunnelRuntime | TunnelReporter
 > {
   const entropy = yield* Entropy;
   const localConfigStore = yield* LocalConfigStore;
   const localAppProbe = yield* LocalAppProbe;
   const tunnelRuntime = yield* TunnelRuntime;
+  const reporter = yield* TunnelReporter;
   const savedConfig = yield* localConfigStore.read;
   const config = yield* resolveTunnelConfig({
     input,
@@ -30,6 +32,7 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
     savedConfig,
     generatedSlug: yield* entropy.tunnelSlug,
   });
+  yield* reporter.emit({ _tag: "LocalApplicationWaiting", target: config.target });
   yield* localAppProbe.assertReachable(config.target);
   return yield* tunnelRuntime.run(config);
 });
