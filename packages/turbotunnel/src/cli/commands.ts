@@ -4,8 +4,10 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 import { deployGateway } from "../programs/deploy-gateway.js";
 import { showStatus, type StatusFormat } from "../programs/show-status.js";
 import { startHttpTunnel, tunnelEnvironmentFromProcess } from "../programs/start-http-tunnel.js";
+import { startDev } from "../programs/start-dev.js";
 import { CliConfigError } from "../errors.js";
 import type { DeployOutput } from "../domain/deploy-plan.js";
+import { decodeDevArguments } from "./argv.js";
 
 export const httpCommand = Command.make(
   "http",
@@ -127,6 +129,37 @@ export const statusCommand = Command.make(
   ]),
 );
 
+export const devCommand = Command.make(
+  "dev",
+  {
+    port: Flag.integer("port").pipe(
+      Flag.withDescription("set the local dev server port, from 1 to 65535"),
+      Flag.optional,
+    ),
+    command: Argument.string("command").pipe(Argument.variadic()),
+  },
+  Effect.fn("devCommand")(function* ({ port, command }) {
+    const exitCode = yield* startDev({
+      input: { port: Option.getOrUndefined(port), command: decodeDevArguments(command) },
+      cwd: process.cwd(),
+      env: tunnelEnvironmentFromProcess(process.env),
+    });
+    yield* Effect.sync(() => {
+      process.exitCode = exitCode;
+    });
+  }),
+).pipe(
+  Command.withDescription("Start a project dev server and expose it through Turbotunnel"),
+  Command.withExamples([
+    { command: "tt dev", description: "Start the package dev script on a free port" },
+    { command: "tt dev --port 5173", description: "Start the dev server on port 5173" },
+    {
+      command: "tt dev -- vite --host 0.0.0.0",
+      description: "Start a custom command without a shell",
+    },
+  ]),
+);
+
 export function requestedDeployOutput(argv: ReadonlyArray<string>): DeployOutput {
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--format" && argv[index + 1] === "json") {
@@ -165,5 +198,5 @@ export const turbotunnelCommand = Command.make("turbotunnel").pipe(
   Command.withDescription(
     "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
   ),
-  Command.withSubcommands([httpCommand, deployCommand, statusCommand]),
+  Command.withSubcommands([devCommand, httpCommand, deployCommand, statusCommand]),
 );

@@ -6,6 +6,7 @@ import { LocalTargetNotReachable } from "../errors.js";
 
 export type LocalAppProbeShape = {
   readonly assertReachable: (target: LocalTarget) => Effect.Effect<void, LocalTargetNotReachable>;
+  readonly waitUntilReachable: (target: LocalTarget) => Effect.Effect<void>;
 };
 
 export class LocalAppProbe extends Context.Service<LocalAppProbe, LocalAppProbeShape>()(
@@ -17,12 +18,14 @@ export class LocalAppProbe extends Context.Service<LocalAppProbe, LocalAppProbeS
       const httpClient = yield* HttpClient;
       return LocalAppProbe.of({
         assertReachable: (target) => assertReachable(httpClient, target),
+        waitUntilReachable: (target) => waitUntilReachable(httpClient, target),
       });
     }),
   );
 }
 
 const LOCAL_TARGET_PREFLIGHT_TIMEOUT_MS = 3_000;
+const LOCAL_TARGET_RETRY_DELAY_MS = 100;
 
 const assertReachable = Effect.fn("LocalAppProbe.assertReachable")(function* (
   httpClient: HttpClient,
@@ -52,4 +55,20 @@ const assertReachable = Effect.fn("LocalAppProbe.assertReachable")(function* (
     }),
     Effect.asVoid,
   );
+});
+
+const waitUntilReachable = Effect.fn("LocalAppProbe.waitUntilReachable")(function* (
+  httpClient: HttpClient,
+  target: LocalTarget,
+): Effect.fn.Return<void> {
+  while (true) {
+    const reachable = yield* httpClient
+      .head(`http://${target.host}:${target.port}/`)
+      .pipe(
+        Effect.timeoutOption(1_000),
+        Effect.match({ onFailure: () => false, onSuccess: (result) => result._tag === "Some" }),
+      );
+    if (reachable) return;
+    yield* Effect.sleep(LOCAL_TARGET_RETRY_DELAY_MS);
+  }
 });
