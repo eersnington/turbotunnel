@@ -1,0 +1,48 @@
+---
+title: Configuration
+description: Understand saved gateway settings and runtime overrides.
+---
+
+## Saved configuration
+
+After a successful deployment, Turbotunnel writes `~/.turbotunnel/config.json`:
+
+```json
+{
+  "project": "ttabc123-turbotunnel",
+  "slug": "ttabc123",
+  "relayDomain": "{slug}-turbotunnel.vercel.app",
+  "queueRegion": "iad1",
+  "relaySecret": "ttsec_..."
+}
+```
+
+The relay secret grants access to your gateway. Do not commit or share this file.
+
+`tt deploy` also keeps its generated Vercel workspace in `~/.turbotunnel/relay`. It preserves that directory's `.vercel` metadata between deployments.
+
+## Environment variables
+
+`tt http` reads these variables:
+
+| Variable                   | Purpose                                      |
+| -------------------------- | -------------------------------------------- |
+| `TURBOTUNNEL_SLUG`         | Public slug for the current tunnel.          |
+| `TURBOTUNNEL_BASE_DOMAIN`  | Base domain or `{slug}` host pattern.        |
+| `TURBOTUNNEL_RELAY_DOMAIN` | Older alias for `TURBOTUNNEL_BASE_DOMAIN`.   |
+| `TURBOTUNNEL_RELAY_SECRET` | Gateway bearer secret.                       |
+| `TURBOTUNNEL_RELAY_URL`    | Explicit relay origin for local development. |
+
+Command-line options take precedence over environment variables, which take precedence over the saved config. A generated value is used only when none of those sources provides one.
+
+For the domain, `TURBOTUNNEL_BASE_DOMAIN` takes precedence over `TURBOTUNNEL_RELAY_DOMAIN`.
+
+## Vercel environment variables
+
+`tt deploy` sets these variables in the project's Production environment:
+
+| Variable                   | Value                                       |
+| -------------------------- | ------------------------------------------- |
+| `TURBOTUNNEL_BASE_DOMAIN`  | The configured base domain or host pattern. |
+| `TURBOTUNNEL_RELAY_SECRET` | The generated or reused relay secret.       |
+| `TURBOTUNNEL_QUEUE_REGION` | The configured queue region.                |

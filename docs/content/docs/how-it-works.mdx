@@ -1,0 +1,33 @@
+---
+title: How it works
+description: Follow a request through the Vercel gateway to your local app.
+---
+
+Turbotunnel has two runtime pieces:
+
+1. A gateway deployed to your Vercel account.
+2. The `tt http` process running beside your local app.
+
+![Browser to gateway to tt http to local app, with Vercel Queue fallback](/architecture.png)
+
+`tt http` opens a pool of persistent WebSocket connections to the gateway. A browser request reaches the public gateway, travels over one of those connections, and is replayed against your local HTTP server. The response returns over the same path.
+
+WebSocket upgrade requests use the same tunnel and remain connected to the local app.
+
+## Multiple gateway instances
+
+Vercel can run more than one gateway instance. A public request may reach an instance that does not own a connection to your machine. In that case, the Vercel Queue carries the request to an instance that does. The queue region is selected during `tt deploy`.
+
+## Gateway status
+
+Every gateway exposes:
+
+```text
+/_turbotunnel/status
+```
+
+The JSON response reports the gateway version, base domain, broker, queue region, uptime, and live counters for the current instance. `tt deploy` checks this endpoint before replacing your local config. It verifies the version, base domain, and queue region.
+
+## Ownership and availability
+
+The gateway project, domain, environment variables, and usage belong to your Vercel account. The public tunnel is available only while `tt http` is connected.

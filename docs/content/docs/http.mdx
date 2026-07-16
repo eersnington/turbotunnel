@@ -1,0 +1,69 @@
+---
+title: tt http
+description: Open a public tunnel to a local HTTP or WebSocket app.
+---
+
+```sh
+tt http <port> [options]
+```
+
+The command checks that the local app responds, opens relay sockets to the configured gateway, and forwards HTTP and WebSocket traffic until the process stops.
+
+## Arguments and options
+
+| Input               | Description                                                                            | Default                        |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
+| `<port>`            | Local TCP port, from 1 to 65535.                                                       | Required                       |
+| `--slug <slug>`     | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters. | Saved slug or a random slug    |
+| `--host <host>`     | Local app host.                                                                        | `localhost`                    |
+| `--pool <count>`    | Number of local relay sockets, from 1 to 16.                                           | `2`                            |
+| `--domain <domain>` | Base tunnel domain or `{slug}` host pattern for this run.                              | Saved domain                   |
+| `--secret <secret>` | Relay secret for local gateway development.                                            | Saved secret                   |
+| `--relay-url <url>` | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                 | Derived from the tunnel domain |
+
+## Examples
+
+Expose a Vite app:
+
+```sh
+tt http 5173
+```
+
+Connect to an app listening on another interface:
+
+```sh
+tt http 3000 --host 127.0.0.1
+```
+
+Choose the public slug:
+
+```sh
+tt http 5173 --slug demo
+```
+
+With the default gateway domain, this produces a URL like `https://demo-turbotunnel.vercel.app/`.
+
+Increase the connection pool for concurrent traffic:
+
+```sh
+tt http 5173 --pool 4
+```
+
+## Local gateway development
+
+Point the client at a gateway running locally:
+
+```sh
+tt http 5173 \
+  --domain localhost:3002 \
+  --relay-url ws://127.0.0.1:3002 \
+  --secret dev_secret
+```
+
+When `--relay-url` is set, Turbotunnel still uses the configured domain to build the public host and sends that host to the relay.
+
+## Startup checks
+
+Turbotunnel requests `http://<host>:<port>/` before connecting. The check times out after three seconds. Any HTTP response proves the app is reachable; the response does not need to be successful.
+
+If no gateway settings are available from options, environment variables, or the saved config, run `tt deploy` first.
