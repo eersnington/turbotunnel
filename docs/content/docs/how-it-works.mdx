@@ -28,6 +28,12 @@ Every gateway exposes:
 
 The JSON response reports the gateway version, base domain, broker, queue region, uptime, and live counters for the current instance. `tt deploy` checks this endpoint before replacing your local config. It verifies the version, base domain, and queue region.
 
+## Tunnel presence
+
+Each relay connection publishes a heartbeat to Vercel Queue. `tt list` calls the authenticated `/_turbotunnel/tunnels` endpoint, which rebuilds a versioned list from recent events. The endpoint uses the saved relay secret as a bearer token.
+
+The response reports `consistency: "bounded"`. A relay can remain in the list for up to its lease window after an unclean disconnect, so this is not an instantaneous global snapshot. `tt status` uses authenticated local process sockets instead when you need the state of tunnels on the current machine.
+
 ## Ownership and availability
 
 The gateway project, domain, environment variables, and usage belong to your Vercel account. The public tunnel is available only while `tt http` is connected.

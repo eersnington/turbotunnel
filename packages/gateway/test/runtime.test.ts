@@ -3,22 +3,28 @@ import { request as httpRequest, type Server } from "node:http";
 
 import {
   LOCAL_CLIENT_SUBPROTOCOL,
+  PRESENCE_TOPIC,
   parseProtocolFrameJson,
   PROTOCOL_VERSION,
+  tunnelListResponseSchema,
+  tunnelPresenceEventSchema,
+  type TunnelPresenceEvent,
   type Frame,
   type HttpRequest,
   type WsClose,
   type WsData,
   type WsOpen,
 } from "@turbotunnel/contracts";
-import { ManagedRuntime, Result } from "effect";
+import { Effect, ManagedRuntime, Result, Schema } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket, type RawData } from "ws";
 
 import { GatewayLive, GatewayServer } from "../src/gateway.js";
+import { Queue } from "../src/queue.js";
 
 type RunningGateway = {
   readonly server: Server;
+  readonly queue: Queue["Service"];
   readonly openLocalClient: (slug: string) => Promise<WebSocket>;
   readonly openPublicWebSocket: (slug: string, path: string) => Promise<WebSocket>;
   readonly dispose: () => Promise<void>;
@@ -47,6 +53,114 @@ describe("gateway runtime", () => {
       broker: "memory",
       activeLocalClients: 0,
     });
+  });
+
+  test("authenticates the exact tunnel-list route with the relay secret", async () => {
+    const gateway = await startGateway();
+    const missing = await request(gateway.server, {
+      path: "/_turbotunnel/tunnels",
+      host: "tunnel.test",
+    });
+    const wrong = await request(gateway.server, {
+      path: "/_turbotunnel/tunnels",
+      host: "tunnel.test",
+      authorization: "Bearer wrong_secret",
+    });
+    const valid = await request(gateway.server, {
+      path: "/_turbotunnel/tunnels",
+      host: "tunnel.test",
+      authorization: "Bearer test_secret",
+    });
+    const query = await request(gateway.server, {
+      path: "/_turbotunnel/tunnels?unexpected=true",
+      host: "tunnel.test",
+      authorization: "Bearer test_secret",
+      accept: "application/json",
+    });
+    const post = await request(gateway.server, {
+      path: "/_turbotunnel/tunnels?unexpected=true",
+      host: "tunnel.test",
+      authorization: "Bearer test_secret",
+      accept: "application/json",
+      method: "POST",
+    });
+
+    expect(missing.status).toBe(401);
+    expect(wrong.status).toBe(401);
+    expect(valid.status).toBe(200);
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(tunnelListResponseSchema)(JSON.parse(valid.body) as unknown),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isSuccess(
+        Schema.decodeUnknownResult(tunnelListResponseSchema)(JSON.parse(query.body) as unknown),
+      ),
+    ).toBe(true);
+    expect(JSON.parse(post.body)).toMatchObject({ status: "running" });
+  });
+
+  test("lists a shared in-memory relay pool across instances and removes disconnects", async () => {
+    const firstGateway = await startGateway();
+    const secondGateway = await startGateway();
+    const listingGateway = await startGateway();
+    const first = await firstGateway.openLocalClient("presence-runtime");
+    const second = await secondGateway.openLocalClient("presence-runtime");
+    sendHello(first, {
+      slug: "presence-runtime",
+      localClientId: "presence_client_a",
+      sessionId: "presence_session",
+      generation: 1,
+      connectedAt: 1_234,
+    });
+    sendHello(second, {
+      slug: "presence-runtime",
+      localClientId: "presence_client_b",
+      sessionId: "presence_session",
+      generation: 1,
+      connectedAt: 1_234,
+    });
+    await Promise.all([
+      waitForActiveLocalClient(firstGateway.server),
+      waitForActiveLocalClient(secondGateway.server),
+    ]);
+
+    const pooled = await waitForListedTunnel(listingGateway.server, "presence-runtime", 2);
+    expect(pooled).toMatchObject({
+      sessionId: "presence_session",
+      relayCount: 2,
+      connectedAt: 1_234,
+      target: { protocol: "http", host: "127.0.0.1", port: 4321 },
+    });
+
+    second.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "local.heartbeat",
+        frameId: "presence_heartbeat",
+        slug: "presence-runtime",
+        localClientId: "presence_client_b",
+        sessionId: "presence_session",
+        generation: 1,
+        lastSeen: Date.now(),
+      }),
+    );
+    const events = await receivePresenceEvents(listingGateway.queue, "runtime_heartbeat_consumer");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "refresh",
+        slug: "presence-runtime",
+        localClientId: "presence_client_b",
+        sequence: 2,
+      }),
+    );
+
+    const closed = waitForClose(first);
+    first.close(1000, "local shutdown");
+    await closed;
+    const remaining = await waitForListedTunnel(listingGateway.server, "presence-runtime", 1);
+    expect(remaining.relayCount).toBe(1);
   });
 
   test("routes direct HTTP and WebSocket traffic through a local client", async () => {
@@ -462,6 +576,7 @@ type RequestInput = {
   readonly host: string;
   readonly method?: string;
   readonly accept?: string;
+  readonly authorization?: string;
   readonly body?: string;
 };
 
@@ -478,6 +593,7 @@ function request(server: Server, input: RequestInput): Promise<HttpResponseResul
           headers: {
             host: input.host,
             ...(input.accept === undefined ? {} : { accept: input.accept }),
+            ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
           },
         },
         (response) => {
@@ -496,6 +612,49 @@ function request(server: Server, input: RequestInput): Promise<HttpResponseResul
       request.end(input.body);
     }),
   );
+}
+
+function sendHello(
+  socket: WebSocket,
+  input: {
+    readonly slug: string;
+    readonly localClientId: string;
+    readonly sessionId: string;
+    readonly generation: number;
+    readonly connectedAt?: number;
+  },
+): void {
+  socket.send(
+    JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION,
+      type: "local.hello",
+      frameId: `hello_${input.localClientId}_${input.generation}`,
+      ...input,
+      capacity: 4,
+      target: { protocol: "http", host: "127.0.0.1", port: 4321 },
+    }),
+  );
+}
+
+async function waitForListedTunnel(server: Server, slug: string, relayCount: number) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const response = await request(server, {
+      path: "/_turbotunnel/tunnels",
+      host: "tunnel.test",
+      authorization: "Bearer test_secret",
+    });
+    const decoded = Schema.decodeUnknownResult(tunnelListResponseSchema)(
+      JSON.parse(response.body) as unknown,
+    );
+    if (Result.isSuccess(decoded)) {
+      const tunnel = decoded.success.tunnels.find((candidate) => candidate.slug === slug);
+      if (tunnel?.relayCount === relayCount) {
+        return tunnel;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Tunnel ${slug} did not reach relay count ${relayCount}.`);
 }
 
 class FrameRecorder {
@@ -600,6 +759,7 @@ async function startGateway(): Promise<RunningGateway> {
     }),
   );
   const server = await runtime.runPromise(GatewayServer);
+  const queue = await runtime.runPromise(Queue);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -615,6 +775,7 @@ async function startGateway(): Promise<RunningGateway> {
   };
   const gateway = {
     server,
+    queue,
     openLocalClient: (slug: string) =>
       openSocket(
         server,
@@ -643,6 +804,39 @@ async function startGateway(): Promise<RunningGateway> {
   };
   running.push(gateway);
   return gateway;
+}
+
+async function receivePresenceEvents(
+  queue: Queue["Service"],
+  consumerGroup: string,
+): Promise<ReadonlyArray<TunnelPresenceEvent>> {
+  const events: Array<TunnelPresenceEvent> = [];
+  for (let emptyAttempts = 0; emptyAttempts < 20;) {
+    const messages = await Effect.runPromise(
+      queue.receive({
+        topic: PRESENCE_TOPIC,
+        consumerGroup,
+        limit: 10,
+        visibilityTimeoutSeconds: 30,
+      }),
+    );
+    if (messages.length === 0) {
+      emptyAttempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      continue;
+    }
+    emptyAttempts = 0;
+    for (const message of messages) {
+      const decoded = Schema.decodeUnknownResult(tunnelPresenceEventSchema, {
+        onExcessProperty: "error",
+      })(message.payload);
+      await Effect.runPromise(message.ack);
+      if (Result.isSuccess(decoded)) {
+        events.push(decoded.success);
+      }
+    }
+  }
+  return events;
 }
 
 function openSocket(

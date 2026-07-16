@@ -43,6 +43,14 @@ Starting tunnel
 
 The public URL works until you press `Ctrl-C` or the process exits.
 
+You can also let Turbotunnel start the package's `dev` script:
+
+```sh
+tt dev
+```
+
+Run `tt status` to inspect tunnel processes on this machine. Run `tt list` to see recent tunnel presence reported by the configured gateway.
+
 <CardGroup cols={2}>
   <Card title="Deploy command" href="/docs/deploy">
     Projects, domains, regions, and JSON output.

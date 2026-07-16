@@ -149,6 +149,7 @@ class DeployRecorder {
         AppPaths.of({
           configPath: "/tmp/.turbotunnel/config.json",
           deployDir: "/tmp/.turbotunnel/relay",
+          runtimeDir: "/tmp/.turbotunnel/runtime",
         }),
       ),
       Layer.succeed(

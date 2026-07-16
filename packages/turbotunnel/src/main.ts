@@ -7,15 +7,27 @@ import { type CliError, Command } from "effect/unstable/cli";
 import { AppPaths } from "./adapters/app-paths.js";
 import { Entropy } from "./adapters/entropy.js";
 import { GatewayVerifier } from "./adapters/gateway-verifier.js";
+import { GatewayStatusChecker } from "./adapters/gateway-status-checker.js";
+import { GatewayControlClient } from "./adapters/gateway-control-client.js";
 import { GatewayWorkspace } from "./adapters/gateway-workspace.js";
 import { LocalAppProbe } from "./adapters/local-app-probe.js";
 import { LocalConfigStore } from "./adapters/local-config-store.js";
+import { LocalControl } from "./adapters/local-control.js";
+import { RuntimeRegistry } from "./adapters/runtime-registry.js";
 import { TunnelRuntime } from "./adapters/tunnel-runtime.js";
+import { DevProcess } from "./adapters/dev-process.js";
+import { PortAllocator } from "./adapters/port-allocator.js";
+import { ProjectDiscovery } from "./adapters/project-discovery.js";
 import { VercelCli } from "./adapters/vercel-cli.js";
-import { requestedDeployOutput, turbotunnelCommand } from "./cli/commands.js";
+import { requestedOutput, turbotunnelCommand } from "./cli/commands.js";
+import { prepareCliArgv } from "./cli/argv.js";
 import { renderFailure } from "./cli/messages.js";
 import { CliOutput } from "./cli/output.js";
 import type { CliFailure } from "./errors.js";
+
+const localRuntimeLayer = Layer.mergeAll(RuntimeRegistry.live, LocalControl.live);
+const tunnelRuntimeLayer = TunnelRuntime.live.pipe(Layer.provide(localRuntimeLayer));
+const gatewayControlLayer = GatewayControlClient.live.pipe(Layer.provide(LocalConfigStore.live));
 
 const liveLayer = Layer.mergeAll(
   Entropy.live,
@@ -24,7 +36,13 @@ const liveLayer = Layer.mergeAll(
   GatewayWorkspace.live,
   GatewayVerifier.live,
   LocalAppProbe.live,
-  TunnelRuntime.live,
+  GatewayStatusChecker.live,
+  gatewayControlLayer,
+  DevProcess.live,
+  PortAllocator.live,
+  ProjectDiscovery.live,
+  localRuntimeLayer,
+  tunnelRuntimeLayer,
 ).pipe(
   Layer.provideMerge(AppPaths.live),
   Layer.provideMerge(CliOutput.live),
@@ -50,7 +68,7 @@ const handleExpectedFailure = Effect.fn("handleExpectedFailure")(function* (
   yield* output.write(
     renderFailure({
       _tag: "Expected",
-      output: requestedDeployOutput(process.argv),
+      output: requestedOutput(process.argv),
       error,
     }),
   );
@@ -65,13 +83,14 @@ const handleUnexpectedFailure = Effect.fn("handleUnexpectedFailure")(function* (
   yield* output.write(
     renderFailure({
       _tag: "Unexpected",
-      output: requestedDeployOutput(process.argv),
+      output: requestedOutput(process.argv),
     }),
   );
 });
 
-turbotunnelCommand.pipe(
-  Command.run({ version: TURBOTUNNEL_VERSION }),
+Command.runWith(turbotunnelCommand, { version: TURBOTUNNEL_VERSION })(
+  prepareCliArgv(process.argv.slice(2)),
+).pipe(
   Effect.catchTag("ShowHelp", handleShowHelp),
   Effect.catchTags({
     UnrecognizedOption: handleExpectedFailure,
@@ -90,8 +109,19 @@ turbotunnelCommand.pipe(
     DeployOutputParseError: handleExpectedFailure,
     GatewayWorkspaceError: handleExpectedFailure,
     GatewayVerificationError: handleExpectedFailure,
+    GatewayControlError: handleExpectedFailure,
     NoGatewayConfigured: handleExpectedFailure,
     LocalTargetNotReachable: handleExpectedFailure,
+    RuntimeRegistryError: handleExpectedFailure,
+    LocalControlError: handleExpectedFailure,
+    ProjectNotFound: handleExpectedFailure,
+    ProjectManifestError: handleExpectedFailure,
+    UnsupportedPackageManager: handleExpectedFailure,
+    ConflictingLockfiles: handleExpectedFailure,
+    DevScriptNotFound: handleExpectedFailure,
+    PortAllocationError: handleExpectedFailure,
+    DevProcessError: handleExpectedFailure,
+    DevServerReadinessTimeout: handleExpectedFailure,
   }),
   Effect.catchDefect(handleUnexpectedFailure),
   Effect.provide(liveLayer),

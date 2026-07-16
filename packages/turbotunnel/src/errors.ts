@@ -103,6 +103,24 @@ export class NoGatewayConfigured extends Schema.TaggedErrorClass<NoGatewayConfig
   },
 ) {}
 
+export class GatewayControlError extends Schema.TaggedErrorClass<GatewayControlError>()(
+  "GatewayControlError",
+  {
+    reason: Schema.Literals([
+      "invalid-url",
+      "request-failed",
+      "timeout",
+      "unauthorized",
+      "bad-status",
+      "invalid-response",
+    ]),
+    url: Schema.String,
+    message: Schema.String,
+    status: Schema.optional(Schema.Number),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 export class LocalTargetNotReachable extends Schema.TaggedErrorClass<LocalTargetNotReachable>()(
   "LocalTargetNotReachable",
   {
@@ -110,6 +128,92 @@ export class LocalTargetNotReachable extends Schema.TaggedErrorClass<LocalTarget
     port: Schema.Number,
     message: Schema.String,
     cause: Schema.Defect(),
+  },
+) {}
+
+export class RuntimeRegistryError extends Schema.TaggedErrorClass<RuntimeRegistryError>()(
+  "RuntimeRegistryError",
+  {
+    operation: Schema.Literals(["create-directory", "read", "write", "rename", "remove"]),
+    path: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class LocalControlError extends Schema.TaggedErrorClass<LocalControlError>()(
+  "LocalControlError",
+  {
+    operation: Schema.Literals(["listen", "connect", "protocol"]),
+    reason: Schema.Literals(["stale-record", "temporarily-unavailable", "invalid-protocol"]),
+    endpoint: Schema.String,
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()("ProjectNotFound", {
+  cwd: Schema.String,
+  message: Schema.String,
+}) {}
+
+export class ProjectManifestError extends Schema.TaggedErrorClass<ProjectManifestError>()(
+  "ProjectManifestError",
+  {
+    path: Schema.String,
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class UnsupportedPackageManager extends Schema.TaggedErrorClass<UnsupportedPackageManager>()(
+  "UnsupportedPackageManager",
+  {
+    packageManager: Schema.String,
+    path: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class ConflictingLockfiles extends Schema.TaggedErrorClass<ConflictingLockfiles>()(
+  "ConflictingLockfiles",
+  {
+    root: Schema.String,
+    lockfiles: Schema.Array(Schema.String),
+    message: Schema.String,
+  },
+) {}
+
+export class DevScriptNotFound extends Schema.TaggedErrorClass<DevScriptNotFound>()(
+  "DevScriptNotFound",
+  {
+    path: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class PortAllocationError extends Schema.TaggedErrorClass<PortAllocationError>()(
+  "PortAllocationError",
+  {
+    message: Schema.String,
+    cause: Schema.Defect(),
+  },
+) {}
+
+export class DevProcessError extends Schema.TaggedErrorClass<DevProcessError>()("DevProcessError", {
+  command: Schema.String,
+  operation: Schema.Literals(["spawn", "wait"]),
+  message: Schema.String,
+  cause: Schema.Defect(),
+}) {}
+
+export class DevServerReadinessTimeout extends Schema.TaggedErrorClass<DevServerReadinessTimeout>()(
+  "DevServerReadinessTimeout",
+  {
+    host: Schema.String,
+    port: Schema.Number,
+    timeoutSeconds: Schema.Number,
+    message: Schema.String,
   },
 ) {}
 
@@ -199,6 +303,32 @@ export type StartHttpTunnelError =
   | ConfigFileParseError
   | CliConfigError
   | NoGatewayConfigured
-  | LocalTargetNotReachable;
+  | LocalTargetNotReachable
+  | RuntimeRegistryError
+  | LocalControlError;
 
-export type CliFailure = DeployGatewayError | StartHttpTunnelError;
+export type StatusError = RuntimeRegistryError | LocalControlError;
+
+export type ListTunnelsError =
+  | ConfigFileReadError
+  | ConfigFileParseError
+  | NoGatewayConfigured
+  | GatewayControlError;
+
+export type StartDevError =
+  | ProjectNotFound
+  | ProjectManifestError
+  | UnsupportedPackageManager
+  | ConflictingLockfiles
+  | DevScriptNotFound
+  | PortAllocationError
+  | DevProcessError
+  | DevServerReadinessTimeout
+  | StartHttpTunnelError;
+
+export type CliFailure =
+  | DeployGatewayError
+  | StartHttpTunnelError
+  | StartDevError
+  | StatusError
+  | ListTunnelsError;

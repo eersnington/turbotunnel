@@ -32,6 +32,8 @@ export type TunnelSessionStats = {
   httpResponses: number;
   webSocketsOpened: number;
   webSocketsClosed: number;
+  activeRelayConnections: number;
+  reachedConfiguredPool: boolean;
   readyPrinted: boolean;
 };
 
@@ -101,6 +103,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
   const parentScope = yield* Scope.Scope;
   const messageFibers = yield* FiberSet.make<void>();
   const localWebSockets = new Map<string, LocalConnection>();
+  let connected = false;
   const socket = yield* acquireRelayWebSocket({
     url: relaySocketUrl(config),
     protocol: LOCAL_CLIENT_SUBPROTOCOL,
@@ -108,6 +111,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
   });
   yield* Effect.addFinalizer(() =>
     Effect.gen(function* () {
+      if (connected) stats.activeRelayConnections -= 1;
       stats.webSocketsClosed += localWebSockets.size;
       localWebSockets.clear();
       yield* socket
@@ -122,6 +126,9 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
 
   const first = yield* socket.receive;
   if (first._tag !== "Open") return;
+  connected = true;
+  stats.activeRelayConnections += 1;
+  if (stats.activeRelayConnections === config.poolSize) stats.reachedConfiguredPool = true;
   onConnected();
   stats.relayConnects += 1;
   yield* sendFrame(socket, stats, {
@@ -132,6 +139,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     localClientId,
     sessionId,
     generation,
+    connectedAt: stats.startedAtMs,
     capacity: LOCAL_CLIENT_CAPACITY,
     target: config.target,
   });

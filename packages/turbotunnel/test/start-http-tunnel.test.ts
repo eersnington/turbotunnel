@@ -102,6 +102,10 @@ class TunnelRecorder {
               : Effect.sync(() => {
                   this.probedTarget = target;
                 }),
+          waitUntilReachable: (target) =>
+            Effect.sync(() => {
+              this.probedTarget = target;
+            }),
         }),
       ),
       Layer.succeed(
