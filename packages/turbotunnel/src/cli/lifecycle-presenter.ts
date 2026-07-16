@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import { Effect, Layer, Ref } from "effect";
 
-import { publicTunnelUrl } from "../domain/tunnel-url.js";
+import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { LifecycleEvent, TunnelStoppedSummary } from "../runtime/lifecycle-event.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 import { formatRows } from "./messages.js";
@@ -11,25 +11,38 @@ export const tunnelReporterLive = Layer.effect(
   TunnelReporter,
   Effect.gen(function* () {
     const surface = yield* TerminalSurface;
-    const processCommand = yield* Ref.make<string | undefined>(undefined);
     const reconnectNoticeVisible = yield* Ref.make(false);
+    const developmentOutputVisible = yield* Ref.make(false);
     const colors = pc.createColors(surface.capabilities.color);
 
     const emit = (event: LifecycleEvent): Effect.Effect<void> => {
       switch (event._tag) {
-        case "DevelopmentProcessStarting":
-          return Ref.set(processCommand, event.command).pipe(
-            Effect.andThen(surface.progress(`Starting ${event.command}`)),
-            Effect.andThen(surface.releaseToChild(`Process ${event.command}`)),
-          );
+        case "TunnelStarting": {
+          return surface.settle(renderStarting(event, colors));
+        }
         case "LocalApplicationWaiting":
-          return surface.progress(`Waiting for ${event.target.host}:${event.target.port}`);
-        case "RelaysConnecting":
-          return surface.progress("Connecting relay sockets");
-        case "TunnelReady":
-          return Ref.get(processCommand).pipe(
-            Effect.flatMap((command) => surface.settle(renderReady(event, command, colors))),
+          return surface.progress(
+            `Waiting for local app at ${event.target.host}:${event.target.port}`,
           );
+        case "DevelopmentOutputStarting":
+          return surface
+            .settle(renderOutputBoundary("dev server", colors))
+            .pipe(
+              Effect.andThen(Ref.set(developmentOutputVisible, true)),
+              Effect.andThen(surface.releaseToChild),
+            );
+        case "RelaysConnecting":
+          return Ref.getAndSet(developmentOutputVisible, false).pipe(
+            Effect.flatMap((showBoundary) =>
+              showBoundary
+                ? surface.append(`\n${renderOutputBoundary("turbotunnel", colors)}`)
+                : Effect.void,
+            ),
+            Effect.andThen(surface.append(`${colors.green("✓")} Local app ready`)),
+            Effect.andThen(surface.progress(`Connecting ${event.configuredRelays} relay sockets`)),
+          );
+        case "TunnelReady":
+          return surface.settle(renderReady(event, colors));
         case "RelayReconnecting":
           return Ref.getAndSet(reconnectNoticeVisible, true).pipe(
             Effect.flatMap((alreadyVisible) =>
@@ -67,23 +80,44 @@ export const tunnelReporterLive = Layer.effect(
 
 function renderReady(
   event: Extract<LifecycleEvent, { readonly _tag: "TunnelReady" }>,
-  processCommand: string | undefined,
   colors: ReturnType<typeof pc.createColors>,
 ): string {
+  return `${colors.green("✓")} Tunnel ready in ${formatDurationMs(event.readyAfterMs)}\n\n  Press Ctrl-C to stop\n`;
+}
+
+function renderStarting(
+  event: Extract<LifecycleEvent, { readonly _tag: "TunnelStarting" }>,
+  colors: ReturnType<typeof pc.createColors>,
+): string {
+  const publicUrl = publicTunnelUrl(event.config);
   const localUrl = `http://${event.config.target.host}:${event.config.target.port}`;
-  const rows = [
-    { label: "Public", value: colors.cyan(publicTunnelUrl(event.config)) },
-    { label: "Local", value: localUrl },
-    ...(processCommand === undefined ? [] : [{ label: "Process", value: processCommand }]),
-  ];
-  return `${colors.green("✓")} Tunnel ready in ${formatDurationMs(event.readyAfterMs)}\n\n${formatRows(rows, colors)}\n\n  Press Ctrl-C to stop\n`;
+  const gateway = gatewayUrl(event.config);
+  return `${formatRows(
+    [
+      { label: "Public", value: colors.cyan(publicUrl) },
+      { label: "Local", value: colors.cyan(localUrl) },
+      ...(gateway === publicUrl ? [] : [{ label: "Gateway", value: colors.cyan(gateway) }]),
+      { label: "Relays", value: `${event.config.poolSize} sockets` },
+      ...(event.launch._tag === "ManagedProcess"
+        ? [
+            { label: "Process", value: event.launch.command },
+            { label: "Directory", value: colors.dim(event.launch.directory) },
+          ]
+        : []),
+    ],
+    colors,
+  )}\n\n`;
+}
+
+function renderOutputBoundary(label: string, colors: ReturnType<typeof pc.createColors>): string {
+  return `${colors.dim("────")} ${colors.cyan(label)} ${colors.dim("────────────────────────")}`;
 }
 
 function renderStopped(
   summary: TunnelStoppedSummary,
   colors: ReturnType<typeof pc.createColors>,
 ): string {
-  return `${colors.green("✓")} Tunnel stopped\n\n${formatRows(
+  return `\n${colors.green("✓")} Tunnel stopped\n\n${formatRows(
     [
       { label: "Duration", value: formatDuration(summary.durationSeconds) },
       {

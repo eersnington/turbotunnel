@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -16,7 +17,7 @@ describe("TerminalSurface", () => {
       yield* surface.settle("✓ Tunnel ready\n");
 
       const output = writes.join("");
-      expect(output).toContain("\u001B[H\u001B[2J");
+      expect(output).toContain("\u001B[H\u001B[2J. turbotunnel");
       expect(output).toContain("⠋ Connecting relay sockets");
       expect(output).toMatch(/[⠙⠹] Connecting relay sockets/u);
       expect(output).toContain("\r\u001B[2K✓ Tunnel ready\n");
@@ -46,15 +47,36 @@ describe("TerminalSurface", () => {
       const surface = yield* TerminalSurface;
 
       yield* surface.progress("Starting pnpm dev");
-      yield* surface.releaseToChild("Process pnpm dev");
+      yield* surface.releaseToChild;
       const releaseIndex = writes.length;
       yield* surface.progress("Waiting for localhost:5173");
       yield* surface.append("! Relay disconnected");
 
       expect(writes.slice(releaseIndex).join("")).toBe(
-        "Waiting for localhost:5173\n! Relay disconnected\n",
+        "· Waiting for localhost:5173\n! Relay disconnected\n",
       );
     }).pipe(Effect.provide(interactiveLayer(writes)));
+  });
+
+  it.effect("colors the product identity and progress marker in an interactive terminal", () => {
+    const writes: Array<string> = [];
+    return Effect.gen(function* () {
+      const surface = yield* TerminalSurface;
+
+      yield* surface.progress("Connecting relay sockets");
+      yield* surface.settle("Ready");
+
+      const output = writes.join("");
+      expect(output).toContain(`\u001B[36m. turbotunnel ${TURBOTUNNEL_VERSION}\u001B[39m`);
+      expect(output).toContain("\u001B[36m⠋\u001B[39m Connecting relay sockets");
+    }).pipe(
+      Effect.provide(
+        TerminalSurface.layer({
+          capabilities: { interactive: true, color: true },
+          write: (text) => Effect.sync(() => writes.push(text)),
+        }),
+      ),
+    );
   });
 });
 

@@ -27,12 +27,14 @@ vercel login
 tt deploy
 tt http 5173
 
-  TURBOTUNNEL v0.1.0
-
-✓ Tunnel ready
+. turbotunnel 0.0.2
 
   Public           https://ttdemo123-turbotunnel.vercel.app/
   Local            http://localhost:5173
+  Relays           2 sockets
+
+✓ Local app ready
+✓ Tunnel ready in 1.2s
 
   Press Ctrl-C to stop
 ```

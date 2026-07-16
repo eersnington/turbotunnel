@@ -57,14 +57,17 @@ export const startDev = Effect.fn("startDev")(function* (options: {
     generatedSlug: yield* entropy.tunnelSlug,
   });
   const publicUrl = publicTunnelUrl(config);
-  const command =
-    options.input.command.length === 0
-      ? formatProcessCommand(launch.executable, launch.args)
-      : `${formatProcessCommand(launch.executable, [])} (custom command)`;
+  const command = formatProcessCommand(launch.executable, launch.args);
 
   return yield* Effect.scoped(
     Effect.gen(function* () {
-      yield* reporter.emit({ _tag: "DevelopmentProcessStarting", command });
+      yield* reporter.emit({
+        _tag: "TunnelStarting",
+        config,
+        launch: { _tag: "ManagedProcess", command, directory: project.root },
+      });
+      yield* reporter.emit({ _tag: "LocalApplicationWaiting", target: config.target });
+      yield* reporter.emit({ _tag: "DevelopmentOutputStarting" });
       const child = yield* devProcess.spawn({
         executable: launch.executable,
         args: launch.args,
@@ -79,23 +82,20 @@ export const startDev = Effect.fn("startDev")(function* (options: {
       const childExit = child.exitCode.pipe(
         Effect.map((exitCode) => ({ _tag: "Exited" as const, exitCode })),
       );
-      const readiness = reporter
-        .emit({ _tag: "LocalApplicationWaiting", target: config.target })
-        .pipe(
-          Effect.andThen(localAppProbe.waitUntilReachable(config.target)),
-          Effect.timeoutOrElse({
-            duration: `${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds`,
-            orElse: () =>
-              Effect.fail(
-                new DevServerReadinessTimeout({
-                  host: config.target.host,
-                  port: config.target.port,
-                  timeoutSeconds: DEV_SERVER_READINESS_TIMEOUT_SECONDS,
-                  message: `Dev server did not become reachable at http://${config.target.host}:${config.target.port} within ${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds. Check the child output and its host/port settings, then retry. The child process and tunnel were stopped.`,
-                }),
-              ),
-          }),
-        );
+      const readiness = localAppProbe.waitUntilReachable(config.target).pipe(
+        Effect.timeoutOrElse({
+          duration: `${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds`,
+          orElse: () =>
+            Effect.fail(
+              new DevServerReadinessTimeout({
+                host: config.target.host,
+                port: config.target.port,
+                timeoutSeconds: DEV_SERVER_READINESS_TIMEOUT_SECONDS,
+                message: `Dev server did not become reachable at http://${config.target.host}:${config.target.port} within ${DEV_SERVER_READINESS_TIMEOUT_SECONDS} seconds. Check the child output and its host/port settings, then retry. The child process and tunnel were stopped.`,
+              }),
+            ),
+        }),
+      );
       const result = yield* Effect.raceFirst(tunnelRuntime.run(config, readiness), childExit);
       return result.exitCode;
     }),

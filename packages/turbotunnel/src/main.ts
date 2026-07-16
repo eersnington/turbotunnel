@@ -53,7 +53,7 @@ const liveLayer = Layer.mergeAll(
 ).pipe(
   Layer.provideMerge(AppPaths.live),
   Layer.provideMerge(CliOutput.live),
-  Layer.provideMerge(NodeHttpClient.layerUndici),
+  Layer.provideMerge(NodeHttpClient.layerFetch),
   Layer.provideMerge(NodeServices.layer),
 );
 

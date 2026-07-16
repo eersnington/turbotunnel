@@ -18,11 +18,26 @@ describe("lifecycle presenter", () => {
 
     return Effect.gen(function* () {
       const reporter = yield* TunnelReporter;
-      yield* reporter.emit({ _tag: "DevelopmentProcessStarting", command: "pnpm dev" });
+      yield* reporter.emit({
+        _tag: "TunnelStarting",
+        config,
+        launch: { _tag: "ManagedProcess", command: "pnpm dev", directory: "/repo" },
+      });
+      yield* reporter.emit({
+        _tag: "LocalApplicationWaiting",
+        target: config.target,
+      });
+      yield* reporter.emit({ _tag: "DevelopmentOutputStarting" });
       const afterRelease = writes.join("");
       yield* TestClock.adjust(240);
 
-      expect(afterRelease).toContain("\r\u001B[2K  Process pnpm dev\n");
+      expect(afterRelease).toContain(". turbotunnel");
+      expect(afterRelease).toContain(
+        "  Public           https://quiet-river-turbotunnel.vercel.app/",
+      );
+      expect(afterRelease).toContain("  Process          pnpm dev");
+      expect(afterRelease).toContain("  Directory        /repo");
+      expect(afterRelease).toContain("──── dev server ────────────────────────");
       expect(writes.join("")).toBe(afterRelease);
     }).pipe(Effect.provide(layer));
   });
@@ -37,13 +52,18 @@ describe("lifecycle presenter", () => {
 
     return Effect.gen(function* () {
       const reporter = yield* TunnelReporter;
-      yield* reporter.emit({ _tag: "DevelopmentProcessStarting", command: "pnpm dev" });
+      yield* reporter.emit({
+        _tag: "TunnelStarting",
+        config,
+        launch: { _tag: "ManagedProcess", command: "pnpm dev", directory: "/repo" },
+      });
       yield* reporter.emit({
         _tag: "LocalApplicationWaiting",
         target: config.target,
       });
-      yield* reporter.emit({ _tag: "RelaysConnecting" });
-      yield* reporter.emit({ _tag: "TunnelReady", config, readyAfterMs: 1_400 });
+      yield* reporter.emit({ _tag: "DevelopmentOutputStarting" });
+      yield* reporter.emit({ _tag: "RelaysConnecting", configuredRelays: 2 });
+      yield* reporter.emit({ _tag: "TunnelReady", readyAfterMs: 1_400 });
       yield* reporter.emit({ _tag: "RelayReconnecting" });
       yield* reporter.emit({ _tag: "RelayReconnecting" });
       yield* reporter.emit({ _tag: "RelayRestored", disconnectedForMs: 3_000 });
@@ -59,19 +79,26 @@ describe("lifecycle presenter", () => {
 
       expect(writes.join("")).toBe(
         [
-          `Turbotunnel v${TURBOTUNNEL_VERSION}`,
-          "Starting pnpm dev",
-          "Waiting for localhost:5173",
-          "Connecting relay sockets",
-          "✓ Tunnel ready in 1.4s",
+          `. turbotunnel ${TURBOTUNNEL_VERSION}`,
           "",
           "  Public           https://quiet-river-turbotunnel.vercel.app/",
           "  Local            http://localhost:5173",
+          "  Relays           2 sockets",
           "  Process          pnpm dev",
+          "  Directory        /repo",
+          "",
+          "Waiting for local app at localhost:5173",
+          "──── dev server ────────────────────────",
+          "",
+          "──── turbotunnel ────────────────────────",
+          "✓ Local app ready",
+          "· Connecting 2 relay sockets",
+          "✓ Tunnel ready in 1.4s",
           "",
           "  Press Ctrl-C to stop",
           "! Relay disconnected · reconnecting automatically",
           "✓ Relay restored after 3s",
+          "",
           "✓ Tunnel stopped",
           "",
           "  Duration         42m 18s",

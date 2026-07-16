@@ -13,13 +13,25 @@ export type RecoverableWarning = {
   readonly impact: string;
 };
 
+export type TunnelLaunch =
+  | { readonly _tag: "ExistingApplication" }
+  | {
+      readonly _tag: "ManagedProcess";
+      readonly command: string;
+      readonly directory: string;
+    };
+
 export type LifecycleEvent =
-  | { readonly _tag: "DevelopmentProcessStarting"; readonly command: string }
+  | {
+      readonly _tag: "TunnelStarting";
+      readonly config: HttpTunnelConfig;
+      readonly launch: TunnelLaunch;
+    }
   | { readonly _tag: "LocalApplicationWaiting"; readonly target: LocalTarget }
-  | { readonly _tag: "RelaysConnecting" }
+  | { readonly _tag: "DevelopmentOutputStarting" }
+  | { readonly _tag: "RelaysConnecting"; readonly configuredRelays: number }
   | {
       readonly _tag: "TunnelReady";
-      readonly config: HttpTunnelConfig;
       readonly readyAfterMs: number;
     }
   | { readonly _tag: "RelayReconnecting" }

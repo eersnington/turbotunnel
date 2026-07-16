@@ -32,6 +32,11 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
     savedConfig,
     generatedSlug: yield* entropy.tunnelSlug,
   });
+  yield* reporter.emit({
+    _tag: "TunnelStarting",
+    config,
+    launch: { _tag: "ExistingApplication" },
+  });
   yield* reporter.emit({ _tag: "LocalApplicationWaiting", target: config.target });
   yield* localAppProbe.assertReachable(config.target);
   return yield* tunnelRuntime.run(config);

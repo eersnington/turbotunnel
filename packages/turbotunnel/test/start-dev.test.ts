@@ -54,10 +54,20 @@ describe("startDev", () => {
           HOST: "demo.localhost:3002",
           SLUG: "demo",
         });
-        expect(events[0]).toEqual({
-          _tag: "DevelopmentProcessStarting",
-          command: `${process.execPath} (custom command)`,
+        expect(events[0]).toMatchObject({
+          _tag: "TunnelStarting",
+          launch: {
+            _tag: "ManagedProcess",
+            directory: root,
+          },
         });
+        const event = events[0];
+        expect(event?._tag).toBe("TunnelStarting");
+        if (event?._tag === "TunnelStarting" && event.launch._tag === "ManagedProcess") {
+          expect(event.launch.command).toContain(`${process.execPath} -e`);
+          expect(event.launch.command).toContain("--api-key <redacted>");
+          expect(event.launch.command).not.toContain("--api-key secret");
+        }
       }),
     ),
   );

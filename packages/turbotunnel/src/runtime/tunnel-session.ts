@@ -106,7 +106,6 @@ export const makeTunnelSession = Effect.fn("TunnelSession.make")(function* (opti
         } else if (fullPool && !current.reachedConfiguredPool) {
           events.push({
             _tag: "TunnelReady",
-            config: options.config,
             readyAfterMs: Math.max(0, nowMs - options.startedAtMs),
           });
         }

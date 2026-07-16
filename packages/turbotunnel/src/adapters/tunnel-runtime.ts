@@ -84,7 +84,7 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
   });
 
   yield* beforeConnect;
-  yield* reporter.emit({ _tag: "RelaysConnecting" });
+  yield* reporter.emit({ _tag: "RelaysConnecting", configuredRelays: config.poolSize });
   yield* session.relayWorkersStarted;
   yield* Effect.forEach(
     Array.from({ length: config.poolSize }, (_, index) => index),

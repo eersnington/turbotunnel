@@ -1,5 +1,6 @@
 import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
 import { Context, Effect, FiberHandle, Layer, SynchronizedRef, type Scope } from "effect";
+import pc from "picocolors";
 
 export type TerminalCapabilities = {
   readonly interactive: boolean;
@@ -22,7 +23,7 @@ type TerminalSurfaceShape = {
   readonly progress: (text: string) => Effect.Effect<void>;
   readonly settle: (text: string) => Effect.Effect<void>;
   readonly append: (text: string) => Effect.Effect<void>;
-  readonly releaseToChild: (stableText: string) => Effect.Effect<void>;
+  readonly releaseToChild: Effect.Effect<void>;
   readonly close: Effect.Effect<void>;
 };
 
@@ -53,6 +54,7 @@ function makeTerminalSurface(
   return Effect.gen(function* () {
     const state = yield* SynchronizedRef.make<SurfaceState>({ _tag: "Idle", opened: false });
     const spinner = yield* FiberHandle.make<void>();
+    const colors = pc.createColors(options.capabilities.color);
 
     const stateResult = <A>(value: A, next: SurfaceState): readonly [A, SurfaceState] => [
       value,
@@ -62,13 +64,15 @@ function makeTerminalSurface(
     const openState = (current: SurfaceState): Effect.Effect<SurfaceState> => {
       if (current._tag === "Closed" || current.opened) return Effect.succeed(current);
       const heading = options.capabilities.interactive
-        ? `${CLEAR_VIEWPORT}  TURBOTUNNEL v${TURBOTUNNEL_VERSION}\n\n`
-        : `Turbotunnel v${TURBOTUNNEL_VERSION}\n`;
+        ? `${CLEAR_VIEWPORT}${colors.cyan(`. turbotunnel ${TURBOTUNNEL_VERSION}`)}\n\n`
+        : `. turbotunnel ${TURBOTUNNEL_VERSION}\n\n`;
       return options.write(heading).pipe(Effect.as({ ...current, opened: true }));
     };
 
     const renderProgress = (text: string, frame: number) =>
-      options.write(`${CLEAR_LINE}${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`);
+      options.write(
+        `${CLEAR_LINE}${colors.cyan(SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? "")} ${text}`,
+      );
 
     const tick = SynchronizedRef.modifyEffect(state, (current) => {
       if (current._tag !== "Progress") return Effect.succeed(stateResult(undefined, current));
@@ -91,7 +95,9 @@ function makeTerminalSurface(
           Effect.flatMap((opened) => {
             if (opened._tag === "Closed") return Effect.succeed(stateResult(false, opened));
             if (opened._tag === "ChildOwned") {
-              return options.write(`${text}\n`).pipe(Effect.as(stateResult(false, opened)));
+              return options
+                .write(`${colors.cyan("·")} ${text}\n`)
+                .pipe(Effect.as(stateResult(false, opened)));
             }
             if (!options.capabilities.interactive) {
               if (opened._tag === "Progress" && opened.text === text) {
@@ -163,27 +169,20 @@ function makeTerminalSurface(
         ),
       );
 
-    const releaseToChild = (stableText: string) =>
-      FiberHandle.clear(spinner).pipe(
-        Effect.andThen(
-          SynchronizedRef.modifyEffect(state, (current) =>
-            openState(current).pipe(
-              Effect.flatMap((opened) => {
-                if (opened._tag === "Closed") {
-                  return Effect.succeed(stateResult(undefined, opened));
-                }
-                const finishProgress =
-                  options.capabilities.interactive && opened._tag === "Progress"
-                    ? options.write(`${CLEAR_LINE}  ${stableText}\n`)
-                    : Effect.void;
-                return finishProgress.pipe(
-                  Effect.as(stateResult(undefined, { _tag: "ChildOwned", opened: true })),
-                );
-              }),
+    const releaseToChild = FiberHandle.clear(spinner).pipe(
+      Effect.andThen(
+        SynchronizedRef.modifyEffect(state, (current) =>
+          openState(current).pipe(
+            Effect.map((opened) =>
+              stateResult(
+                undefined,
+                opened._tag === "Closed" ? opened : { _tag: "ChildOwned" as const, opened: true },
+              ),
             ),
           ),
         ),
-      );
+      ),
+    );
 
     const close = FiberHandle.clear(spinner).pipe(
       Effect.andThen(
