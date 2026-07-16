@@ -2,7 +2,10 @@ import { Redacted } from "effect";
 
 import type { HttpTunnelConfig } from "./tunnel-config.js";
 
-export function tunnelHost(config: HttpTunnelConfig): string {
+type TunnelHostConfig = Pick<HttpTunnelConfig, "slug" | "relayDomain">;
+type GatewayUrlConfig = TunnelHostConfig & Pick<HttpTunnelConfig, "relayUrl">;
+
+export function tunnelHost(config: TunnelHostConfig): string {
   if (config.relayDomain.includes("{slug}")) {
     return config.relayDomain.replaceAll("{slug}", config.slug);
   }
@@ -54,7 +57,7 @@ export function publicTunnelUrl(config: HttpTunnelConfig): string {
   return `${localHostName(host) ? "http" : "https"}://${host}/`;
 }
 
-export function gatewayUrl(config: HttpTunnelConfig): string {
+export function gatewayUrl(config: GatewayUrlConfig): string {
   if (config.relayUrl !== undefined) {
     const url = new URL(config.relayUrl);
     if (url.protocol === "ws:") {

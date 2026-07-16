@@ -8,6 +8,7 @@ import type { TunnelLifecycleSnapshot } from "../domain/tunnel-lifecycle.js";
 import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { CliFailure } from "../errors.js";
 import type { GatewayStatusCheck } from "../adapters/gateway-status-checker.js";
+import type { TunnelListResponse } from "@turbotunnel/contracts";
 
 export type DeployMessage =
   | {
@@ -52,6 +53,13 @@ export type StatusOutput = {
 export type StatusMessage = {
   readonly format: "terminal" | "json";
   readonly status: StatusOutput;
+};
+
+export type TunnelListFormat = "terminal" | "json";
+
+export type TunnelListMessage = {
+  readonly format: TunnelListFormat;
+  readonly response: TunnelListResponse;
 };
 
 export type FailureMessage =
@@ -106,6 +114,13 @@ export function renderStatus(message: StatusMessage): CliMessage {
   return message.format === "json"
     ? { _tag: "Json", stream: "stdout", value: statusJson(message.status) }
     : { _tag: "Text", stream: "stderr", text: statusText(message.status) };
+}
+
+/** Renders connected gateway tunnels to stderr for humans or stdout for automation. */
+export function renderTunnelList(message: TunnelListMessage): CliMessage {
+  return message.format === "json"
+    ? { _tag: "Json", stream: "stdout", value: message.response }
+    : { _tag: "Text", stream: "stderr", text: tunnelListText(message.response) };
 }
 
 /** Renders expected and unexpected failures for terminal or JSON output. */
@@ -228,6 +243,31 @@ function statusJson(status: StatusOutput): unknown {
       status.gateways.find((candidate) => candidate.url === tunnel.gatewayStatusUrl)?.status ??
       "unreachable",
   }));
+}
+
+function tunnelListText(response: TunnelListResponse): string {
+  if (response.tunnels.length === 0) return "No tunnels are connected.";
+
+  const rows = response.tunnels.map((tunnel) => [
+    tunnel.slug,
+    `${tunnel.target.host}:${tunnel.target.port}`,
+    formatDuration(Math.max(0, Math.floor((response.generatedAt - tunnel.connectedAt) / 1_000))),
+    String(tunnel.relayCount),
+  ]);
+  const headings = ["SLUG", "TARGET", "CONNECTED", "RELAYS"];
+  const widths = headings.map((heading, index) =>
+    Math.max(heading.length, ...rows.map((row) => row[index]?.length ?? 0)),
+  );
+  return [headings, ...rows]
+    .map((row) =>
+      row
+        .map((cell, index) =>
+          index === row.length - 1 ? cell : cell.padEnd((widths[index] ?? cell.length) + 2),
+        )
+        .join("")
+        .trimEnd(),
+    )
+    .join("\n");
 }
 
 function formatDuration(seconds: number): string {

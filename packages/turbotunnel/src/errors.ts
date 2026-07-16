@@ -103,6 +103,24 @@ export class NoGatewayConfigured extends Schema.TaggedErrorClass<NoGatewayConfig
   },
 ) {}
 
+export class GatewayControlError extends Schema.TaggedErrorClass<GatewayControlError>()(
+  "GatewayControlError",
+  {
+    reason: Schema.Literals([
+      "invalid-url",
+      "request-failed",
+      "timeout",
+      "unauthorized",
+      "bad-status",
+      "invalid-response",
+    ]),
+    url: Schema.String,
+    message: Schema.String,
+    status: Schema.optional(Schema.Number),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 export class LocalTargetNotReachable extends Schema.TaggedErrorClass<LocalTargetNotReachable>()(
   "LocalTargetNotReachable",
   {
@@ -291,6 +309,12 @@ export type StartHttpTunnelError =
 
 export type StatusError = RuntimeRegistryError;
 
+export type ListTunnelsError =
+  | ConfigFileReadError
+  | ConfigFileParseError
+  | NoGatewayConfigured
+  | GatewayControlError;
+
 export type StartDevError =
   | ProjectNotFound
   | ProjectManifestError
@@ -302,4 +326,9 @@ export type StartDevError =
   | DevServerReadinessTimeout
   | StartHttpTunnelError;
 
-export type CliFailure = DeployGatewayError | StartHttpTunnelError | StartDevError | StatusError;
+export type CliFailure =
+  | DeployGatewayError
+  | StartHttpTunnelError
+  | StartDevError
+  | StatusError
+  | ListTunnelsError;

@@ -8,6 +8,7 @@ import { AppPaths } from "./adapters/app-paths.js";
 import { Entropy } from "./adapters/entropy.js";
 import { GatewayVerifier } from "./adapters/gateway-verifier.js";
 import { GatewayStatusChecker } from "./adapters/gateway-status-checker.js";
+import { GatewayControlClient } from "./adapters/gateway-control-client.js";
 import { GatewayWorkspace } from "./adapters/gateway-workspace.js";
 import { LocalAppProbe } from "./adapters/local-app-probe.js";
 import { LocalConfigStore } from "./adapters/local-config-store.js";
@@ -18,7 +19,7 @@ import { DevProcess } from "./adapters/dev-process.js";
 import { PortAllocator } from "./adapters/port-allocator.js";
 import { ProjectDiscovery } from "./adapters/project-discovery.js";
 import { VercelCli } from "./adapters/vercel-cli.js";
-import { requestedDeployOutput, turbotunnelCommand } from "./cli/commands.js";
+import { requestedOutput, turbotunnelCommand } from "./cli/commands.js";
 import { prepareCliArgv } from "./cli/argv.js";
 import { renderFailure } from "./cli/messages.js";
 import { CliOutput } from "./cli/output.js";
@@ -26,6 +27,7 @@ import type { CliFailure } from "./errors.js";
 
 const localRuntimeLayer = Layer.mergeAll(RuntimeRegistry.live, LocalControl.live);
 const tunnelRuntimeLayer = TunnelRuntime.live.pipe(Layer.provide(localRuntimeLayer));
+const gatewayControlLayer = GatewayControlClient.live.pipe(Layer.provide(LocalConfigStore.live));
 
 const liveLayer = Layer.mergeAll(
   Entropy.live,
@@ -35,6 +37,7 @@ const liveLayer = Layer.mergeAll(
   GatewayVerifier.live,
   LocalAppProbe.live,
   GatewayStatusChecker.live,
+  gatewayControlLayer,
   DevProcess.live,
   PortAllocator.live,
   ProjectDiscovery.live,
@@ -65,7 +68,7 @@ const handleExpectedFailure = Effect.fn("handleExpectedFailure")(function* (
   yield* output.write(
     renderFailure({
       _tag: "Expected",
-      output: requestedDeployOutput(process.argv),
+      output: requestedOutput(process.argv),
       error,
     }),
   );
@@ -80,7 +83,7 @@ const handleUnexpectedFailure = Effect.fn("handleUnexpectedFailure")(function* (
   yield* output.write(
     renderFailure({
       _tag: "Unexpected",
-      output: requestedDeployOutput(process.argv),
+      output: requestedOutput(process.argv),
     }),
   );
 });
@@ -106,6 +109,7 @@ Command.runWith(turbotunnelCommand, { version: TURBOTUNNEL_VERSION })(
     DeployOutputParseError: handleExpectedFailure,
     GatewayWorkspaceError: handleExpectedFailure,
     GatewayVerificationError: handleExpectedFailure,
+    GatewayControlError: handleExpectedFailure,
     NoGatewayConfigured: handleExpectedFailure,
     LocalTargetNotReachable: handleExpectedFailure,
     RuntimeRegistryError: handleExpectedFailure,

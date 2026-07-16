@@ -5,9 +5,11 @@ import { deployGateway } from "../programs/deploy-gateway.js";
 import { showStatus, type StatusFormat } from "../programs/show-status.js";
 import { startHttpTunnel, tunnelEnvironmentFromProcess } from "../programs/start-http-tunnel.js";
 import { startDev } from "../programs/start-dev.js";
+import { listTunnels } from "../programs/list-tunnels.js";
 import { CliConfigError } from "../errors.js";
 import type { DeployOutput } from "../domain/deploy-plan.js";
 import { decodeDevArguments } from "./argv.js";
+import type { TunnelListFormat } from "./messages.js";
 
 export const httpCommand = Command.make(
   "http",
@@ -129,6 +131,27 @@ export const statusCommand = Command.make(
   ]),
 );
 
+export const listCommand = Command.make(
+  "list",
+  {
+    format: Flag.string("format").pipe(
+      Flag.withDescription("set output format to json"),
+      Flag.optional,
+    ),
+  },
+  Effect.fn("listCommand")(function* ({ format }) {
+    yield* listTunnels({
+      format: yield* parseListFormat(Option.getOrUndefined(format)),
+    });
+  }),
+).pipe(
+  Command.withDescription("List tunnels connected to the configured gateway"),
+  Command.withExamples([
+    { command: "tt list", description: "List connected gateway tunnels" },
+    { command: "tt list --format json", description: "Print the versioned gateway response" },
+  ]),
+);
+
 export const devCommand = Command.make(
   "dev",
   {
@@ -160,8 +183,13 @@ export const devCommand = Command.make(
   ]),
 );
 
-export function requestedDeployOutput(argv: ReadonlyArray<string>): DeployOutput {
-  for (let index = 0; index < argv.length; index += 1) {
+export function requestedOutput(argv: ReadonlyArray<string>): DeployOutput {
+  const commandIndex = argv.findIndex(
+    (argument) => argument === "deploy" || argument === "status" || argument === "list",
+  );
+  if (commandIndex === -1) return { _tag: "Terminal" };
+
+  for (let index = commandIndex + 1; index < argv.length && argv[index] !== "--"; index += 1) {
     if (argv[index] === "--format" && argv[index + 1] === "json") {
       return { _tag: "Json" };
     }
@@ -171,6 +199,14 @@ export function requestedDeployOutput(argv: ReadonlyArray<string>): DeployOutput
   }
 
   return { _tag: "Terminal" };
+}
+
+function parseListFormat(
+  format: string | undefined,
+): Effect.Effect<TunnelListFormat, CliConfigError> {
+  if (format === undefined) return Effect.succeed("terminal");
+  if (format === "json") return Effect.succeed("json");
+  return Effect.fail(new CliConfigError({ message: "Format must be `json`." }));
 }
 
 function parseDeployOutput(
@@ -198,5 +234,5 @@ export const turbotunnelCommand = Command.make("turbotunnel").pipe(
   Command.withDescription(
     "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
   ),
-  Command.withSubcommands([devCommand, httpCommand, deployCommand, statusCommand]),
+  Command.withSubcommands([devCommand, httpCommand, deployCommand, statusCommand, listCommand]),
 );
