@@ -204,9 +204,7 @@ export function requestedOutput(argv: ReadonlyArray<string>): DeployOutput {
 function parseListFormat(
   format: string | undefined,
 ): Effect.Effect<TunnelListFormat, CliConfigError> {
-  if (format === undefined) return Effect.succeed("terminal");
-  if (format === "json") return Effect.succeed("json");
-  return Effect.fail(new CliConfigError({ message: "Format must be `json`." }));
+  return parseReadOutput(format);
 }
 
 function parseDeployOutput(
@@ -225,6 +223,12 @@ function parseDeployOutput(
 function parseStatusFormat(
   format: string | undefined,
 ): Effect.Effect<StatusFormat, CliConfigError> {
+  return parseReadOutput(format);
+}
+
+function parseReadOutput(
+  format: string | undefined,
+): Effect.Effect<"terminal" | "json", CliConfigError> {
   if (format === undefined) return Effect.succeed("terminal");
   if (format === "json") return Effect.succeed("json");
   return Effect.fail(new CliConfigError({ message: "Format must be `json`." }));

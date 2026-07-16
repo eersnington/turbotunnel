@@ -83,12 +83,9 @@ export const startDev = Effect.fn("startDev")(function* (options: {
               }),
             ),
         }),
-        Effect.as({ _tag: "Ready" as const }),
       );
-      const first = yield* Effect.raceFirst(readiness, childExit);
-      if (first._tag === "Exited") return first.exitCode;
-
-      return yield* Effect.raceFirst(tunnelRuntime.run(config), child.exitCode);
+      const result = yield* Effect.raceFirst(tunnelRuntime.run(config, readiness), childExit);
+      return result.exitCode;
     }),
   );
 });

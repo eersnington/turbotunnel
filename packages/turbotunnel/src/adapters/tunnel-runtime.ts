@@ -13,9 +13,10 @@ import { LocalControl } from "./local-control.js";
 import { RuntimeRegistry } from "./runtime-registry.js";
 
 export type TunnelRuntimeShape = {
-  readonly run: (
+  readonly run: <E = never, R = never>(
     config: HttpTunnelConfig,
-  ) => Effect.Effect<never, RuntimeRegistryError | LocalControlError>;
+    beforeConnect?: Effect.Effect<void, E, R>,
+  ) => Effect.Effect<never, RuntimeRegistryError | LocalControlError | E, R>;
   readonly snapshot: Effect.Effect<TunnelLifecycleSnapshot | undefined>;
 };
 
@@ -36,8 +37,8 @@ export class TunnelRuntime extends Context.Service<TunnelRuntime, TunnelRuntimeS
         warning: (message) => output.write(renderTunnel({ _tag: "Warning", message })),
       };
       return TunnelRuntime.of({
-        run: (config) =>
-          runTunnel(config, registry, control, (snapshot) => {
+        run: (config, beforeConnect = Effect.void) =>
+          runTunnel(config, beforeConnect, registry, control, (snapshot) => {
             currentSnapshot = snapshot;
           }).pipe(
             Effect.ensuring(
@@ -53,20 +54,26 @@ export class TunnelRuntime extends Context.Service<TunnelRuntime, TunnelRuntimeS
   );
 }
 
-const runTunnel = (
+const runTunnel = <E, R>(
   config: HttpTunnelConfig,
+  beforeConnect: Effect.Effect<void, E, R>,
   registry: RuntimeRegistry["Service"],
   control: LocalControl["Service"],
   setSnapshot: (snapshot: () => TunnelLifecycleSnapshot) => void,
-): Effect.Effect<never, RuntimeRegistryError | LocalControlError, TunnelReporter> =>
-  Effect.scoped(runTunnelSession(config, registry, control, setSnapshot));
+): Effect.Effect<never, RuntimeRegistryError | LocalControlError | E, TunnelReporter | R> =>
+  Effect.scoped(runTunnelSession(config, beforeConnect, registry, control, setSnapshot));
 
-const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
+const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* <E, R>(
   config: HttpTunnelConfig,
+  beforeConnect: Effect.Effect<void, E, R>,
   registry: RuntimeRegistry["Service"],
   control: LocalControl["Service"],
   setSnapshot: (snapshot: () => TunnelLifecycleSnapshot) => void,
-): Effect.fn.Return<never, RuntimeRegistryError | LocalControlError, TunnelReporter | Scope.Scope> {
+): Effect.fn.Return<
+  never,
+  RuntimeRegistryError | LocalControlError | E,
+  TunnelReporter | Scope.Scope | R
+> {
   const reporter = yield* TunnelReporter;
   const startedAtMs = yield* Clock.currentTimeMillis;
   const stats: TunnelSessionStats = {
@@ -105,6 +112,7 @@ const runTunnelSession = Effect.fn("TunnelRuntime.runSession")(function* (
     controlSocketPath: controlHandle.endpoint,
   });
 
+  yield* beforeConnect;
   yield* reporter.starting(config);
   yield* Effect.addFinalizer(() =>
     Clock.currentTimeMillis.pipe(

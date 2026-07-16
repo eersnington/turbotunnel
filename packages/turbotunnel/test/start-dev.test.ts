@@ -122,7 +122,8 @@ const testLayer = Layer.mergeAll(
     TunnelRuntime,
     TunnelRuntime.of({
       snapshot: Effect.succeed(undefined),
-      run: () => Effect.never,
+      run: (_config, beforeConnect = Effect.void) =>
+        beforeConnect.pipe(Effect.andThen(Effect.never)),
     }),
   ),
 );
@@ -168,7 +169,8 @@ const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
       TunnelRuntime,
       TunnelRuntime.of({
         snapshot: Effect.succeed(undefined),
-        run: () => Effect.never,
+        run: (_config, beforeConnect = Effect.void) =>
+          beforeConnect.pipe(Effect.andThen(Effect.never)),
       }),
     ),
   );

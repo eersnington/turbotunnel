@@ -47,7 +47,15 @@ const spawnDevProcess = Effect.fn("DevProcess.spawn")(function* (
     });
   }
 
-  yield* Effect.addFinalizer(() => terminateProcessGroup(pid));
+  yield* Effect.addFinalizer(() =>
+    terminateProcessGroup(pid).pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not fully stop the managed dev process group.").pipe(
+          Effect.annotateLogs({ command, pid, cause }),
+        ),
+      ),
+    ),
+  );
   return {
     exitCode: Deferred.await(exitCode).pipe(
       Effect.mapError(
@@ -104,16 +112,17 @@ function startChild(
   });
 }
 
-function terminateProcessGroup(pid: number): Effect.Effect<void> {
+function terminateProcessGroup(pid: number): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    sendSignal(pid, "SIGTERM");
+    yield* Effect.try({ try: () => sendSignal(pid, "SIGTERM"), catch: (cause) => cause });
     yield* waitForProcessGroupExit(pid).pipe(
       Effect.timeoutOrElse({
         duration: "5 seconds",
-        orElse: () => Effect.sync(() => sendSignal(pid, "SIGKILL")),
+        orElse: () =>
+          Effect.try({ try: () => sendSignal(pid, "SIGKILL"), catch: (cause) => cause }),
       }),
     );
-  }).pipe(Effect.ignore);
+  });
 }
 
 const waitForProcessGroupExit = Effect.fn("DevProcess.waitForProcessGroupExit")(function* (
@@ -125,7 +134,11 @@ const waitForProcessGroupExit = Effect.fn("DevProcess.waitForProcessGroupExit")(
 function sendSignal(pid: number, signal: NodeJS.Signals): void {
   if (process.platform === "win32") {
     const args = ["/PID", String(pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])];
-    spawnSync("taskkill", args, { stdio: "ignore", shell: false });
+    const result = spawnSync("taskkill", args, { stdio: "ignore", shell: false });
+    if (result.error !== undefined) throw result.error;
+    if (result.status !== 0 && processGroupExists(pid)) {
+      throw new Error(`taskkill exited with status ${result.status ?? "unknown"}`);
+    }
     return;
   }
   try {

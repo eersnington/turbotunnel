@@ -21,6 +21,43 @@ import { CliOutput } from "../src/cli/output.js";
 import type { TunnelLifecycleSnapshot } from "../src/domain/tunnel-lifecycle.js";
 
 describe("TunnelRuntime", () => {
+  it.effect("registers a starting snapshot while waiting for the local app", () =>
+    Effect.gen(function* () {
+      const runtimeDir = yield* temporaryDirectory;
+      const localRuntime = Layer.mergeAll(
+        RuntimeRegistry.layer(runtimeDir),
+        LocalControl.layer(runtimeDir),
+      ).pipe(Layer.provide(NodeServices.layer));
+      const runtimeLayer = TunnelRuntime.live.pipe(
+        Layer.provide(localRuntime),
+        Layer.provide(Layer.succeed(CliOutput, CliOutput.of({ write: () => Effect.void }))),
+      );
+
+      yield* Effect.gen(function* () {
+        const runtime = yield* TunnelRuntime;
+        yield* runtime
+          .run(
+            {
+              slug: "demo",
+              relayDomain: "localhost",
+              relaySecret: Redacted.make("secret", { label: "relay-secret" }),
+              relayUrl: "ws://127.0.0.1:1",
+              poolSize: 1,
+              target: { protocol: "http", host: "localhost", port: 5173 },
+            },
+            Effect.never,
+          )
+          .pipe(Effect.forkScoped);
+
+        const starting = yield* waitForSnapshot(
+          runtime,
+          (snapshot) => snapshot.state === "starting",
+        );
+        expect(starting.connectedRelays).toBe(0);
+      }).pipe(Effect.scoped, Effect.provide(runtimeLayer));
+    }),
+  );
+
   it.effect("exposes ready and reconnecting snapshots from active relay lifecycle", () =>
     Effect.gen(function* () {
       const sessionsDir = yield* temporaryDirectory;

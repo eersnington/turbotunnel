@@ -29,8 +29,8 @@ const FRAMEWORK_EXECUTABLES: ReadonlyArray<readonly [Framework, ReadonlyArray<st
   ["next", ["next"]],
   ["vite", ["vite"]],
   ["astro", ["astro"]],
-  ["nuxt", ["nuxt", "nuxt3"]],
-  ["storybook", ["storybook", "@storybook/cli"]],
+  ["nuxt", ["nuxt", "nuxt3", "nuxi"]],
+  ["storybook", ["storybook", "start-storybook", "@storybook/cli"]],
 ];
 
 export const customCommandPort = Effect.fn("customCommandPort")(function* (
@@ -148,12 +148,7 @@ function removePortArguments(
 function frameworkFromExecutable(executable: string | undefined): Framework | undefined {
   if (executable === undefined) return undefined;
   const name = executable.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
-  if (name === "next") return "next";
-  if (name === "vite") return "vite";
-  if (name === "astro") return "astro";
-  if (name === "nuxt" || name === "nuxi") return "nuxt";
-  if (name === "storybook" || name === "start-storybook") return "storybook";
-  return undefined;
+  return FRAMEWORK_EXECUTABLES.find(([, names]) => name !== undefined && names.includes(name))?.[0];
 }
 
 function frameworkFromScript(script: string | undefined): Framework | undefined {

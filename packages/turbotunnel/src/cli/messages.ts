@@ -239,6 +239,7 @@ function statusText(status: StatusOutput): string {
 function statusJson(status: StatusOutput): unknown {
   return status.tunnels.map((tunnel) => ({
     ...tunnel,
+    uptimeSeconds: Math.max(0, Math.floor((Date.now() - tunnel.startedAtMs) / 1_000)),
     gateway:
       status.gateways.find((candidate) => candidate.url === tunnel.gatewayStatusUrl)?.status ??
       "unreachable",

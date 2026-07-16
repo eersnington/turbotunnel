@@ -1,27 +1,30 @@
 import { Schema } from "effect";
 
+const nonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
 export const TunnelLifecycleSnapshotSchema = Schema.Struct({
   version: Schema.Literal(1),
-  sessionId: Schema.String,
-  pid: Schema.Number,
+  sessionId: Schema.NonEmptyString,
+  pid: positiveInt,
   state: Schema.Literals(["starting", "connecting", "ready", "reconnecting"]),
-  startedAtMs: Schema.Number,
-  publicUrl: Schema.String,
-  localUrl: Schema.String,
-  gatewayStatusUrl: Schema.String,
-  configuredRelays: Schema.Number,
-  connectedRelays: Schema.Number,
-  relayConnects: Schema.Number,
-  relayCloses: Schema.Number,
-  relayErrors: Schema.Number,
-  reconnects: Schema.Number,
-  framesReceived: Schema.Number,
-  framesSent: Schema.Number,
-  invalidFrames: Schema.Number,
-  httpRequests: Schema.Number,
-  httpResponses: Schema.Number,
-  webSocketsOpened: Schema.Number,
-  webSocketsClosed: Schema.Number,
+  startedAtMs: nonNegativeInt,
+  publicUrl: Schema.NonEmptyString,
+  localUrl: Schema.NonEmptyString,
+  gatewayStatusUrl: Schema.NonEmptyString,
+  configuredRelays: positiveInt,
+  connectedRelays: nonNegativeInt,
+  relayConnects: nonNegativeInt,
+  relayCloses: nonNegativeInt,
+  relayErrors: nonNegativeInt,
+  reconnects: nonNegativeInt,
+  framesReceived: nonNegativeInt,
+  framesSent: nonNegativeInt,
+  invalidFrames: nonNegativeInt,
+  httpRequests: nonNegativeInt,
+  httpResponses: nonNegativeInt,
+  webSocketsOpened: nonNegativeInt,
+  webSocketsClosed: nonNegativeInt,
 });
 
 export type TunnelLifecycleSnapshot = typeof TunnelLifecycleSnapshotSchema.Type;
@@ -29,13 +32,13 @@ export type TunnelLifecycleSnapshot = typeof TunnelLifecycleSnapshotSchema.Type;
 export const RuntimeRecordSchema = Schema.Struct({
   version: Schema.Literal(1),
   sessionId: Schema.String.check(Schema.isPattern(/^ses_[A-Za-z0-9_-]+$/)),
-  pid: Schema.Number,
-  processToken: Schema.String,
-  startedAt: Schema.Number,
-  slug: Schema.String,
-  publicUrl: Schema.String,
-  localUrl: Schema.String,
-  controlSocketPath: Schema.String,
+  pid: positiveInt,
+  processToken: Schema.NonEmptyString,
+  startedAt: nonNegativeInt,
+  slug: Schema.NonEmptyString,
+  publicUrl: Schema.NonEmptyString,
+  localUrl: Schema.NonEmptyString,
+  controlSocketPath: Schema.NonEmptyString,
 });
 
 export type RuntimeRecord = typeof RuntimeRecordSchema.Type;
