@@ -29,7 +29,7 @@ export default function InstallCommand() {
       onClick={copy}
       aria-label={label}
       title={copyState === "failed" ? label : undefined}
-      className="inline-flex h-11 items-center gap-2 rounded-md border border-border bg-background px-5 font-mono text-sm transition-colors hover:bg-muted"
+      className="inline-flex h-11 items-center gap-2 rounded-md border border-border bg-background px-5 font-mono text-sm transition-[background-color,transform] duration-150 hover:bg-muted active:scale-[0.97]"
     >
       <span className="text-muted-foreground">$</span>
       {command}

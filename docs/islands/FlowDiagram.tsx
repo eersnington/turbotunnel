@@ -73,7 +73,7 @@ export default function FlowDiagram() {
   };
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-background">
+    <div className="overflow-x-auto bg-background">
       <svg
         ref={mountAnimation}
         viewBox="0 0 1100 430"

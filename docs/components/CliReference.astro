@@ -34,18 +34,22 @@ const commands = [
 ---
 
 <section class="border-border border-b">
-  <div class="mx-auto max-w-6xl px-6 py-20 lg:py-24">
-    <h2 class="text-balance font-medium text-2xl tracking-tight sm:text-3xl">
-      CLI reference
-    </h2>
-    <p class="mt-3 max-w-[52ch] text-balance text-base text-muted-foreground leading-relaxed">
-      Deploy a gateway, run tunnels, and inspect their local or gateway state.
-    </p>
+  <div class="px-6 py-16 sm:px-10 sm:py-20 lg:px-16 lg:py-24">
+    <div class="grid gap-6 lg:grid-cols-[0.7fr_1.3fr] lg:items-end">
+      <h2 class="text-balance font-medium text-3xl tracking-tight sm:text-4xl">
+        CLI reference
+      </h2>
+      <div class="lg:flex lg:justify-end">
+        <p class="max-w-[42ch] text-balance text-base text-muted-foreground leading-relaxed lg:text-right">
+          Deploy a gateway, run tunnels, and inspect their local or gateway state.
+        </p>
+      </div>
+    </div>
 
-    <div class="mt-10 divide-y divide-border overflow-hidden rounded-lg border border-border">
+    <div class="mt-12 border-border border-t sm:mt-16">
       {
         commands.map((command) => (
-          <div class="grid gap-2 bg-background px-5 py-5 sm:grid-cols-[16rem_minmax(0,1fr)_auto] sm:items-baseline sm:gap-8 sm:px-6">
+          <div class="grid gap-3 border-border border-b py-6 sm:grid-cols-[16rem_minmax(0,1fr)_auto] sm:items-baseline sm:gap-8">
             <code class="font-mono text-sm">
               <span class="text-foreground">{command.name}</span>
               {command.args && <span class="text-muted-foreground"> {command.args}</span>}
@@ -55,7 +59,7 @@ const commands = [
             </p>
             <a
               href={command.href}
-              class="inline-flex items-center gap-1.5 text-muted-foreground text-sm transition-colors hover:text-foreground"
+              class="inline-flex items-center gap-1.5 text-muted-foreground text-sm transition-[color,transform] duration-150 hover:text-foreground active:translate-x-0.5"
             >
               {command.name} reference
               <svg
