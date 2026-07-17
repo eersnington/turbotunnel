@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { accessPolicySchema } from "./access-policy.js";
+
 const nonNegativeIntSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const positiveIntSchema = Schema.Int.check(Schema.isGreaterThan(0));
 const portSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }));
@@ -15,6 +17,8 @@ export const tunnelPresenceEventSchema = Schema.Struct({
   version: Schema.Literal(1),
   type: Schema.Literals(["upsert", "refresh", "remove"]),
   slug: Schema.NonEmptyString,
+  publicHost: Schema.NonEmptyString,
+  accessPolicy: accessPolicySchema,
   sessionId: Schema.NonEmptyString,
   localClientId: Schema.NonEmptyString,
   generation: positiveIntSchema,

@@ -55,14 +55,18 @@ describe("public WebSocket pump ownership", () => {
       );
 
       yield* runPublicWebSocket(socket, request, {
-        host: "demo.tunnel.test",
-        authorization: undefined,
-        forwardedProto: "http",
-        oidcToken: undefined,
-        secWebSocketProtocols: [],
+        slug: "demo",
+        accessPolicy: { type: "public" },
+        identity: routeIdentity,
       }).pipe(Effect.scoped, Effect.provide(layer));
 
       expect(closes).toEqual([{ code: 1011, reason: "gateway queue operation failed" }]);
     }),
   );
 });
+
+const routeIdentity = {
+  publicHost: "demo.tunnel.test",
+  policyFingerprint: "policy-v1:public",
+  sessionId: "session_test",
+} as const;

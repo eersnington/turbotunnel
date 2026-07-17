@@ -4,11 +4,13 @@ import { request as httpRequest, type Server } from "node:http";
 import {
   LOCAL_CLIENT_SUBPROTOCOL,
   PRESENCE_TOPIC,
+  requestTopic,
   parseProtocolFrameJson,
   PROTOCOL_VERSION,
   tunnelListResponseSchema,
   tunnelPresenceEventSchema,
   type TunnelPresenceEvent,
+  type AccessPolicy,
   type Frame,
   type HttpRequest,
   type WsClose,
@@ -21,11 +23,13 @@ import { WebSocket, type RawData } from "ws";
 
 import { GatewayLive, GatewayServer } from "../src/gateway.js";
 import { Queue } from "../src/queue.js";
+import { PublicRouteRegistry } from "../src/public-route-registry.js";
 
 type RunningGateway = {
   readonly server: Server;
   readonly queue: Queue["Service"];
-  readonly openLocalClient: (slug: string) => Promise<WebSocket>;
+  readonly routes: PublicRouteRegistry["Service"];
+  readonly openLocalClient: (slug: string, host?: string) => Promise<WebSocket>;
   readonly openPublicWebSocket: (slug: string, path: string) => Promise<WebSocket>;
   readonly dispose: () => Promise<void>;
   readonly close: () => Promise<void>;
@@ -147,8 +151,8 @@ describe("gateway runtime", () => {
       connectedAt: 1_234,
     });
     await Promise.all([
-      waitForActiveLocalClient(firstGateway.server),
-      waitForActiveLocalClient(secondGateway.server),
+      waitForActiveLocalClient(firstGateway),
+      waitForActiveLocalClient(secondGateway),
     ]);
 
     const pooled = await waitForListedTunnel(listingGateway.server, "presence-runtime", 2);
@@ -198,6 +202,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_hello",
         slug: "demo",
+        publicHost: "demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_test",
         sessionId: "session_test",
         generation: 1,
@@ -205,7 +211,7 @@ describe("gateway runtime", () => {
         target: { protocol: "http", host: "127.0.0.1", port: 4321 },
       }),
     );
-    await waitForActiveLocalClient(gateway.server);
+    await waitForActiveLocalClient(gateway, "demo.tunnel.test");
 
     const pendingHttp = request(gateway.server, {
       path: "/hello?name=effect",
@@ -291,6 +297,181 @@ describe("gateway runtime", () => {
     expect(close).toMatchObject({ code: 4000, reason: "browser done" });
   });
 
+  test("renders recovery guidance when the local app is unavailable", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("offline");
+    const localFrames = new FrameRecorder(local);
+    sendHello(local, {
+      slug: "offline",
+      localClientId: "local_offline",
+      sessionId: "session_offline",
+      generation: 1,
+    });
+    await waitForActiveLocalClient(gateway, "offline.tunnel.test");
+
+    const pending = request(gateway.server, {
+      path: "/dashboard",
+      host: "offline.tunnel.test",
+    });
+    const forwarded = await localFrames.take(
+      (frame): frame is HttpRequest => frame.type === "http.request",
+    );
+    local.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.response",
+        frameId: "frm_unavailable",
+        requestId: forwarded.requestId,
+        responseTopic: forwarded.responseTopic,
+        status: 502,
+        headers: [],
+        body: "",
+        tunnelError: "local-app-unavailable",
+      }),
+    );
+
+    const response = await pending;
+    expect(response.status).toBe(502);
+    expect(response.headers["content-type"]).toContain("text/html");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toContain("Local App Unavailable");
+    expect(response.body).toContain("Start the local app");
+    expect(response.body).toContain("--host");
+    expect(response.body).not.toContain("127.0.0.1");
+    expect(response.body).not.toContain("4321");
+  });
+
+  test("routes a registered exact public host outside the relay base domain", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("exact-demo", "preview.example.test");
+    const localFrames = new FrameRecorder(local);
+    sendHello(local, {
+      slug: "exact-demo",
+      publicHost: "preview.example.test",
+      localClientId: "exact_client",
+      sessionId: "exact_session",
+      generation: 1,
+    });
+    await waitForActiveLocalClient(gateway, "preview.example.test");
+
+    let mismatchedForwarded = false;
+    local.on("message", (data) => {
+      const frame = parseProtocolFrameJson(data.toString());
+      if (Result.isSuccess(frame) && frame.success.type === "http.request") {
+        mismatchedForwarded ||= frame.success.path === "/wrong-route";
+      }
+    });
+    await Effect.runPromise(
+      gateway.queue.send(requestTopic("exact-demo"), {
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.request",
+        frameId: "wrong_route_frame",
+        requestId: "wrong_route_request",
+        responseTopic: "wrong_route_response",
+        routeIdentity: {
+          publicHost: "other.example.test",
+          policyFingerprint: "policy-v1:public",
+          sessionId: "exact_session",
+        },
+        method: "GET",
+        path: "/wrong-route",
+        headers: [],
+        body: "",
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(mismatchedForwarded).toBe(false);
+
+    const pending = request(gateway.server, { path: "/exact", host: "PREVIEW.example.test:443" });
+    const forwarded = await localFrames.take(
+      (frame): frame is HttpRequest => frame.type === "http.request",
+    );
+    expect(forwarded.routeIdentity).toEqual({
+      publicHost: "preview.example.test",
+      policyFingerprint: "policy-v1:public",
+      sessionId: "exact_session",
+    });
+    local.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.response",
+        frameId: "exact_response",
+        requestId: forwarded.requestId,
+        responseTopic: forwarded.responseTopic,
+        status: 200,
+        headers: [],
+        body: Buffer.from("exact-host").toString("base64"),
+      }),
+    );
+
+    await expect(pending).resolves.toMatchObject({ status: 200, body: "exact-host" });
+  });
+
+  test("denies HTTP before forwarding or allocating tunnel work", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("private-http");
+    let forwarded = false;
+    local.on("message", (data) => {
+      const frame = parseProtocolFrameJson(data.toString());
+      if (Result.isSuccess(frame) && frame.success.type === "http.request") forwarded = true;
+    });
+    sendHello(local, {
+      slug: "private-http",
+      accessPolicy: { type: "ipAllowlist", cidrs: ["203.0.113.0/24"] },
+      localClientId: "private_http_client",
+      sessionId: "private_http_session",
+      generation: 1,
+    });
+    await waitForActiveLocalClient(gateway, "private-http.tunnel.test");
+
+    const denied = await request(gateway.server, {
+      path: "/denied",
+      host: "private-http.tunnel.test",
+      method: "POST",
+      body: "must-not-be-read-or-forwarded",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(denied.status).toBe(403);
+    const protectedStatus = await request(gateway.server, {
+      path: "/_turbotunnel/status",
+      host: "private-http.tunnel.test",
+    });
+    expect(protectedStatus.status).toBe(200);
+    expect(forwarded).toBe(false);
+  });
+
+  test("denies WebSocket access before sending 101 or creating tunnel state", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("private-ws");
+    let forwarded = false;
+    local.on("message", (data) => {
+      const frame = parseProtocolFrameJson(data.toString());
+      if (Result.isSuccess(frame) && frame.success.type === "ws.open") forwarded = true;
+    });
+    sendHello(local, {
+      slug: "private-ws",
+      accessPolicy: {
+        type: "password",
+        hash: "scrypt$1$16384$8$1$c2FsdC1mb3ItdGVzdA$MDEyMzQ1Njc4OWFiY2RlZg",
+      },
+      localClientId: "private_ws_client",
+      sessionId: "private_ws_session",
+      generation: 1,
+    });
+    await waitForActiveLocalClient(gateway, "private-ws.tunnel.test");
+
+    const status = await rejectedWebSocketStatus(
+      gateway.server,
+      "private-ws.tunnel.test",
+      "/socket",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(status).toBe(401);
+    expect(forwarded).toBe(false);
+  });
+
   test("preserves browser WebSocket message order when forwarding to a local client", async () => {
     const gateway = await startGateway();
     const local = await gateway.openLocalClient("ordered-demo");
@@ -301,6 +482,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_ordered_hello",
         slug: "ordered-demo",
+        publicHost: "ordered-demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_ordered_test",
         sessionId: "session_ordered_test",
         generation: 1,
@@ -308,7 +491,7 @@ describe("gateway runtime", () => {
         target: { protocol: "http", host: "127.0.0.1", port: 4321 },
       }),
     );
-    await waitForActiveLocalClient(gateway.server);
+    await waitForActiveLocalClient(gateway, "ordered-demo.tunnel.test");
 
     const browser = await gateway.openPublicWebSocket("ordered-demo", "/ordered");
     const open = await localFrames.take((frame): frame is WsOpen => frame.type === "ws.open");
@@ -364,6 +547,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_queued_hello",
         slug: "queued-demo",
+        publicHost: "queued-demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_queued_test",
         sessionId: "session_queued_test",
         generation: 1,
@@ -371,7 +556,8 @@ describe("gateway runtime", () => {
         target: { protocol: "http", host: "127.0.0.1", port: 4321 },
       }),
     );
-    await waitForActiveLocalClient(localGateway.server);
+    await waitForActiveLocalClient(localGateway, "queued-demo.tunnel.test");
+    await waitForPublicRoute(publicGateway, "queued-demo.tunnel.test");
 
     const pendingHttp = request(publicGateway.server, {
       path: "/queued",
@@ -431,6 +617,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_disconnect_hello",
         slug: "disconnect-demo",
+        publicHost: "disconnect-demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_disconnect_test",
         sessionId: "session_disconnect_test",
         generation: 1,
@@ -438,7 +626,7 @@ describe("gateway runtime", () => {
         target: { protocol: "http", host: "127.0.0.1", port: 4321 },
       }),
     );
-    await waitForActiveLocalClient(gateway.server);
+    await waitForActiveLocalClient(gateway, "disconnect-demo.tunnel.test");
 
     const pendingHttp = request(gateway.server, {
       path: "/disconnect",
@@ -462,6 +650,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_generation_1",
         slug: "generation-demo",
+        publicHost: "generation-demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_generation_test",
         sessionId: "session_generation_test",
         generation: 1,
@@ -469,7 +659,7 @@ describe("gateway runtime", () => {
         target: { protocol: "http", host: "127.0.0.1", port: 4321 },
       }),
     );
-    await waitForActiveLocalClient(gateway.server);
+    await waitForActiveLocalClient(gateway, "generation-demo.tunnel.test");
 
     const olderFrames = new FrameRecorder(older);
     const newer = await gateway.openLocalClient("generation-demo");
@@ -481,6 +671,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_generation_2",
         slug: "generation-demo",
+        publicHost: "generation-demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_generation_test",
         sessionId: "session_generation_test",
         generation: 2,
@@ -532,7 +724,7 @@ describe("gateway runtime", () => {
     const olderClosed = waitForClose(older);
     older.terminate();
     await olderClosed;
-    await waitForActiveLocalClient(gateway.server);
+    await waitForActiveLocalClient(gateway, "generation-demo.tunnel.test");
 
     const pendingHttp = request(gateway.server, {
       path: "/new-generation",
@@ -577,6 +769,8 @@ describe("gateway runtime", () => {
         type: "local.hello",
         frameId: "frm_sequence_hello",
         slug: "sequence-demo",
+        publicHost: "sequence-demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "local_sequence_test",
         sessionId: "session_sequence_test",
         generation: 1,
@@ -584,7 +778,7 @@ describe("gateway runtime", () => {
         target: { protocol: "http", host: "127.0.0.1", port: 4321 },
       }),
     );
-    await waitForActiveLocalClient(gateway.server);
+    await waitForActiveLocalClient(gateway, "sequence-demo.tunnel.test");
 
     const browser = await gateway.openPublicWebSocket("sequence-demo", "/sequence");
     const open = await localFrames.take((frame): frame is WsOpen => frame.type === "ws.open");
@@ -665,10 +859,7 @@ function request(server: Server, input: RequestInput): Promise<HttpResponseResul
   );
 }
 
-function headerValues(
-  headers: HttpRequest["headers"],
-  name: string,
-): ReadonlyArray<string> {
+function headerValues(headers: HttpRequest["headers"], name: string): ReadonlyArray<string> {
   return headers.filter(([header]) => header === name).map(([, value]) => value);
 }
 
@@ -676,6 +867,8 @@ function sendHello(
   socket: WebSocket,
   input: {
     readonly slug: string;
+    readonly publicHost?: string;
+    readonly accessPolicy?: AccessPolicy;
     readonly localClientId: string;
     readonly sessionId: string;
     readonly generation: number;
@@ -688,6 +881,8 @@ function sendHello(
       type: "local.hello",
       frameId: `hello_${input.localClientId}_${input.generation}`,
       ...input,
+      publicHost: input.publicHost ?? `${input.slug}.tunnel.test`,
+      accessPolicy: input.accessPolicy ?? { type: "public" },
       capacity: 4,
       target: { protocol: "http", host: "127.0.0.1", port: 4321 },
     }),
@@ -818,6 +1013,7 @@ async function startGateway(): Promise<RunningGateway> {
   );
   const server = await runtime.runPromise(GatewayServer);
   const queue = await runtime.runPromise(Queue);
+  const routes = await runtime.runPromise(PublicRouteRegistry);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -834,12 +1030,13 @@ async function startGateway(): Promise<RunningGateway> {
   const gateway = {
     server,
     queue,
-    openLocalClient: (slug: string) =>
+    routes,
+    openLocalClient: (slug: string, host = `${slug}.tunnel.test`) =>
       openSocket(
         server,
         `/${slug}`,
         {
-          host: `${slug}.tunnel.test`,
+          host,
           authorization: "Bearer test_secret",
         },
         LOCAL_CLIENT_SUBPROTOCOL,
@@ -917,9 +1114,29 @@ function openSocket(
   );
 }
 
-async function waitForActiveLocalClient(server: Server): Promise<void> {
+function rejectedWebSocketStatus(server: Server, host: string, path: string): Promise<number> {
+  const socket = new WebSocket(`ws://127.0.0.1:${serverPort(server)}${path}`, {
+    headers: { host },
+  });
+  socket.on("error", () => undefined);
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      socket.once("open", () => reject(new Error("WebSocket unexpectedly received 101.")));
+      socket.once("unexpected-response", (_request, response) => {
+        const status = response.statusCode ?? 0;
+        response.resume();
+        resolve(status);
+      });
+    }),
+  );
+}
+
+async function waitForActiveLocalClient(
+  gateway: RunningGateway,
+  publicHost?: string,
+): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const response = await request(server, {
+    const response = await request(gateway.server, {
       path: "/_turbotunnel/status",
       host: "tunnel.test",
       accept: "application/json",
@@ -931,11 +1148,21 @@ async function waitForActiveLocalClient(server: Server): Promise<void> {
       "activeLocalClients" in body &&
       body.activeLocalClients === 1
     ) {
+      if (publicHost !== undefined) await waitForPublicRoute(gateway, publicHost);
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Local client did not register with the gateway.");
+}
+
+async function waitForPublicRoute(gateway: RunningGateway, publicHost: string): Promise<void> {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const result = await Effect.runPromise(gateway.routes.lookup(publicHost));
+    if (result._tag === "Found") return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Public route ${publicHost} did not become ready.`);
 }
 
 function waitForMessage(socket: WebSocket): Promise<Buffer> {

@@ -7,6 +7,9 @@ export type GatewayRequestHeaders = {
   readonly host: string | undefined;
   readonly authorization: string | undefined;
   readonly oidcToken: string | undefined;
+  readonly cookie: string | undefined;
+  readonly realIp: string | undefined;
+  readonly forwardedFor: string | undefined;
   readonly forwardedProto: string;
   readonly secWebSocketProtocols: ReadonlyArray<string>;
 };
@@ -34,6 +37,19 @@ const REQUEST_HEADERS_OVERRIDDEN_BY_GATEWAY = new Set([
   "x-turbotunnel-request-id",
 ]);
 
+const PLATFORM_REQUEST_HEADERS = new Set([
+  "x-real-ip",
+  "x-forwarded-for",
+  "x-forwarded-port",
+  "x-vercel-forwarded-for",
+  "x-vercel-ip-city",
+  "x-vercel-ip-country",
+  "x-vercel-ip-country-region",
+  "x-vercel-ip-latitude",
+  "x-vercel-ip-longitude",
+  "x-vercel-oidc-token",
+]);
+
 /** Parse raw Node request headers without collapsing duplicate singleton headers. */
 export function parseGatewayRequestHeaders(
   rawHeaders: ReadonlyArray<string>,
@@ -41,6 +57,9 @@ export function parseGatewayRequestHeaders(
   let host: string | undefined;
   let authorization: string | undefined;
   let oidcToken: string | undefined;
+  let cookie: string | undefined;
+  let realIp: string | undefined;
+  let forwardedFor: string | undefined;
   const forwardedProtoValues: Array<string> = [];
   const secWebSocketProtocols: Array<string> = [];
 
@@ -74,6 +93,21 @@ export function parseGatewayRequestHeaders(
         oidcToken = value;
         break;
       }
+      case "cookie": {
+        if (cookie !== undefined) return { _tag: "err", header: "Cookie" };
+        cookie = value;
+        break;
+      }
+      case "x-real-ip": {
+        if (realIp !== undefined) return { _tag: "err", header: "X-Real-IP" };
+        realIp = value.trim();
+        break;
+      }
+      case "x-forwarded-for": {
+        if (forwardedFor !== undefined) return { _tag: "err", header: "X-Forwarded-For" };
+        forwardedFor = value;
+        break;
+      }
       case "x-forwarded-proto": {
         forwardedProtoValues.push(value);
         break;
@@ -96,6 +130,9 @@ export function parseGatewayRequestHeaders(
       host,
       authorization,
       oidcToken,
+      cookie,
+      realIp,
+      forwardedFor,
       forwardedProto: parseForwardedProto(forwardedProtoValues),
       secWebSocketProtocols,
     },
@@ -120,11 +157,19 @@ export function requestHeadersForLocalApp(input: {
     }
 
     const name = rawName.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(name) || REQUEST_HEADERS_OVERRIDDEN_BY_GATEWAY.has(name)) {
+    if (
+      HOP_BY_HOP_HEADERS.has(name) ||
+      REQUEST_HEADERS_OVERRIDDEN_BY_GATEWAY.has(name) ||
+      PLATFORM_REQUEST_HEADERS.has(name) ||
+      name.startsWith("x-vercel-") ||
+      name.startsWith("x-now-")
+    ) {
       continue;
     }
-
-    headers.push([name, rawValue]);
+    if (name === "cookie") {
+      const cookie = stripGatewayCookie(rawValue);
+      if (cookie !== undefined) headers.push([name, cookie]);
+    } else headers.push([name, rawValue]);
   }
 
   headers.push(["host", input.localHost]);
@@ -149,14 +194,30 @@ export function publicWebSocketHeaders(
     }
 
     const name = rawName.toLowerCase();
-    if (HOP_BY_HOP_HEADERS.has(name) || name === "host") {
+    if (
+      HOP_BY_HOP_HEADERS.has(name) ||
+      name === "host" ||
+      PLATFORM_REQUEST_HEADERS.has(name) ||
+      name.startsWith("x-vercel-") ||
+      name.startsWith("x-now-")
+    ) {
       continue;
     }
-
-    projected.push([name, rawValue]);
+    if (name === "cookie") {
+      const cookie = stripGatewayCookie(rawValue);
+      if (cookie !== undefined) projected.push([name, cookie]);
+    } else projected.push([name, rawValue]);
   }
 
   return projected;
+}
+
+function stripGatewayCookie(value: string): string | undefined {
+  const retained = value
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => !part.startsWith("__Host-turbotunnel="));
+  return retained.length === 0 ? undefined : retained.join("; ");
 }
 
 /** Project tunnel response header pairs into Node response headers. */

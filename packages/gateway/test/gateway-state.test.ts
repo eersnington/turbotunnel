@@ -4,6 +4,12 @@ import { Effect, Exit, Scope } from "effect";
 import { GatewayState } from "../src/gateway-state.js";
 import type { GatewayWebSocket } from "../src/websocket.js";
 
+const routeIdentity = {
+  publicHost: "demo.tunnel.test",
+  policyFingerprint: "policy-v1:public",
+  sessionId: "session_generation_test",
+} as const;
+
 const inertSocket: GatewayWebSocket = {
   receive: Effect.never,
   isOpen: Effect.succeed(true),
@@ -25,9 +31,9 @@ describe("GatewayState", () => {
         .registerLocalClient(localRegistration(2))
         .pipe(Effect.provideService(Scope.Scope, newerScope));
 
-      const beforeOlderCloses = yield* state.pickLocalClient("demo");
+      const beforeOlderCloses = yield* state.pickLocalClient("demo", routeIdentity);
       yield* Scope.close(olderScope, Exit.void);
-      const afterOlderCloses = yield* state.pickLocalClient("demo");
+      const afterOlderCloses = yield* state.pickLocalClient("demo", routeIdentity);
       yield* Scope.close(newerScope, Exit.void);
 
       expect(beforeOlderCloses).toBe(newer);
@@ -60,6 +66,8 @@ describe("GatewayState", () => {
 function localRegistration(generation: number) {
   return {
     slug: "demo",
+    publicHost: "demo.tunnel.test",
+    accessPolicy: { type: "public" },
     socket: inertSocket,
     clientId: "local_generation_test",
     sessionId: "session_generation_test",
@@ -77,6 +85,7 @@ function registration(connId: string) {
     socket: inertSocket,
     browserOutTopic: `browser-${connId}`,
     localInTopic: `local-${connId}`,
+    routeIdentity,
     localClient: undefined,
     capacity: 1,
   } as const;

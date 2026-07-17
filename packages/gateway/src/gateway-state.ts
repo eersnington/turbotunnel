@@ -1,5 +1,11 @@
 /** Owns private runtime registries; scoped registrations own every corresponding cleanup. */
-import type { HttpResponse, TunnelRequestFrame } from "@turbotunnel/contracts";
+import {
+  accessPolicyFingerprint,
+  type AccessPolicy,
+  type HttpResponse,
+  type RouteIdentity,
+  type TunnelRequestFrame,
+} from "@turbotunnel/contracts";
 import { Clock, Context, Deferred, Effect, Layer, Scope } from "effect";
 
 import type { GatewayWebSocket, GatewayWebSocketWriteError } from "./websocket.js";
@@ -16,6 +22,9 @@ export type LocalTarget = {
 
 type LocalClientFields = {
   readonly slug: string;
+  readonly publicHost: string;
+  readonly accessPolicy: AccessPolicy;
+  readonly routeIdentity: RouteIdentity;
   readonly socket: GatewayWebSocket;
   readonly clientId: string;
   readonly sessionId: string;
@@ -30,7 +39,7 @@ export type LocalClient = LocalClientFields & {
 };
 
 /** Input used to register a local tunnel client for the connection scope. */
-export type RegisterLocalClient = LocalClientFields & {
+export type RegisterLocalClient = Omit<LocalClientFields, "routeIdentity"> & {
   readonly capacity: number;
 };
 
@@ -50,6 +59,7 @@ type PublicConnectionFields = {
   readonly socket: GatewayWebSocket;
   readonly browserOutTopic: string;
   readonly localInTopic: string;
+  readonly routeIdentity: RouteIdentity;
   readonly route:
     | { readonly _tag: "Direct"; readonly localClientId: string }
     | { readonly _tag: "Queued" };
@@ -123,7 +133,10 @@ export class GatewayState extends Context.Service<
     readonly registerLocalClient: (
       input: RegisterLocalClient,
     ) => Effect.Effect<LocalClient, never, Scope.Scope>;
-    readonly pickLocalClient: (slug: string) => Effect.Effect<LocalClient | undefined>;
+    readonly pickLocalClient: (
+      slug: string,
+      routeIdentity: RouteIdentity,
+    ) => Effect.Effect<LocalClient | undefined>;
     readonly findLocalClient: (clientId: string) => Effect.Effect<LocalClient | undefined>;
     readonly isLocalClientActive: (client: LocalClient) => Effect.Effect<boolean>;
     readonly noteQueueReceive: (
@@ -212,6 +225,13 @@ export class GatewayState extends Context.Service<
             };
             const client: LocalClient = {
               slug: input.slug,
+              publicHost: input.publicHost,
+              accessPolicy: input.accessPolicy,
+              routeIdentity: {
+                publicHost: input.publicHost,
+                policyFingerprint: accessPolicyFingerprint(input.accessPolicy),
+                sessionId: input.sessionId,
+              },
               socket: input.socket,
               clientId: input.clientId,
               sessionId: input.sessionId,
@@ -265,7 +285,7 @@ export class GatewayState extends Context.Service<
 
           return Effect.acquireRelease(acquire, release);
         },
-        pickLocalClient: (slug) =>
+        pickLocalClient: (slug, routeIdentity) =>
           Effect.gen(function* () {
             const clientIds = localClientIdsBySlug.get(slug);
             if (clientIds === undefined) {
@@ -276,6 +296,7 @@ export class GatewayState extends Context.Service<
               const record = client?.[localClientRecordKey];
               if (
                 client !== undefined &&
+                sameRouteIdentity(client.routeIdentity, routeIdentity) &&
                 record !== undefined &&
                 !record.draining &&
                 (yield* client.socket.isOpen) &&
@@ -394,6 +415,7 @@ export class GatewayState extends Context.Service<
                 socket: input.socket,
                 browserOutTopic: input.browserOutTopic,
                 localInTopic: input.localInTopic,
+                routeIdentity: input.routeIdentity,
                 route:
                   input.localClient === undefined
                     ? { _tag: "Queued" }
@@ -447,6 +469,14 @@ export class GatewayState extends Context.Service<
         }),
       });
     }),
+  );
+}
+
+export function sameRouteIdentity(left: RouteIdentity, right: RouteIdentity): boolean {
+  return (
+    left.publicHost === right.publicHost &&
+    left.policyFingerprint === right.policyFingerprint &&
+    left.sessionId === right.sessionId
   );
 }
 

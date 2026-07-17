@@ -53,6 +53,8 @@ export function publishPresence(
       version: 1,
       type,
       slug: localClient.slug,
+      publicHost: localClient.publicHost,
+      accessPolicy: localClient.accessPolicy,
       sessionId: localClient.sessionId,
       localClientId: localClient.clientId,
       generation: localClient.generation,
@@ -72,44 +74,7 @@ export function listTunnels(): Effect.Effect<
   GatewayState | Queue
 > {
   return Effect.gen(function* () {
-    const queue = yield* Queue;
-    const state = yield* GatewayState;
-    const records: Array<PresenceRecord> = [];
-    let replayedEvents = 0;
-    const consumerGroup = `tt_presence_list_${nanoid(12)}`;
-
-    while (true) {
-      const messages = yield* queue.receive({
-        topic: PRESENCE_TOPIC,
-        consumerGroup,
-        limit: PRESENCE_RECEIVE_LIMIT,
-        visibilityTimeoutSeconds: PRESENCE_VISIBILITY_TIMEOUT_SECONDS,
-      });
-      yield* state.recordMetric("queueReceives");
-      if (messages.length === 0) {
-        break;
-      }
-      if (replayedEvents + messages.length > PRESENCE_REPLAY_EVENT_LIMIT) {
-        yield* acknowledgeMessages(messages, state);
-        return yield* new PresenceReplayLimitError({
-          eventLimit: PRESENCE_REPLAY_EVENT_LIMIT,
-          message: `Tunnel presence replay exceeded the ${PRESENCE_REPLAY_EVENT_LIMIT}-event safety limit. No partial tunnel list was returned. Retry after heartbeat traffic subsides; if this persists, inspect relay reconnect or heartbeat volume.`,
-        });
-      }
-      replayedEvents += messages.length;
-      const decodedMessages = messages.map((message) => ({
-        message,
-        decoded: decodePresenceEvent(message.payload),
-      }));
-      yield* acknowledgeMessages(messages, state);
-      for (const { message, decoded } of decodedMessages) {
-        if (Result.isFailure(decoded)) {
-          yield* logMalformedPresenceEvent(message);
-          continue;
-        }
-        records.push({ event: decoded.success, sentAt: message.sentAt });
-      }
-    }
+    const records = yield* replayPresence(`tt_presence_list_${nanoid(12)}`);
 
     const generatedAt = yield* Clock.currentTimeMillis;
     return {
@@ -120,6 +85,41 @@ export function listTunnels(): Effect.Effect<
     };
   });
 }
+
+const replayPresence = Effect.fn("replayPresence")(function* (consumerGroup: string) {
+  const queue = yield* Queue;
+  const state = yield* GatewayState;
+  const records: Array<PresenceRecord> = [];
+  let replayedEvents = 0;
+  while (true) {
+    const messages = yield* queue.receive({
+      topic: PRESENCE_TOPIC,
+      consumerGroup,
+      limit: PRESENCE_RECEIVE_LIMIT,
+      visibilityTimeoutSeconds: PRESENCE_VISIBILITY_TIMEOUT_SECONDS,
+    });
+    yield* state.recordMetric("queueReceives");
+    if (messages.length === 0) break;
+    if (replayedEvents + messages.length > PRESENCE_REPLAY_EVENT_LIMIT) {
+      yield* acknowledgeMessages(messages, state);
+      return yield* new PresenceReplayLimitError({
+        eventLimit: PRESENCE_REPLAY_EVENT_LIMIT,
+        message: `Tunnel presence replay exceeded the ${PRESENCE_REPLAY_EVENT_LIMIT}-event safety limit. No partial tunnel list was returned. Retry after heartbeat traffic subsides; if this persists, inspect relay reconnect or heartbeat volume.`,
+      });
+    }
+    replayedEvents += messages.length;
+    const decodedMessages = messages.map((message) => ({
+      message,
+      decoded: decodePresenceEvent(message.payload),
+    }));
+    yield* acknowledgeMessages(messages, state);
+    for (const { message, decoded } of decodedMessages) {
+      if (Result.isFailure(decoded)) yield* logMalformedPresenceEvent(message);
+      else records.push({ event: decoded.success, sentAt: message.sentAt });
+    }
+  }
+  return records;
+});
 
 function acknowledgeMessages(
   messages: ReadonlyArray<QueueMessage>,
