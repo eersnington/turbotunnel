@@ -38,6 +38,51 @@ describe("lifecycle presenter", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("renders a scannable tunnel URL only in an interactive terminal", () => {
+    const interactiveWrites: Array<string> = [];
+    const interactiveSurface = TerminalSurface.layer({
+      capabilities: { interactive: true, color: false },
+      write: (text) => Effect.sync(() => interactiveWrites.push(text)),
+    });
+    const interactiveLayer = Layer.merge(
+      interactiveSurface,
+      tunnelReporterLive.pipe(Layer.provide(interactiveSurface)),
+    );
+    const nonInteractiveWrites: Array<string> = [];
+    const nonInteractiveSurface = TerminalSurface.layer({
+      capabilities: { interactive: false, color: false },
+      write: (text) => Effect.sync(() => nonInteractiveWrites.push(text)),
+    });
+    const nonInteractiveLayer = Layer.merge(
+      nonInteractiveSurface,
+      tunnelReporterLive.pipe(Layer.provide(nonInteractiveSurface)),
+    );
+
+    const renderReady = Effect.gen(function* () {
+      const reporter = yield* TunnelReporter;
+      yield* reporter.emit({
+        _tag: "DomainConfiguring",
+        hostname: "demo.test\u001b[2J",
+      });
+      yield* reporter.emit({
+        _tag: "TunnelStarting",
+        config,
+        launch: { _tag: "ExistingApplication" },
+      });
+      yield* reporter.emit({ _tag: "TunnelReady", readyAfterMs: 250 });
+    });
+
+    return Effect.gen(function* () {
+      yield* renderReady.pipe(Effect.provide(interactiveLayer));
+      yield* renderReady.pipe(Effect.provide(nonInteractiveLayer));
+
+      expect(interactiveWrites.join("")).toContain("Scan to open");
+      expect(interactiveWrites.join("")).toMatch(/[▀▄]/);
+      expect(nonInteractiveWrites.join("")).not.toContain("Scan to open");
+      expect(nonInteractiveWrites.join("")).not.toMatch(/[▀▄]/);
+      expect(nonInteractiveWrites.join("")).toContain("demo.test\\u001b[2J");
+    });
+  });
 });
 
 const config = {
@@ -47,4 +92,6 @@ const config = {
   relayUrl: undefined,
   poolSize: 2,
   target: { protocol: "http" as const, host: "localhost", port: 5173 },
+  publicHost: "quiet-river-turbotunnel.vercel.app",
+  accessPolicy: { type: "public" as const },
 };

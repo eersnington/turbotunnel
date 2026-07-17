@@ -19,6 +19,7 @@ export type DevCommandInput = {
 export type DevLaunch = {
   readonly executable: string;
   readonly args: ReadonlyArray<string>;
+  readonly shell?: boolean;
 };
 
 export type Framework = "next" | "vite" | "astro" | "nuxt" | "storybook";
@@ -53,6 +54,7 @@ export const resolveDevLaunch = Effect.fn("resolveDevLaunch")(function* (
   project: DevProject,
   input: DevCommandInput,
   port: number,
+  configuredCommand?: string,
 ): Effect.fn.Return<DevLaunch, DevScriptNotFound | CliConfigError> {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     return yield* new CliConfigError({ message: "Port must be an integer from 1 to 65535." });
@@ -74,6 +76,15 @@ export const resolveDevLaunch = Effect.fn("resolveDevLaunch")(function* (
           : originalArgs
         : appendFrameworkPort(originalArgs, framework, port);
     return { executable, args };
+  }
+
+  if (configuredCommand !== undefined) {
+    if (configuredCommand.trim() === "") {
+      return yield* new CliConfigError({
+        message: "Configured dev command cannot be empty. No child process or tunnel was started.",
+      });
+    }
+    return { executable: configuredCommand, args: [], shell: true };
   }
 
   const devScript = project.scripts.dev;

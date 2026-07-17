@@ -1,5 +1,6 @@
 import pc from "picocolors";
 import { Effect, Layer, Ref } from "effect";
+import qrcode from "qrcode-generator";
 
 import { gatewayUrl, publicTunnelUrl } from "../domain/tunnel-url.js";
 import type { LifecycleEvent, TunnelStoppedSummary } from "../runtime/lifecycle-event.js";
@@ -13,17 +14,24 @@ export const tunnelReporterLive = Layer.effect(
     const surface = yield* TerminalSurface;
     const reconnectNoticeVisible = yield* Ref.make(false);
     const developmentOutputVisible = yield* Ref.make(false);
+    const tunnelUrl = yield* Ref.make<string | undefined>(undefined);
     const colors = pc.createColors(surface.capabilities.color);
 
     const emit = (event: LifecycleEvent): Effect.Effect<void> => {
       switch (event._tag) {
+        case "DomainConfiguring":
+          return surface.progress(`Configuring Vercel domain ${terminalText(event.hostname)}`);
         case "TunnelStarting": {
-          return surface.settle(renderStarting(event, colors));
+          return Ref.set(tunnelUrl, publicTunnelUrl(event.config)).pipe(
+            Effect.andThen(surface.settle(renderStarting(event, colors))),
+          );
         }
         case "LocalApplicationWaiting":
           return surface.progress(
             `Waiting for local app at ${event.target.host}:${event.target.port}`,
           );
+        case "LocalApplicationReady":
+          return surface.append(`${colors.green("✓")} Local app ready`);
         case "DevelopmentOutputStarting":
           return surface
             .settle(renderOutputBoundary("dev server", colors))
@@ -38,11 +46,16 @@ export const tunnelReporterLive = Layer.effect(
                 ? surface.append(`\n${renderOutputBoundary("turbotunnel", colors)}`)
                 : Effect.void,
             ),
-            Effect.andThen(surface.append(`${colors.green("✓")} Local app ready`)),
             Effect.andThen(surface.progress(`Connecting ${event.configuredRelays} relay sockets`)),
           );
         case "TunnelReady":
-          return surface.settle(renderReady(event, colors));
+          return Ref.get(tunnelUrl).pipe(
+            Effect.flatMap((url) =>
+              surface.settle(
+                renderReady(event, colors, surface.capabilities.interactive ? url : undefined),
+              ),
+            ),
+          );
         case "RelayReconnecting":
           return Ref.getAndSet(reconnectNoticeVisible, true).pipe(
             Effect.flatMap((alreadyVisible) =>
@@ -81,8 +94,47 @@ export const tunnelReporterLive = Layer.effect(
 function renderReady(
   event: Extract<LifecycleEvent, { readonly _tag: "TunnelReady" }>,
   colors: ReturnType<typeof pc.createColors>,
+  publicUrl: string | undefined,
 ): string {
-  return `${colors.green("✓")} Tunnel ready in ${formatDurationMs(event.readyAfterMs)}\n\n  Press Ctrl-C to stop\n`;
+  const qrCode =
+    publicUrl === undefined ? "" : `  Scan to open\n\n${indent(renderQrCode(publicUrl))}\n\n`;
+  return `${colors.green("✓")} Tunnel ready in ${formatDurationMs(event.readyAfterMs)}\n\n${qrCode}  Press Ctrl-C to stop\n`;
+}
+
+function renderQrCode(value: string): string {
+  const code = qrcode(0, "L");
+  code.addData(value);
+  code.make();
+
+  const margin = 2;
+  const size = code.getModuleCount();
+  const lines: Array<string> = [];
+  for (let row = -margin; row < size + margin; row += 2) {
+    let line = "\u001B[47m\u001B[30m";
+    for (let column = -margin; column < size + margin; column += 1) {
+      const top = isDark(code, row, column, size);
+      const bottom = isDark(code, row + 1, column, size);
+      line += top ? (bottom ? "█" : "▀") : bottom ? "▄" : " ";
+    }
+    lines.push(`${line}\u001B[0m`);
+  }
+  return lines.join("\n");
+}
+
+function isDark(
+  code: ReturnType<typeof qrcode>,
+  row: number,
+  column: number,
+  size: number,
+): boolean {
+  return row >= 0 && row < size && column >= 0 && column < size && code.isDark(row, column);
+}
+
+function indent(value: string): string {
+  return value
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
 }
 
 function renderStarting(
@@ -98,6 +150,15 @@ function renderStarting(
       { label: "Local", value: colors.cyan(localUrl) },
       ...(gateway === publicUrl ? [] : [{ label: "Gateway", value: colors.cyan(gateway) }]),
       { label: "Relays", value: `${event.config.poolSize} sockets` },
+      {
+        label: "Access",
+        value:
+          event.config.accessPolicy.type === "public"
+            ? "public"
+            : event.config.accessPolicy.type === "password"
+              ? "password"
+              : `IP allowlist (${event.config.accessPolicy.cidrs.length})`,
+      },
       ...(event.launch._tag === "ManagedProcess"
         ? [
             { label: "Process", value: event.launch.command },

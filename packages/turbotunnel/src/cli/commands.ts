@@ -8,13 +8,19 @@ import { startDev } from "../programs/start-dev.js";
 import { listTunnels } from "../programs/list-tunnels.js";
 import { CliConfigError } from "../errors.js";
 import type { DeployOutput } from "../domain/deploy-plan.js";
-import { decodeDevArguments } from "./argv.js";
+import type { AccessOverride } from "../domain/project-access.js";
+import { parseDevArguments } from "./argv.js";
 
 export const httpCommand = Command.make(
   "http",
   {
-    port: Argument.integer("port").pipe(
-      Argument.withDescription("set the local app port, from 1 to 65535"),
+    target: Argument.string("project-or-port").pipe(
+      Argument.withDescription("select a configured project or set the local app port"),
+      Argument.optional,
+    ),
+    port: Flag.integer("port").pipe(
+      Flag.withDescription("set the local app port, from 1 to 65535"),
+      Flag.optional,
     ),
     slug: Flag.string("slug").pipe(
       Flag.withDescription("set the public tunnel slug"),
@@ -40,11 +46,37 @@ export const httpCommand = Command.make(
       Flag.withDescription("connect to an explicit relay origin for local gateway development"),
       Flag.optional,
     ),
+    publicAccess: Flag.boolean("public").pipe(
+      Flag.withDescription("temporarily allow public access without authentication"),
+    ),
+    protect: Flag.string("protect").pipe(
+      Flag.withDescription("temporarily require password access"),
+      Flag.optional,
+    ),
+    allowIp: Flag.string("allow-ip").pipe(
+      Flag.withDescription("temporarily allow an IP address or CIDR; may be repeated"),
+      Flag.atMost(64),
+    ),
   },
-  Effect.fn("httpCommand")(function* ({ port, slug, host, pool, domain, secret, relayUrl }) {
+  Effect.fn("httpCommand")(function* ({
+    target,
+    port,
+    slug,
+    host,
+    pool,
+    domain,
+    secret,
+    relayUrl,
+    publicAccess,
+    protect,
+    allowIp,
+  }) {
+    const selected = Option.getOrUndefined(target);
+    const positionalPort =
+      selected !== undefined && /^\d+$/u.test(selected) ? Number(selected) : undefined;
     yield* startHttpTunnel(
       {
-        port,
+        port: Option.getOrUndefined(port) ?? positionalPort,
         slug: Option.getOrUndefined(slug),
         host,
         pool: Option.getOrUndefined(pool),
@@ -53,12 +85,23 @@ export const httpCommand = Command.make(
         relayUrl: Option.getOrUndefined(relayUrl),
       },
       tunnelEnvironmentFromProcess(process.env),
+      {
+        cwd: process.cwd(),
+        projectName: positionalPort === undefined ? selected : undefined,
+        processEnv: process.env,
+        accessOverride: yield* parseAccessOverride({
+          publicAccess,
+          protect: Option.getOrUndefined(protect),
+          allowIp,
+        }),
+      },
     );
   }),
 ).pipe(
   Command.withDescription("Share a local HTTP/WebSocket app through your own Vercel gateway"),
   Command.withExamples([
     { command: "tt http 3000", description: "Share a local app running on port 3000" },
+    { command: "tt http dashboard", description: "Share a configured monorepo project" },
     {
       command: "tt http 3000 --relay-url ws://127.0.0.1:3002",
       description: "Connect to an explicit relay origin",
@@ -158,13 +201,35 @@ export const devCommand = Command.make(
       Flag.withDescription("set the local dev server port, from 1 to 65535"),
       Flag.optional,
     ),
-    command: Argument.string("command").pipe(Argument.variadic()),
+    publicAccess: Flag.boolean("public").pipe(
+      Flag.withDescription("temporarily allow public access without authentication"),
+    ),
+    protect: Flag.string("protect").pipe(
+      Flag.withDescription("temporarily require password access"),
+      Flag.optional,
+    ),
+    allowIp: Flag.string("allow-ip").pipe(
+      Flag.withDescription("temporarily allow an IP address or CIDR; may be repeated"),
+      Flag.atMost(64),
+    ),
+    command: Argument.string("project-or-command").pipe(
+      Argument.withDescription("select a project; values after -- form a custom child command"),
+      Argument.variadic(),
+    ),
   },
-  Effect.fn("devCommand")(function* ({ port, command }) {
+  Effect.fn("devCommand")(function* ({ port, publicAccess, protect, allowIp, command }) {
+    const parsed = parseDevArguments(command);
     const exitCode = yield* startDev({
-      input: { port: Option.getOrUndefined(port), command: decodeDevArguments(command) },
+      input: { port: Option.getOrUndefined(port), command: parsed.command },
       cwd: process.cwd(),
       env: tunnelEnvironmentFromProcess(process.env),
+      projectName: parsed.project,
+      processEnv: process.env,
+      accessOverride: yield* parseAccessOverride({
+        publicAccess,
+        protect: Option.getOrUndefined(protect),
+        allowIp,
+      }),
     });
     yield* Effect.sync(() => {
       process.exitCode = exitCode;
@@ -173,7 +238,8 @@ export const devCommand = Command.make(
 ).pipe(
   Command.withDescription("Start a project dev server and expose it through Turbotunnel"),
   Command.withExamples([
-    { command: "tt dev", description: "Start the package dev script on a free port" },
+    { command: "tt dev", description: "Start the configured project for the current directory" },
+    { command: "tt dev dashboard", description: "Start a named monorepo project" },
     { command: "tt dev --port 5173", description: "Start the dev server on port 5173" },
     {
       command: "tt dev -- vite --host 0.0.0.0",
@@ -181,6 +247,37 @@ export const devCommand = Command.make(
     },
   ]),
 );
+
+function parseAccessOverride(options: {
+  readonly publicAccess: boolean;
+  readonly protect: string | undefined;
+  readonly allowIp: ReadonlyArray<string>;
+}): Effect.Effect<AccessOverride | undefined, CliConfigError> {
+  const selected =
+    Number(options.publicAccess) +
+    Number(options.protect !== undefined) +
+    Number(options.allowIp.length > 0);
+  if (selected > 1) {
+    return Effect.fail(
+      new CliConfigError({
+        message:
+          "Use only one access override: --public, --protect password, or --allow-ip. No tunnel was started.",
+      }),
+    );
+  }
+  if (options.publicAccess) return Effect.succeed({ type: "public" });
+  if (options.protect !== undefined) {
+    return options.protect === "password"
+      ? Effect.succeed({ type: "password" })
+      : Effect.fail(
+          new CliConfigError({
+            message: "--protect currently accepts only `password`. No tunnel was started.",
+          }),
+        );
+  }
+  if (options.allowIp.length > 0) return Effect.succeed({ type: "ip", allow: options.allowIp });
+  return Effect.succeed(undefined);
+}
 
 export function requestedOutput(argv: ReadonlyArray<string>): DeployOutput {
   const commandIndex = argv.findIndex(

@@ -41,6 +41,7 @@
     "effect": "catalog:",
     "nanoid": "catalog:",
     "picocolors": "^1.1.1",
+    "qrcode-generator": "^2.0.4",
     "ws": "catalog:"
   },
   "devDependencies": {

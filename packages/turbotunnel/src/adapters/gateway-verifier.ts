@@ -1,5 +1,5 @@
 import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
-import { Context, Effect, Layer, Schedule, Schema } from "effect";
+import { Context, Effect, Layer, Redacted, Schedule, Schema } from "effect";
 import { HttpClient } from "effect/unstable/http/HttpClient";
 
 import type { DeployPlan } from "../domain/deploy-plan.js";
@@ -69,31 +69,36 @@ const verifyGatewayStatus = Effect.fn("GatewayVerifier.verifyStatus")(function* 
           "Deployment was created, but Turbotunnel could not construct the gateway status URL. Your previous Turbotunnel config is still intact. Check the configured domain and retry `tt deploy`.",
       }),
   });
-  const checked = yield* httpClient.get(statusUrl, { accept: "application/json" }).pipe(
-    Effect.flatMap((response) => response.text.pipe(Effect.map((body) => ({ response, body })))),
-    Effect.mapError(
-      (cause) =>
-        new GatewayVerificationError({
-          reason: "request-failed",
-          url: statusUrl,
-          cause,
-          message:
-            "Deployment was created, but Turbotunnel could not reach the gateway status endpoint. Local config was not changed. Open the Vercel deployment logs and retry `tt deploy` after fixing the deployment.",
-        }),
-    ),
-    Effect.timeoutOrElse({
-      duration: 15_000,
-      orElse: () =>
-        Effect.fail(
+  const checked = yield* httpClient
+    .get(statusUrl, {
+      accept: "application/json",
+      headers: { authorization: `Bearer ${Redacted.value(plan.relaySecret)}` },
+    })
+    .pipe(
+      Effect.flatMap((response) => response.text.pipe(Effect.map((body) => ({ response, body })))),
+      Effect.mapError(
+        (cause) =>
           new GatewayVerificationError({
-            reason: "timeout",
+            reason: "request-failed",
             url: statusUrl,
+            cause,
             message:
-              "Deployment was created, but the gateway status endpoint did not respond within 15 seconds. Local config was not changed. Open the Vercel deployment logs and retry `tt deploy` after fixing the deployment.",
+              "Deployment was created, but Turbotunnel could not reach the gateway status endpoint. Local config was not changed. Open the Vercel deployment logs and retry `tt deploy` after fixing the deployment.",
           }),
-        ),
-    }),
-  );
+      ),
+      Effect.timeoutOrElse({
+        duration: 15_000,
+        orElse: () =>
+          Effect.fail(
+            new GatewayVerificationError({
+              reason: "timeout",
+              url: statusUrl,
+              message:
+                "Deployment was created, but the gateway status endpoint did not respond within 15 seconds. Local config was not changed. Open the Vercel deployment logs and retry `tt deploy` after fixing the deployment.",
+            }),
+          ),
+      }),
+    );
 
   if (checked.response.status !== 200) {
     return yield* new GatewayVerificationError({

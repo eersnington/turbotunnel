@@ -83,7 +83,12 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   const deploymentUrl = yield* vercel.deployProduction(plan.deployDir);
   yield* progress("VerifyingGateway");
   yield* gatewayVerifier.verify(plan);
-  yield* localConfigStore.write(toSavedDeployConfig(plan));
+  yield* localConfigStore.write({
+    ...toSavedDeployConfig(plan),
+    ...(savedConfig.project === plan.project
+      ? {}
+      : { teamId: undefined, projectId: undefined, domainAssignments: undefined }),
+  });
   const summary: DeployMessage = {
     _tag: "Summary",
     output: input.output,

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Redacted, Stream } from "effect";
+import { Context, Effect, Layer, Redacted, Schema, Stream } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 import { ChildProcess } from "effect/unstable/process";
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
@@ -21,6 +21,14 @@ export type VercelCliShape = {
     cwd: string,
     domain: string,
     project: string,
+    scope?: string,
+  ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
+  readonly apiGet: (path: string) => Effect.Effect<unknown, VercelCliNotFound | VercelCliFailed>;
+  readonly verifyDomain: (
+    cwd: string,
+    domain: string,
+    project: string,
+    scope?: string,
   ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
   readonly deployProduction: (
     cwd: string,
@@ -71,13 +79,50 @@ export class VercelCli extends Context.Service<VercelCli, VercelCliShape>()(
                 failureMessage: `Failed to set ${name} for the Production environment. No local tunnel config was changed. Open the Vercel project Environment Variables, fix the value, then run \`tt deploy\` again.`,
               });
             }),
-          addDomain: (cwd, domain, project) =>
-            run(["domains", "add", domain, project], {
-              cwd,
+          addDomain: (cwd, domain, project, scope) =>
+            run(
+              [
+                "domains",
+                "add",
+                domain,
+                project,
+                ...(scope === undefined ? [] : ["--team", scope]),
+              ],
+              {
+                cwd,
+                includeOutputOnFailure: true,
+                failureMessage:
+                  "Failed to attach the domain to the Turbotunnel gateway project. No tunnel was made public. Review the Vercel output, fix domain ownership or scope access, then retry.",
+              },
+            ).pipe(Effect.asVoid),
+          apiGet: (path) =>
+            run(["api", path, "-X", "GET", "--raw"], {
               includeOutputOnFailure: true,
               failureMessage:
-                "Failed to add the gateway domain. No gateway was deployed and your local tunnel config was not changed. Review the Vercel output, fix domain ownership or DNS, then run `tt deploy` again.",
-            }).pipe(Effect.asVoid),
+                "Failed to read Vercel project information using the current CLI session. Run `vercel login`, confirm you can access the gateway project, then retry. No domain assignment was changed.",
+            }).pipe(Effect.andThen((output) => parseJsonOutput(output.stdout, "vercel api"))),
+          verifyDomain: (cwd, domain, project, scope) =>
+            run(
+              [
+                "domains",
+                "verify",
+                domain,
+                "--project",
+                project,
+                "--strict",
+                "--format=json",
+                "--non-interactive",
+                ...(scope === undefined ? [] : ["--team", scope]),
+              ],
+              {
+                cwd,
+                includeOutputOnFailure: true,
+                failureMessage: `Vercel attached ${domain} to project ${project}, but could not verify its DNS configuration. Apply the exact correction in the Vercel output, then retry. No tunnel was made public.`,
+              },
+            ).pipe(
+              Effect.andThen((output) => parseJsonOutput(output.stdout, "vercel domains verify")),
+              Effect.andThen(parseDomainVerification),
+            ),
           deployProduction: (cwd) =>
             run(["deploy", "--prod", "--yes"], {
               cwd,
@@ -108,7 +153,7 @@ type VercelCommandOptions = {
 };
 
 const VERCEL_CLI_MISSING_MESSAGE =
-  "Vercel CLI is required to deploy Turbotunnel, but no `vercel` executable was found in PATH. Install it, run `vercel login`, and retry `tt deploy`. No gateway was deployed and your local tunnel config was not changed.";
+  "Vercel CLI is required to configure Turbotunnel. Install it, run `vercel login`, and retry. No gateway or tunnel configuration was changed.";
 
 const textEncoder = new TextEncoder();
 
@@ -199,6 +244,45 @@ const parseDeploymentUrl = Effect.fn("VercelCli.parseDeploymentUrl")(function* (
       "Vercel deployment completed, but Turbotunnel could not read the deployment URL from Vercel output. Local config was not changed. Retry `tt deploy`; if this continues, inspect Vercel deployment stdout.",
   });
 });
+
+const DomainVerificationOutput = Schema.Struct({ ok: Schema.Boolean });
+const decodeDomainVerification = Schema.decodeUnknownEffect(DomainVerificationOutput);
+
+const parseDomainVerification = Effect.fn("VercelCli.parseDomainVerification")(function* (
+  output: unknown,
+) {
+  const verification = yield* decodeDomainVerification(output).pipe(
+    Effect.mapError(
+      () =>
+        new VercelCliFailed({
+          command: "vercel domains verify",
+          failure: { _tag: "InvalidJsonOutput", stdout: JSON.stringify(output) },
+          message:
+            "Vercel returned JSON for domain verification without the expected `ok` boolean. Upgrade the Vercel CLI and retry. The previous domain assignment remains intact.",
+        }),
+    ),
+  );
+  if (!verification.ok) {
+    return yield* new VercelCliFailed({
+      command: "vercel domains verify",
+      failure: { _tag: "InvalidJsonOutput", stdout: JSON.stringify(output) },
+      message:
+        "Vercel reported that the custom domain is not verified. Confirm domain ownership and DNS records in Vercel, then retry. The domain was not moved and the previous assignment remains intact.",
+    });
+  }
+});
+
+function parseJsonOutput(stdout: string, command: string): Effect.Effect<unknown, VercelCliFailed> {
+  return Effect.try({
+    try: () => JSON.parse(stdout) as unknown,
+    catch: () =>
+      new VercelCliFailed({
+        command,
+        failure: { _tag: "InvalidJsonOutput", stdout },
+        message: `${command} returned output that was not valid JSON. Upgrade the Vercel CLI and retry. No domain assignment was changed.`,
+      }),
+  });
+}
 
 function collectText(
   stream: Stream.Stream<Uint8Array, PlatformError>,

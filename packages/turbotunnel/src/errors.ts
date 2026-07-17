@@ -56,6 +56,10 @@ export class VercelCliFailed extends Schema.TaggedErrorClass<VercelCliFailed>()(
       _tag: Schema.Literal("NonZeroExit"),
       exitCode: Schema.Number,
     }),
+    Schema.Struct({
+      _tag: Schema.Literal("InvalidJsonOutput"),
+      stdout: Schema.String,
+    }),
   ]),
   message: Schema.String,
 }) {}
@@ -301,7 +305,10 @@ export type DeployGatewayError =
 export type StartHttpTunnelError =
   | ConfigFileReadError
   | ConfigFileParseError
+  | ConfigFileWriteError
   | CliConfigError
+  | VercelCliNotFound
+  | VercelCliFailed
   | NoGatewayConfigured
   | LocalTargetNotReachable
   | RuntimeRegistryError
@@ -324,6 +331,9 @@ export type StartDevError =
   | PortAllocationError
   | DevProcessError
   | DevServerReadinessTimeout
+  | ConfigFileWriteError
+  | VercelCliNotFound
+  | VercelCliFailed
   | StartHttpTunnelError;
 
 export type CliFailure =

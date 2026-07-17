@@ -7,6 +7,7 @@ import { NodeServices } from "@effect/platform-node";
 import {
   LOCAL_CLIENT_SUBPROTOCOL,
   parseProtocolFrameJson,
+  PROTOCOL_VERSION,
   type LocalClientHello,
 } from "@turbotunnel/contracts";
 import { describe, expect, it } from "@effect/vitest";
@@ -51,6 +52,8 @@ describe("TunnelRuntime", () => {
               relayUrl: "ws://127.0.0.1:1",
               poolSize: 1,
               target: { protocol: "http", host: "localhost", port: 5173 },
+              publicHost: "demo.localhost",
+              accessPolicy: { type: "public" },
             },
             Effect.never,
           )
@@ -79,6 +82,19 @@ describe("TunnelRuntime", () => {
           const decoded = parseProtocolFrameJson(data.toString());
           if (Result.isSuccess(decoded) && decoded.success.type === "local.hello") {
             hellos.push(decoded.success);
+            socket.send(
+              JSON.stringify({
+                type: "local.ready",
+                protocolVersion: PROTOCOL_VERSION,
+                frameId: `ready_${decoded.success.frameId}`,
+                publicHost: decoded.success.publicHost,
+                routeIdentity: {
+                  publicHost: decoded.success.publicHost,
+                  policyFingerprint: "policy-v1:public",
+                  sessionId: decoded.success.sessionId,
+                },
+              }),
+            );
           }
         });
       });
@@ -110,6 +126,8 @@ describe("TunnelRuntime", () => {
             relayUrl: `ws://127.0.0.1:${port}`,
             poolSize: 1,
             target: { protocol: "http", host: "localhost", port: 5173 },
+            publicHost: "demo.localhost",
+            accessPolicy: { type: "public" },
           })
           .pipe(Effect.forkScoped);
 

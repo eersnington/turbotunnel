@@ -1,4 +1,8 @@
-import { DEFAULT_LOCAL_CLIENT_POOL_SIZE } from "@turbotunnel/contracts";
+import {
+  DEFAULT_LOCAL_CLIENT_POOL_SIZE,
+  isSupportedCidr,
+  type AccessPolicy,
+} from "@turbotunnel/contracts";
 import { Effect, Redacted } from "effect";
 
 import { CliConfigError, NoGatewayConfigured } from "../errors.js";
@@ -10,7 +14,9 @@ export type HttpCommandInput = {
   readonly domain?: string;
   readonly secret?: string;
   readonly relayUrl?: string;
-  readonly port: number;
+  readonly port?: number;
+  readonly publicHost?: string;
+  readonly accessPolicy?: AccessPolicy;
 };
 
 export type TunnelEnvironment = {
@@ -41,6 +47,10 @@ export type HttpTunnelConfig = {
   readonly relayUrl: string | undefined;
   readonly poolSize: number;
   readonly target: LocalTarget;
+  /** Exact normalized public Host registered with the gateway. */
+  readonly publicHost: string;
+  /** Public admission policy. Password policies contain only an encoded scrypt hash. */
+  readonly accessPolicy: AccessPolicy;
 };
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -101,6 +111,13 @@ export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (o
   const relayUrl = yield* parseRelayUrl(
     options.input.relayUrl ?? options.env.TURBOTUNNEL_RELAY_URL ?? options.savedConfig.relayUrl,
   );
+  const accessPolicy: AccessPolicy = options.input.accessPolicy ?? { type: "public" };
+  if (accessPolicy.type === "ipAllowlist" && !accessPolicy.cidrs.every(isSupportedCidr)) {
+    return yield* new CliConfigError({
+      message:
+        "IP allowlist entries must be IPv4 or non-mapped IPv6 CIDRs. IPv4-mapped IPv6 CIDRs are not supported.",
+    });
+  }
 
   return {
     slug,
@@ -113,6 +130,12 @@ export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (o
       host: options.input.host,
       port,
     },
+    publicHost:
+      options.input.publicHost ??
+      (relayDomain.includes("{slug}")
+        ? relayDomain.replaceAll("{slug}", slug).replace(/:\d+$/u, "")
+        : `${slug}.${relayDomain.replace(/:\d+$/u, "")}`),
+    accessPolicy,
   };
 });
 
@@ -146,9 +169,14 @@ function parseRelayUrl(
   return Effect.succeed(url.toString());
 }
 
-function parsePort(port: number): Effect.Effect<number, CliConfigError> {
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    return Effect.fail(new CliConfigError({ message: "Port must be an integer from 1 to 65535." }));
+function parsePort(port: number | undefined): Effect.Effect<number, CliConfigError> {
+  if (port === undefined || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    return Effect.fail(
+      new CliConfigError({
+        message:
+          "Port must be provided as an integer from 1 to 65535, either on the command line or in turbotunnel.json.",
+      }),
+    );
   }
 
   return Effect.succeed(port);

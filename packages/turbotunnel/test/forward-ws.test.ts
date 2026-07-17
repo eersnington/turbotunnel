@@ -340,6 +340,11 @@ function openFrame(
     connId: "conn_test",
     browserOutTopic: "browser-out",
     localInTopic: "local-in",
+    routeIdentity: {
+      publicHost: "demo.test",
+      policyFingerprint: "policy-v1:public",
+      sessionId: "session_test",
+    },
     path: options.path ?? "/socket",
     headers: options.headers ?? [],
   };

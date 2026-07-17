@@ -53,10 +53,7 @@ export const makeDeployPlan = Effect.fn("makeDeployPlan")(function* (options: {
     options.input.project ?? options.savedConfig.project ?? `${slug}${PROJECT_SUFFIX}`;
   const queueRegion =
     options.input.region ?? options.savedConfig.queueRegion ?? DEFAULT_QUEUE_REGION;
-  const savedTargetMatches =
-    options.savedConfig.project === project &&
-    options.savedConfig.slug === slug &&
-    options.savedConfig.relayDomain === baseDomain;
+  const savedTargetMatches = options.savedConfig.project === project;
   const reusedSavedTarget =
     options.input.project === undefined &&
     options.input.domain === undefined &&

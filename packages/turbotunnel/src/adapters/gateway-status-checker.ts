@@ -14,7 +14,7 @@ export type GatewayStatusCheck =
     };
 
 export type GatewayStatusCheckerShape = {
-  readonly check: (url: string) => Effect.Effect<GatewayStatusCheck>;
+  readonly check: (url: string, relaySecret?: string) => Effect.Effect<GatewayStatusCheck>;
 };
 
 export class GatewayStatusChecker extends Context.Service<
@@ -25,7 +25,9 @@ export class GatewayStatusChecker extends Context.Service<
     this,
     Effect.gen(function* () {
       const client = yield* HttpClient;
-      return GatewayStatusChecker.of({ check: (url) => checkGateway(client, url) });
+      return GatewayStatusChecker.of({
+        check: (url, relaySecret) => checkGateway(client, url, relaySecret),
+      });
     }),
   );
 }
@@ -40,27 +42,40 @@ const GatewayStatusSchema = Schema.Struct({
 const decodeJsonString = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString);
 const decodeGatewayStatus = Schema.decodeUnknownEffect(GatewayStatusSchema);
 
-function checkGateway(client: HttpClient, url: string): Effect.Effect<GatewayStatusCheck> {
-  return client.get(url, { accept: "application/json" }).pipe(
-    Effect.flatMap((response) =>
-      response.status === 200
-        ? response.text.pipe(
-            Effect.flatMap(decodeJsonString),
-            Effect.flatMap(decodeGatewayStatus),
-            Effect.map(
-              (status): GatewayStatusCheck => ({ url, status: "running", version: status.version }),
-            ),
-          )
-        : Effect.succeed<GatewayStatusCheck>({
-            url,
-            status: "unreachable",
-            statusCode: response.status,
-          }),
-    ),
-    Effect.timeoutOrElse({
-      duration: 3_000,
-      orElse: () => Effect.succeed<GatewayStatusCheck>({ url, status: "unreachable" }),
-    }),
-    Effect.catch(() => Effect.succeed<GatewayStatusCheck>({ url, status: "unreachable" })),
-  );
+function checkGateway(
+  client: HttpClient,
+  url: string,
+  relaySecret?: string,
+): Effect.Effect<GatewayStatusCheck> {
+  return client
+    .get(url, {
+      accept: "application/json",
+      headers: relaySecret === undefined ? undefined : { authorization: `Bearer ${relaySecret}` },
+    })
+    .pipe(
+      Effect.flatMap((response) =>
+        response.status === 200
+          ? response.text.pipe(
+              Effect.flatMap(decodeJsonString),
+              Effect.flatMap(decodeGatewayStatus),
+              Effect.map(
+                (status): GatewayStatusCheck => ({
+                  url,
+                  status: "running",
+                  version: status.version,
+                }),
+              ),
+            )
+          : Effect.succeed<GatewayStatusCheck>({
+              url,
+              status: "unreachable",
+              statusCode: response.status,
+            }),
+      ),
+      Effect.timeoutOrElse({
+        duration: 3_000,
+        orElse: () => Effect.succeed<GatewayStatusCheck>({ url, status: "unreachable" }),
+      }),
+      Effect.catch(() => Effect.succeed<GatewayStatusCheck>({ url, status: "unreachable" })),
+    );
 }

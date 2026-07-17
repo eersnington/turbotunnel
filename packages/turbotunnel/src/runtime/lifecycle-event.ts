@@ -22,12 +22,14 @@ export type TunnelLaunch =
     };
 
 export type LifecycleEvent =
+  | { readonly _tag: "DomainConfiguring"; readonly hostname: string }
   | {
       readonly _tag: "TunnelStarting";
       readonly config: HttpTunnelConfig;
       readonly launch: TunnelLaunch;
     }
   | { readonly _tag: "LocalApplicationWaiting"; readonly target: LocalTarget }
+  | { readonly _tag: "LocalApplicationReady" }
   | { readonly _tag: "DevelopmentOutputStarting" }
   | { readonly _tag: "RelaysConnecting"; readonly configuredRelays: number }
   | {

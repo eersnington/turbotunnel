@@ -20,6 +20,22 @@ export function decodeDevArguments(argv: ReadonlyArray<string>): ReadonlyArray<s
   );
 }
 
+export function parseDevArguments(argv: ReadonlyArray<string>): {
+  readonly project: string | undefined;
+  readonly command: ReadonlyArray<string>;
+} {
+  const projectArguments = argv.filter((argument) => !argument.startsWith(DEV_ARGUMENT_PREFIX));
+  if (projectArguments.length > 1) {
+    return { project: projectArguments.join(" "), command: [] };
+  }
+  return {
+    project: projectArguments[0],
+    command: decodeDevArguments(
+      argv.filter((argument) => argument.startsWith(DEV_ARGUMENT_PREFIX)),
+    ),
+  };
+}
+
 function encodeDevArgument(argument: string): string {
   return `${DEV_ARGUMENT_PREFIX}${encodeURIComponent(argument)}`;
 }

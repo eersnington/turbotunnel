@@ -9,7 +9,6 @@ import { LocalConfigStore, type LocalConfig } from "../src/adapters/local-config
 import { VercelCli } from "../src/adapters/vercel-cli.js";
 import { CliOutput, type CliMessage } from "../src/cli/output.js";
 import { TerminalSurface } from "../src/cli/terminal-surface.js";
-import type { SavedDeployConfig } from "../src/domain/deploy-plan.js";
 import { GatewayVerificationError, VercelCliFailed } from "../src/errors.js";
 import { deployGateway } from "../src/programs/deploy-gateway.js";
 
@@ -38,10 +37,19 @@ describe("deployGateway", () => {
         relaySecret: "ttsec_test",
         queueRegion: "iad1",
       });
-      expect(recorder.terminalWrites.join("\n")).toMatch(
-        /Gateway[\s\S]*deployed|deployed[\s\S]*Gateway/,
+      const terminalOutput = recorder.terminalWrites.join("");
+      expect(terminalOutput).not.toContain("{slug}");
+      expect(terminalOutput).not.toContain("<slug>");
+      expect(terminalOutput).not.toContain("Tunnel URL");
+      expect(terminalOutput).toContain(
+        "  Config           /tmp/.turbotunnel/config.json\n\nGenerating gateway files",
       );
-      expect(recorder.terminalWrites.join("\n")).not.toContain("\u001B");
+      expect(terminalOutput.match(/^  Queue region/gm)).toHaveLength(1);
+      expect(terminalOutput.match(/^  Config/gm)).toHaveLength(1);
+      expect(terminalOutput.match(/^(?:  |✓ )Gateway\s+/gm)).toHaveLength(2);
+      expect(terminalOutput).toContain("  Next             tt http");
+      expect(terminalOutput).not.toContain("tt http 5173");
+      expect(terminalOutput).not.toContain("\u001B");
     }),
   );
 
@@ -76,7 +84,10 @@ describe("deployGateway", () => {
       expect(recorder.outputMessages).toContainEqual({
         _tag: "Json",
         stream: "stdout",
-        value: expect.objectContaining({ reason: "gateway_deployed" }),
+        value: expect.objectContaining({
+          reason: "gateway_deployed",
+          next: [{ command: "tt http", argv: ["tt", "http"] }],
+        }),
       });
     }),
   );
@@ -133,7 +144,7 @@ class DeployRecorder {
   readonly terminalWrites: Array<string> = [];
   workspaceGenerated: string | undefined;
   verifiedHost: string | undefined;
-  writtenConfig: Required<SavedDeployConfig> | undefined;
+  writtenConfig: LocalConfig | undefined;
   failDeploy = false;
   failVerification = false;
 
@@ -181,6 +192,8 @@ class DeployRecorder {
             Effect.sync(() => this.vercelOperations.push(`env:${name}=${envValue(value)}`)),
           addDomain: (_cwd, domain) =>
             Effect.sync(() => this.vercelOperations.push(`domain:${domain}`)),
+          apiGet: () => Effect.succeed({}),
+          verifyDomain: () => Effect.void,
           deployProduction: () =>
             this.failDeploy
               ? Effect.fail(

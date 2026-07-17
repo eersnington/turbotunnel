@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import type { HttpRequest } from "@turbotunnel/contracts";
+import { PROTOCOL_VERSION, type HttpRequest } from "@turbotunnel/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
@@ -48,7 +48,7 @@ describe("forwardHttpToLocalApp", () => {
     }),
   );
 
-  it.effect("does not expose local host or port when the local request fails", () =>
+  it.effect("marks local reachability failures for the gateway", () =>
     Effect.gen(function* () {
       const server = yield* listenScoped(
         createServer((request) => {
@@ -64,12 +64,10 @@ describe("forwardHttpToLocalApp", () => {
           port,
         },
       );
-      const body = Buffer.from(response.body, "base64").toString("utf8");
-
       expect(response.status).toBe(502);
-      expect(body).toContain("Tunnel could not reach the local app");
-      expect(body).not.toContain("127.0.0.1");
-      expect(body).not.toContain(`:${port}`);
+      expect(response.tunnelError).toBe("local-app-unavailable");
+      expect(response.headers).toEqual([]);
+      expect(response.body).toBe("");
     }),
   );
 });
@@ -80,11 +78,16 @@ function requestFrame(options: {
   readonly body: string;
 }): HttpRequest {
   return {
-    protocolVersion: 1,
+    protocolVersion: PROTOCOL_VERSION,
     type: "http.request",
     frameId: "frm_test",
     requestId: "req_test",
     responseTopic: "topic",
+    routeIdentity: {
+      publicHost: "demo.test",
+      policyFingerprint: "policy-v1:public",
+      sessionId: "session_test",
+    },
     deadlineAt: Date.now() + 1_000,
     method: options.method,
     path: options.path,

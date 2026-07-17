@@ -101,4 +101,6 @@ const config = {
   relayUrl: undefined,
   poolSize: 2,
   target: { protocol: "http" as const, host: "localhost", port: 5173 },
+  publicHost: "demo.tunnel.example.com",
+  accessPolicy: { type: "public" as const },
 };
