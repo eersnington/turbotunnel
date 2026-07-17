@@ -4,24 +4,28 @@ description: Expose an already-running local HTTP or WebSocket app.
 ---
 
 ```sh
-tt http <port> [options]
+tt http [project-or-port] [options]
 ```
 
-`tt http` exposes an already-running local app through the configured gateway. It checks the local target, opens a pool of relay WebSockets, and forwards traffic until the process stops.
+`tt http` opens a tunnel to a local app through the configured gateway. The app can start before or after the tunnel.
 
-Before connecting, terminal output shows the resolved public URL, local target, and relay count. The loading line becomes a stable readiness message after every relay connects. Redirected output and continuous integration (CI) runs use plain, non-animated milestones.
+Before connecting, terminal output shows the resolved public URL, local target, and relay count. After every relay connects, the loading line becomes a stable readiness message. Redirected output and continuous integration (CI) runs use plain milestones without animation.
 
 ## Arguments and options
 
-| Input               | Description                                                                            | Default                        |
-| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
-| `<port>`            | Local TCP port, from 1 to 65535.                                                       | Required                       |
-| `--slug <slug>`     | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters. | Saved slug or a random slug    |
-| `--host <host>`     | Local app host.                                                                        | `localhost`                    |
-| `--pool <count>`    | Number of local relay sockets, from 1 to 16.                                           | `2`                            |
-| `--domain <domain>` | Base tunnel domain or `{slug}` host pattern for this run.                              | Saved domain                   |
-| `--secret <secret>` | Relay secret for local gateway development.                                            | Saved secret                   |
-| `--relay-url <url>` | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                 | Derived from the tunnel domain |
+| Input                | Description                                                                             | Default                        |
+| -------------------- | --------------------------------------------------------------------------------------- | ------------------------------ |
+| `<project-or-port>`  | Configured project name or local TCP port.                                              | Project selected from cwd      |
+| `--port <port>`      | Override the configured local port.                                                     | Project port                   |
+| `--slug <slug>`      | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters.  | Saved slug or a random slug    |
+| `--host <host>`      | Local app host.                                                                         | `localhost`                    |
+| `--pool <count>`     | Number of local relay sockets, from 1 to 16.                                            | `2`                            |
+| `--domain <domain>`  | Base tunnel domain or `{slug}` host pattern for this run.                               | Saved domain                   |
+| `--secret <secret>`  | Relay secret for local gateway development.                                             | Saved secret                   |
+| `--relay-url <url>`  | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                  | Derived from the tunnel domain |
+| `--public`           | Temporarily use public access.                                                          | Project access policy          |
+| `--password [value]` | Temporarily require a password; omit the value to prompt or use `TURBOTUNNEL_PASSWORD`. | Project access policy          |
+| `--allow-ip <cidr>`  | Temporarily allow an IP/CIDR; may be repeated.                                          | Project access policy          |
 
 ## Common tunnel configurations
 
@@ -37,14 +41,13 @@ Connect to an app listening on another interface:
 tt http 3000 --host 127.0.0.1
 ```
 
-Choose a public slug after deploying a wildcard custom domain:
+Expose a configured monorepo project:
 
 ```sh
-tt deploy --domain tunnel.example.com
-tt http 5173 --slug demo
+tt http dashboard
 ```
 
-This produces `https://demo.tunnel.example.com/`. The default `<slug>-turbotunnel.vercel.app` domain supports only the slug in the deployed Vercel project name.
+Turbotunnel provisions the project's managed `vercel.app` hostname or exact custom domain before connecting.
 
 Increase the relay pool to add direct HTTP capacity and independent relay connections:
 
@@ -65,8 +68,10 @@ tt http 5173 \
 
 When `--relay-url` is set, Turbotunnel still uses the configured domain to build the public host and sends that host to the relay.
 
-## Startup checks
+## App availability
 
-Turbotunnel sends `HEAD /` to `http://<host>:<port>/` before connecting. Any HTTP response proves the app is reachable. The check times out after three seconds.
+Turbotunnel connects without waiting for the local app. If the app is unavailable, the public URL returns an HTTP `502` page with recovery steps. Requests begin forwarding when the app responds.
+
+WebSocket connections close with code `1011` while the local app is unavailable. Reconnect after the app starts.
 
 If no gateway settings are available from options, environment variables, or the saved config, run `tt deploy` first.

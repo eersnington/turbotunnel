@@ -5,9 +5,11 @@ description: Diagnose gateway, local app, configuration, and deployment failures
 
 Find the symptom that matches your failure, apply the suggested check, and retry the command. Turbotunnel preserves saved configuration when deployment or gateway verification fails.
 
-## The local app is not reachable
+## `tt dev` cannot reach the local app
 
-Turbotunnel sends `HEAD /` to the local app before it opens relay connections. The check accepts any HTTP status but fails if the app does not respond within three seconds.
+`tt dev` repeatedly sends `HEAD /` while it waits for the local app. Each probe has a one-second timeout. The command stops the child process and tunnel after 60s. Any HTTP response counts as reachable.
+
+`tt http` does not run this check. While its local app is unavailable, the public URL returns an HTTP `502` page with recovery steps.
 
 Start the app and confirm its port. If it listens on a different interface, pass that host:
 
@@ -15,9 +17,7 @@ Start the app and confirm its port. If it listens on a different interface, pass
 tt http 5173 --host 127.0.0.1
 ```
 
-If the app is running but the check still fails, compare its URL with the `Local` row. Fixed-port scripts need the same value passed to `tt dev --port`. Servers bound to another interface need `tt http --host`.
-
-Confirm that the app accepts `HEAD /`. A server that rejects or closes `HEAD` requests will fail the startup check even if `GET /` works.
+If the app is running but the check still fails, compare its URL with the `Local` row. Pass the same port to fixed-port scripts with `tt dev --port`. Use `tt http --host` for servers on another interface.
 
 ## No gateway is configured
 
@@ -57,7 +57,7 @@ Use the response status to identify where the request failed:
 
 - **`413`**: the request body exceeded 4 MiB, and the gateway did not contact the local app
 - **`502`**: the local request failed, timed out, or returned a body larger than 4 MiB
-- **`504`**: the gateway did not receive a response within 30s; the local app may still have received the request
+- **`504`**: the gateway did not receive a response within 30s; the local app may have received the request
 
 See [Turbotunnel limits](/docs/limits) for the complete limits and scopes.
 
@@ -65,10 +65,10 @@ See [Turbotunnel limits](/docs/limits) for the complete limits and scopes.
 
 Use the close code to narrow the cause:
 
-| Code | Cause |
-| --- | --- |
-| `1008` | The tunnel host or request target is invalid |
-| `1011` | The local WebSocket app was unreachable or Queue delivery lost sequence |
+| Code   | Cause                                                                     |
+| ------ | ------------------------------------------------------------------------- |
+| `1008` | The tunnel host or request target is invalid                              |
+| `1011` | The local WebSocket app was unreachable or Queue delivery lost sequence   |
 | `1013` | The gateway instance reached its connection limit or lost the local relay |
 
 ## Gateway verification fails

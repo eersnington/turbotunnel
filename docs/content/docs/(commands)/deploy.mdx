@@ -7,11 +7,13 @@ description: Provision and configure your Turbotunnel gateway on Vercel.
 tt deploy [options]
 ```
 
-`tt deploy` provisions a gateway in your Vercel account and saves its verified connection settings. It preserves the previous local configuration if deployment or verification fails.
+`tt deploy` provisions a gateway in your Vercel account and saves verified connection settings. It preserves the previous local configuration if deployment or verification fails.
 
-The command copies the gateway artifact to `~/.turbotunnel/relay`, links a Vercel project, sets production environment variables, deploys, and verifies the public status endpoint.
+The command prepares a local gateway workspace, links a Vercel project, sets production environment variables, deploys, and verifies the public status endpoint.
 
 ## Deployment options
+
+Use these options to select the Vercel project, public domain, and Queue region:
 
 | Option              | Description                                                                               | Default                         |
 | ------------------- | ----------------------------------------------------------------------------------------- | ------------------------------- |
@@ -36,7 +38,7 @@ A generated deployment slug such as `ttdemo12` produces the project `ttdemo12-tu
 https://ttdemo12-turbotunnel.vercel.app/
 ```
 
-The deployment slug identifies the Vercel project and its default hostname. A runtime slug identifies one `tt http` or `tt dev` session. The default Vercel hostname supports only the deployment slug, so use a wildcard custom domain for arbitrary runtime slugs.
+The deployment slug identifies the Vercel gateway project and its initial hostname. Repository projects can attach exact managed `vercel.app` hostnames or verified custom domains to that gateway project.
 
 ## Custom domains
 
@@ -54,7 +56,7 @@ Use `{slug}` to place the deployment slug in one concrete hostname:
 tt deploy --project demo-turbotunnel --domain "{slug}.dev.example.com"
 ```
 
-This adds `demo.dev.example.com` to the Vercel project. Here, `{slug}` resolves from `demo-turbotunnel` to `demo`. With a project name that does not end in `-turbotunnel`, Turbotunnel reuses the saved deployment slug or generates one.
+This adds `demo.dev.example.com` to the Vercel project. Here, `{slug}` resolves from `demo-turbotunnel` to `demo`. For other project names, Turbotunnel reuses the saved deployment slug or generates one.
 
 This form does not add a wildcard. Use a base domain such as `dev.example.com` when you need arbitrary runtime slugs.
 
@@ -82,18 +84,10 @@ A successful deployment writes progress to stderr and one JSON result to stdout:
     "queueRegion": "iad1",
     "configPath": "/Users/you/.turbotunnel/config.json"
   },
-  "next": [{ "command": "tt http 5173", "argv": ["tt", "http", "5173"] }]
+  "next": [{ "command": "tt http", "argv": ["tt", "http"] }]
 }
 ```
 
-Expected failures in JSON mode use the same stdout stream and exit with status 1. For example, `tt deploy --project demo --format json` returns:
-
-```json
-{
-  "status": "error",
-  "reason": "CliConfigError",
-  "message": "--project without --domain must use the <slug>-turbotunnel format. Pass --domain when the project name does not include the tunnel slug."
-}
-```
+Expected failures in JSON mode use stdout and exit with status `1`. A project name without `--domain` must end in `-turbotunnel`. The response includes `"error"` status, the `CliConfigError` reason, and a recovery message.
 
 An unsupported `--format` value cannot select JSON mode, so that configuration error is printed as terminal text on stderr.
