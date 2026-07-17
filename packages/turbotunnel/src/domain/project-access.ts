@@ -14,7 +14,7 @@ import { CliConfigError } from "../errors.js";
 
 export type AccessOverride =
   | { readonly type: "public" }
-  | { readonly type: "password" }
+  | { readonly type: "password"; readonly password?: string }
   | { readonly type: "ip"; readonly allow: ReadonlyArray<string> };
 
 export function accessOverrideFromEnvironment(
@@ -58,18 +58,38 @@ export const resolveAccessPolicy = Effect.fn("resolveAccessPolicy")(function* (o
       return { type: "ipAllowlist", cidrs: cidrs as [string, ...Array<string>] };
     }
     case "password": {
-      const password =
-        options.password ?? (options.interactive ? yield* promptPassword : undefined);
-      if (password === undefined || password.length === 0) {
-        return yield* new CliConfigError({
-          message:
-            "Password access requires TURBOTUNNEL_PASSWORD when the terminal cannot prompt. No tunnel was made public.",
-        });
-      }
+      const inline = options.override?.type === "password" ? options.override.password : undefined;
+      const password = yield* resolvePasswordSecret({
+        inline,
+        environment: options.password,
+        interactive: options.interactive,
+      });
       return { type: "password", hash: yield* hashPassword(password) };
     }
   }
 });
+
+function resolvePasswordSecret(options: {
+  readonly inline: string | undefined;
+  readonly environment: string | undefined;
+  readonly interactive: boolean;
+}): Effect.Effect<string, CliConfigError> {
+  const inline = nonEmpty(options.inline);
+  if (inline !== undefined) return Effect.succeed(inline);
+  const environment = nonEmpty(options.environment);
+  if (environment !== undefined) return Effect.succeed(environment);
+  if (options.interactive) return promptPassword;
+  return Effect.fail(
+    new CliConfigError({
+      message:
+        "Password access needs a secret. Pass --password <value>, set TURBOTUNNEL_PASSWORD, or run in a TTY to be prompted. No tunnel was made public.",
+    }),
+  );
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  return value !== undefined && value.length > 0 ? value : undefined;
+}
 
 function normalizeCidr(value: string): Effect.Effect<string, CliConfigError> {
   const normalized = normalizeSharedCidr(value);
@@ -85,63 +105,112 @@ function normalizeCidr(value: string): Effect.Effect<string, CliConfigError> {
 
 const hashPassword = Effect.fn("ProjectAccess.hashPassword")(function* (password: string) {
   const salt = randomBytes(16);
-  const derived = yield* Effect.callback<Buffer>((resume) => {
+  // Bun's async scrypt success uses `undefined` for error (Node uses `null`); require a key.
+  const derived = yield* Effect.callback<Buffer, CliConfigError>((resume) => {
     nodeScrypt(
       password,
       salt,
       32,
       { N: ACCESS_SCRYPT_N, r: ACCESS_SCRYPT_R, p: ACCESS_SCRYPT_P, maxmem: 64 * 1024 * 1024 },
       (error, key) => {
-        resume(error === null ? Effect.succeed(key) : Effect.die(error));
+        if (error != null || key == null) {
+          const detail = error instanceof Error ? error.message : "unknown scrypt failure";
+          resume(
+            Effect.fail(
+              new CliConfigError({
+                message: `Couldn't derive the tunnel password hash (${detail}). Retry with a different password. No tunnel was made public.`,
+              }),
+            ),
+          );
+          return;
+        }
+        resume(Effect.succeed(key));
       },
     );
   });
   return `scrypt$1$${ACCESS_SCRYPT_N}$${ACCESS_SCRYPT_R}$${ACCESS_SCRYPT_P}$${salt.toString("base64url")}$${derived.toString("base64url")}`;
 });
 
-const promptPassword = Effect.callback<string, CliConfigError>((resume) => {
+const promptPassword: Effect.Effect<string, CliConfigError> = Effect.gen(function* () {
   if (!process.stdin.isTTY || !process.stdout.isTTY || process.stdin.setRawMode === undefined) {
-    resume(
-      Effect.fail(
-        new CliConfigError({
-          message:
-            "Password access requires TURBOTUNNEL_PASSWORD when the terminal cannot prompt. No tunnel was made public.",
-        }),
-      ),
-    );
-    return Effect.void;
+    return yield* new CliConfigError({
+      message:
+        "Password access needs a secret. Pass --password <value>, set TURBOTUNNEL_PASSWORD, or run in a TTY to be prompted. No tunnel was made public.",
+    });
   }
   const input = process.stdin;
-  let password = "";
   const wasRaw = input.isRaw;
-  const cleanup = (): void => {
-    input.off("data", onData);
-    input.setRawMode?.(wasRaw);
-    input.pause();
-  };
-  const onData = (chunk: Buffer): void => {
-    const text = chunk.toString("utf8");
-    if (text === "\u0003") {
-      cleanup();
+  yield* Effect.try({
+    try: () => {
+      process.stdout.write("Tunnel password: ");
+      input.setRawMode(true);
+    },
+    catch: (cause) =>
+      new CliConfigError({
+        message: `Couldn't read a tunnel password from this terminal (${cause instanceof Error ? cause.message : String(cause)}). Pass --password <value> or set TURBOTUNNEL_PASSWORD. No tunnel was made public.`,
+      }),
+  });
+  return yield* Effect.callback<string, CliConfigError>((resume) => {
+    let password = "";
+    let settled = false;
+    const settle = (effect: Effect.Effect<string, CliConfigError>): void => {
+      if (settled) return;
+      settled = true;
+      input.off("data", onData);
       process.stdout.write("\n");
-      resume(Effect.interrupt);
-      return;
-    }
-    if (text === "\r" || text === "\n") {
-      cleanup();
-      process.stdout.write("\n");
-      resume(Effect.succeed(password));
-      return;
-    }
-    if (text === "\u007f") {
-      password = password.slice(0, -1);
-      return;
-    }
-    password += text;
-  };
-  process.stdout.write("Tunnel password: ");
-  input.setRawMode(true);
-  input.resume();
-  input.on("data", onData);
-  return Effect.sync(cleanup);
+      resume(effect);
+    };
+    const onData = (chunk: Buffer): void => {
+      const text = chunk.toString("utf8");
+      if (text === "\u0003") {
+        settle(
+          Effect.fail(
+            new CliConfigError({
+              message: "Password entry was cancelled. No tunnel was made public.",
+            }),
+          ),
+        );
+        return;
+      }
+      if (text === "\r" || text === "\n") {
+        if (password.length === 0) {
+          settle(
+            Effect.fail(
+              new CliConfigError({
+                message:
+                  "Password access needs a non-empty password. Retry, pass --password <value>, or set TURBOTUNNEL_PASSWORD. No tunnel was made public.",
+              }),
+            ),
+          );
+          return;
+        }
+        settle(Effect.succeed(password));
+        return;
+      }
+      if (text === "\u007f") {
+        password = password.slice(0, -1);
+        return;
+      }
+      password += text;
+    };
+    input.resume();
+    input.on("data", onData);
+    return Effect.sync(() => {
+      if (!settled) {
+        settled = true;
+        input.off("data", onData);
+      }
+    });
+  }).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        try {
+          input.setRawMode?.(wasRaw);
+        } catch {
+          // restore is best-effort when stdin is already closed
+        }
+        input.pause();
+      }),
+    ),
+  );
 });

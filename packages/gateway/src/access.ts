@@ -57,9 +57,11 @@ export function verifyScryptPassword(password: string, encoded: string): Effect.
       parsed.expected.byteLength,
       { N: parsed.N, r: parsed.r, p: parsed.p, maxmem: 64 * 1024 * 1024 },
       (error, derived) => {
+        // Bun success is `undefined` (Node: `null`); require a derived key before compare.
         resume(
           Effect.succeed(
-            error === null &&
+            error == null &&
+              derived != null &&
               derived.byteLength === parsed.expected.byteLength &&
               timingSafeEqual(derived, parsed.expected),
           ),

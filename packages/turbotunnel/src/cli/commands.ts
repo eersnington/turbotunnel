@@ -49,8 +49,10 @@ export const httpCommand = Command.make(
     publicAccess: Flag.boolean("public").pipe(
       Flag.withDescription("temporarily allow public access without authentication"),
     ),
-    protect: Flag.string("protect").pipe(
-      Flag.withDescription("temporarily require password access"),
+    password: Flag.string("password").pipe(
+      Flag.withDescription(
+        "temporarily require password access; pass a value, omit to prompt, or use TURBOTUNNEL_PASSWORD",
+      ),
       Flag.optional,
     ),
     allowIp: Flag.string("allow-ip").pipe(
@@ -68,7 +70,7 @@ export const httpCommand = Command.make(
     secret,
     relayUrl,
     publicAccess,
-    protect,
+    password,
     allowIp,
   }) {
     const selected = Option.getOrUndefined(target);
@@ -91,7 +93,7 @@ export const httpCommand = Command.make(
         processEnv: process.env,
         accessOverride: yield* parseAccessOverride({
           publicAccess,
-          protect: Option.getOrUndefined(protect),
+          password,
           allowIp,
         }),
       },
@@ -102,6 +104,10 @@ export const httpCommand = Command.make(
   Command.withExamples([
     { command: "tt http 3000", description: "Share a local app running on port 3000" },
     { command: "tt http dashboard", description: "Share a configured monorepo project" },
+    {
+      command: "tt http 3000 --password",
+      description: "Share with password access (prompt or TURBOTUNNEL_PASSWORD)",
+    },
     {
       command: "tt http 3000 --relay-url ws://127.0.0.1:3002",
       description: "Connect to an explicit relay origin",
@@ -204,8 +210,10 @@ export const devCommand = Command.make(
     publicAccess: Flag.boolean("public").pipe(
       Flag.withDescription("temporarily allow public access without authentication"),
     ),
-    protect: Flag.string("protect").pipe(
-      Flag.withDescription("temporarily require password access"),
+    password: Flag.string("password").pipe(
+      Flag.withDescription(
+        "temporarily require password access; pass a value, omit to prompt, or use TURBOTUNNEL_PASSWORD",
+      ),
       Flag.optional,
     ),
     allowIp: Flag.string("allow-ip").pipe(
@@ -217,7 +225,7 @@ export const devCommand = Command.make(
       Argument.variadic(),
     ),
   },
-  Effect.fn("devCommand")(function* ({ port, publicAccess, protect, allowIp, command }) {
+  Effect.fn("devCommand")(function* ({ port, publicAccess, password, allowIp, command }) {
     const parsed = parseDevArguments(command);
     const exitCode = yield* startDev({
       input: { port: Option.getOrUndefined(port), command: parsed.command },
@@ -227,7 +235,7 @@ export const devCommand = Command.make(
       processEnv: process.env,
       accessOverride: yield* parseAccessOverride({
         publicAccess,
-        protect: Option.getOrUndefined(protect),
+        password,
         allowIp,
       }),
     });
@@ -242,6 +250,10 @@ export const devCommand = Command.make(
     { command: "tt dev dashboard", description: "Start a named monorepo project" },
     { command: "tt dev --port 5173", description: "Start the dev server on port 5173" },
     {
+      command: "tt dev --password",
+      description: "Start with password access (prompt or TURBOTUNNEL_PASSWORD)",
+    },
+    {
       command: "tt dev -- vite --host 0.0.0.0",
       description: "Start a custom command without a shell",
     },
@@ -250,30 +262,28 @@ export const devCommand = Command.make(
 
 function parseAccessOverride(options: {
   readonly publicAccess: boolean;
-  readonly protect: string | undefined;
+  readonly password: Option.Option<string>;
   readonly allowIp: ReadonlyArray<string>;
 }): Effect.Effect<AccessOverride | undefined, CliConfigError> {
   const selected =
     Number(options.publicAccess) +
-    Number(options.protect !== undefined) +
+    Number(Option.isSome(options.password)) +
     Number(options.allowIp.length > 0);
   if (selected > 1) {
     return Effect.fail(
       new CliConfigError({
         message:
-          "Use only one access override: --public, --protect password, or --allow-ip. No tunnel was started.",
+          "Use only one access override: --public, --password, or --allow-ip. No tunnel was started.",
       }),
     );
   }
   if (options.publicAccess) return Effect.succeed({ type: "public" });
-  if (options.protect !== undefined) {
-    return options.protect === "password"
-      ? Effect.succeed({ type: "password" })
-      : Effect.fail(
-          new CliConfigError({
-            message: "--protect currently accepts only `password`. No tunnel was started.",
-          }),
-        );
+  if (Option.isSome(options.password)) {
+    const value = options.password.value;
+    return Effect.succeed({
+      type: "password",
+      ...(value.length > 0 ? { password: value } : {}),
+    });
   }
   if (options.allowIp.length > 0) return Effect.succeed({ type: "ip", allow: options.allowIp });
   return Effect.succeed(undefined);

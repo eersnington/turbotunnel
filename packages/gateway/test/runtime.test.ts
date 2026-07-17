@@ -1,7 +1,11 @@
 import { Buffer } from "node:buffer";
+import { randomBytes, scryptSync } from "node:crypto";
 import { request as httpRequest, type Server } from "node:http";
 
 import {
+  ACCESS_SCRYPT_N,
+  ACCESS_SCRYPT_P,
+  ACCESS_SCRYPT_R,
   LOCAL_CLIENT_SUBPROTOCOL,
   PRESENCE_TOPIC,
   requestTopic,
@@ -451,7 +455,7 @@ describe("gateway runtime", () => {
       slug: "private-ws",
       accessPolicy: {
         type: "password",
-        hash: "scrypt$1$16384$8$1$c2FsdC1mb3ItdGVzdA$MDEyMzQ1Njc4OWFiY2RlZg",
+        hash: encodeTestPasswordHash("private-ws-secret"),
       },
       localClientId: "private_ws_client",
       sessionId: "private_ws_session",
@@ -468,6 +472,73 @@ describe("gateway runtime", () => {
 
     expect(status).toBe(401);
     expect(forwarded).toBe(false);
+  });
+
+  test("password login sets a cookie that admits subsequent HTTP", async () => {
+    const gateway = await startGateway();
+    const local = await gateway.openLocalClient("login-demo");
+    const localFrames = new FrameRecorder(local);
+    const secret = "login-demo-secret";
+    const hash = encodeTestPasswordHash(secret);
+    sendHello(local, {
+      slug: "login-demo",
+      accessPolicy: { type: "password", hash },
+      localClientId: "login_demo_client",
+      sessionId: "login_demo_session",
+      generation: 1,
+    });
+    await waitForActiveLocalClient(gateway, "login-demo.tunnel.test");
+
+    const denied = await request(gateway.server, {
+      path: "/",
+      host: "login-demo.tunnel.test",
+    });
+    expect(denied.status).toBe(303);
+    expect(denied.headers.location).toBe("/_turbotunnel/login");
+
+    const wrong = await request(gateway.server, {
+      path: "/_turbotunnel/login",
+      host: "login-demo.tunnel.test",
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "password=wrong",
+    });
+    expect(wrong.status).toBe(401);
+
+    const login = await request(gateway.server, {
+      path: "/_turbotunnel/login",
+      host: "login-demo.tunnel.test",
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `password=${encodeURIComponent(secret)}`,
+    });
+    expect(login.status).toBe(303);
+    const setCookie = login.headers["set-cookie"];
+    const cookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    expect(cookieHeader).toBeDefined();
+    const cookiePair = cookieHeader!.split(";", 1)[0]!;
+
+    const pending = request(gateway.server, {
+      path: "/",
+      host: "login-demo.tunnel.test",
+      headers: { cookie: cookiePair },
+    });
+    const forwarded = await localFrames.take(
+      (frame): frame is HttpRequest => frame.type === "http.request",
+    );
+    local.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.response",
+        frameId: `resp_${forwarded.requestId}`,
+        requestId: forwarded.requestId,
+        responseTopic: forwarded.responseTopic,
+        status: 200,
+        headers: [["content-type", "text/plain"]],
+        body: Buffer.from("authed").toString("base64"),
+      }),
+    );
+    await expect(pending).resolves.toMatchObject({ status: 200, body: "authed" });
   });
 
   test("preserves browser WebSocket message order when forwarding to a local client", async () => {
@@ -859,6 +930,17 @@ function request(server: Server, input: RequestInput): Promise<HttpResponseResul
 
 function headerValues(headers: HttpRequest["headers"], name: string): ReadonlyArray<string> {
   return headers.filter(([header]) => header === name).map(([, value]) => value);
+}
+
+function encodeTestPasswordHash(password: string): string {
+  const salt = randomBytes(16);
+  const derived = scryptSync(password, salt, 32, {
+    N: ACCESS_SCRYPT_N,
+    r: ACCESS_SCRYPT_R,
+    p: ACCESS_SCRYPT_P,
+    maxmem: 64 * 1024 * 1024,
+  });
+  return `scrypt$1$${ACCESS_SCRYPT_N}$${ACCESS_SCRYPT_R}$${ACCESS_SCRYPT_P}$${salt.toString("base64url")}$${derived.toString("base64url")}`;
 }
 
 function sendHello(
