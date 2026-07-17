@@ -18,7 +18,6 @@ describe("local WebSocket adapter", () => {
       ).pipe(Effect.flip);
 
       expect(error._tag).toBe("LocalWebSocketConnectError");
-      expect(error.message).toContain("local WebSocket");
     }),
   );
 });

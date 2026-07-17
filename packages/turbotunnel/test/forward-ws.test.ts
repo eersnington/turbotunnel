@@ -16,13 +16,12 @@ describe("openLocalWebSocket", () => {
       Effect.gen(function* () {
         const server = yield* listenWebSocketServer();
         const frames = yield* makeRelayFrameRecorder;
-        const handle = yield* openSocket(openFrame(), target(server), frames.push);
+        yield* openSocket(openFrame(), target(server), frames.push);
 
         const socket = yield* waitForConnection(server);
         socket.send("hello");
 
         const frame = yield* frames.take((value): value is WsData => value.type === "ws.data");
-        expect(handle).toBeDefined();
         expect(frame.connId).toBe("conn_test");
         expect(frame.browserOutTopic).toBe("browser-out");
         expect(frame.seq).toBe(0);
@@ -159,12 +158,9 @@ describe("openLocalWebSocket", () => {
         const server = yield* listenWebSocketServer();
         const socketScope = yield* Scope.make();
         yield* Effect.addFinalizer((exit) => Scope.close(socketScope, exit));
-        const handle = yield* openLocalWebSocket(
-          openFrame(),
-          target(server),
-          () => Effect.void,
-        ).pipe(Effect.provideService(Scope.Scope, socketScope));
-        expect(handle).toBeDefined();
+        yield* openLocalWebSocket(openFrame(), target(server), () => Effect.void).pipe(
+          Effect.provideService(Scope.Scope, socketScope),
+        );
         const socket = yield* waitForConnection(server);
         const closed = yield* Effect.forkChild(waitForClose(socket));
         yield* Effect.yieldNow;

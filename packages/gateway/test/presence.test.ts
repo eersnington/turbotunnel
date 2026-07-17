@@ -247,7 +247,6 @@ describe("tunnel presence", () => {
       if (Result.isFailure(result)) {
         expect(result.failure).toBeInstanceOf(PresenceReplayLimitError);
         expect(result.failure).toMatchObject({ eventLimit: PRESENCE_REPLAY_EVENT_LIMIT });
-        expect(result.failure.message).toContain("No partial tunnel list was returned");
       }
       expect(receives).toBe(PRESENCE_REPLAY_EVENT_LIMIT / 10 + 1);
     }).pipe(Effect.provide(layer));

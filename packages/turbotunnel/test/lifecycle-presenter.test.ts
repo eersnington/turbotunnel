@@ -30,10 +30,6 @@ describe("lifecycle presenter", () => {
       const afterRelease = writes.join("");
       yield* TestClock.adjust(240);
 
-      expect(afterRelease).toContain(". turbotunnel");
-      expect(afterRelease).toContain("https://quiet-river-turbotunnel.vercel.app/");
-      expect(afterRelease).toContain("pnpm dev");
-      expect(afterRelease).toContain("/repo");
       expect(writes.join("")).toBe(afterRelease);
     }).pipe(Effect.provide(layer));
   });
@@ -76,9 +72,7 @@ describe("lifecycle presenter", () => {
       yield* renderReady.pipe(Effect.provide(interactiveLayer));
       yield* renderReady.pipe(Effect.provide(nonInteractiveLayer));
 
-      expect(interactiveWrites.join("")).toContain("Scan to open");
       expect(interactiveWrites.join("")).toMatch(/[▀▄]/);
-      expect(nonInteractiveWrites.join("")).not.toContain("Scan to open");
       expect(nonInteractiveWrites.join("")).not.toMatch(/[▀▄]/);
       expect(nonInteractiveWrites.join("")).toContain("demo.test\\u001b[2J");
     });

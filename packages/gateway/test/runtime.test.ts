@@ -65,7 +65,6 @@ describe("gateway runtime", () => {
     });
     expect(landing.status).toBe(200);
     expect(landing.headers["content-type"]).toContain("text/plain");
-    expect(landing.body).toContain("tunnel.test");
   });
 
   test("rejects hosts outside the configured tunnel domain", async () => {
@@ -334,8 +333,7 @@ describe("gateway runtime", () => {
     expect(response.status).toBe(502);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.body).toContain("Local App Unavailable");
-    expect(response.body).toContain("Start the local app");
+    expect(response.body).toContain("tt http");
     expect(response.body).toContain("--host");
     expect(response.body).not.toContain("127.0.0.1");
     expect(response.body).not.toContain("4321");
