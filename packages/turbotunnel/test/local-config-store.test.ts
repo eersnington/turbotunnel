@@ -72,6 +72,51 @@ describe("LocalConfigStore", () => {
       });
     }),
   );
+
+  it.effect("preserves project identity and domain assignments across deploy writes", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      yield* Effect.promise(() =>
+        writeFile(
+          path,
+          JSON.stringify({
+            teamId: "team_123",
+            projectId: "prj_123",
+            relayUrl: "https://relay.example.com",
+            domainAssignments: [
+              {
+                configIdentity: "/repo/turbotunnel.json",
+                targetName: "dashboard",
+                targetPath: "/repo/apps/dashboard",
+                domain: "dashboard-turbotunnel.vercel.app",
+                slug: "dashboard",
+              },
+            ],
+          }),
+          "utf8",
+        ),
+      );
+
+      const readBack = yield* Effect.gen(function* () {
+        const store = yield* LocalConfigStore;
+        yield* store.write({
+          project: "gateway",
+          slug: "ttabc123",
+          relayDomain: "{slug}-turbotunnel.vercel.app",
+          relaySecret: "secret",
+          queueRegion: "iad1",
+        });
+        return yield* store.read;
+      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer));
+
+      expect(readBack).toMatchObject({
+        teamId: "team_123",
+        projectId: "prj_123",
+        relayUrl: "https://relay.example.com",
+        domainAssignments: [expect.objectContaining({ targetName: "dashboard" })],
+      });
+    }),
+  );
 });
 
 const tempConfigPath = Effect.acquireRelease(

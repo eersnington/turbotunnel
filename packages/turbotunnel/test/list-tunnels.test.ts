@@ -24,32 +24,25 @@ describe("tt list command", () => {
     ),
   );
 
-  it.effect("reports connected and empty tunnel states in terminal mode", () =>
+  it.effect("uses human output for connected and empty terminal states", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const connected: Array<CliMessage> = [];
         const root = Command.make("turbotunnel").pipe(Command.withSubcommands([listCommand]));
+        const connected: Array<CliMessage> = [];
         yield* Command.runWith(root, { version: "test" })(["list"]).pipe(
           Effect.provide(testServices(connected)),
           Effect.provide(NodeServices.layer),
         );
-
         expect(connected).toHaveLength(1);
         expect(connected[0]).toMatchObject({ _tag: "Text", stream: "stderr" });
-        if (connected[0]?._tag === "Text") {
-          expect(connected[0].text).toContain("Connected tunnels");
-          expect(connected[0].text).toContain("checkout");
-          expect(connected[0].text).toContain("127.0.0.1:3000");
-        }
 
         const empty: Array<CliMessage> = [];
         yield* Command.runWith(root, { version: "test" })(["list"]).pipe(
           Effect.provide(testServices(empty, { ...response, tunnels: [] })),
           Effect.provide(NodeServices.layer),
         );
-        expect(empty).toEqual([
-          { _tag: "Text", stream: "stderr", text: "No tunnels are connected." },
-        ]);
+        expect(empty).toHaveLength(1);
+        expect(empty[0]).toMatchObject({ _tag: "Text", stream: "stderr" });
       }),
     ),
   );

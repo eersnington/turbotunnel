@@ -6,6 +6,25 @@ export type ExtractSlugResult =
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const SLUG_TOKEN = "{slug}";
 
+/** Normalize an HTTP Host value for exact registration lookup. */
+export function normalizeHost(hostHeader: string | undefined): string | undefined {
+  if (hostHeader === undefined) return undefined;
+  const value = hostHeader.trim().toLowerCase();
+  if (value.length === 0) return undefined;
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    if (end === -1 || (value.length > end + 1 && !/^:\d+$/.test(value.slice(end + 1)))) {
+      return undefined;
+    }
+    return value.slice(1, end);
+  }
+  const withoutPort = value.replace(/:\d+$/, "").replace(/\.$/, "");
+  if (withoutPort.length === 0 || withoutPort.includes(":")) return undefined;
+  if (!URL.canParse(`http://${withoutPort}`)) return undefined;
+  const parsed = new URL(`http://${withoutPort}`);
+  return parsed.hostname === withoutPort ? parsed.hostname : undefined;
+}
+
 /** Extract the tunnel slug from a request host using a domain or slug pattern. */
 export function extractSlugFromHost(
   hostHeader: string | undefined,
@@ -15,7 +34,8 @@ export function extractSlugFromHost(
     return { _tag: "err", reason: "missing-host" };
   }
 
-  const host = hostHeader.trim().toLowerCase().replace(/:\d+$/, "");
+  const host = normalizeHost(hostHeader);
+  if (host === undefined) return { _tag: "err", reason: "missing-host" };
   const baseHost = baseDomain.trim().toLowerCase().replace(/:\d+$/, "");
 
   if (baseHost.includes(SLUG_TOKEN)) {

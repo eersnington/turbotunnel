@@ -8,17 +8,25 @@ import { Effect, FiberSet, Redacted, Scope } from "effect";
 import { WebSocketServer } from "ws";
 
 import { GatewayConfig } from "./gateway-config.js";
+import { admitPublicAccess } from "./access.js";
 import { hasValidBearerAuth } from "./auth.js";
 import { GatewayState } from "./gateway-state.js";
 import { parseGatewayRequestHeaders } from "./headers.js";
+import { normalizeHost } from "./host.js";
 import { runLocalClient, type LocalClientError } from "./local-client.js";
 import { OidcToken } from "./oidc-token.js";
 import { handlePublicHttp } from "./public-http.js";
 import { runPublicWebSocket, type PublicWebSocketError } from "./public-websocket.js";
 import { Queue } from "./queue.js";
+import { PublicRouteRegistry } from "./public-route-registry.js";
 import { acquireGatewayWebSocket } from "./websocket.js";
 
-type NodeGatewayRequirements = GatewayConfig | GatewayState | OidcToken | Queue;
+type NodeGatewayRequirements =
+  | GatewayConfig
+  | GatewayState
+  | OidcToken
+  | PublicRouteRegistry
+  | Queue;
 type UpgradeError = LocalClientError | PublicWebSocketError;
 
 /** Constructs the scoped raw Node HTTP/WebSocket server adapter. */
@@ -104,6 +112,7 @@ function handleUpgrade(
   return Effect.gen(function* () {
     const config = yield* GatewayConfig;
     const oidcToken = yield* OidcToken;
+    const routes = yield* PublicRouteRegistry;
     const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
     if (headersResult._tag === "err") {
       rejectUpgrade(socket, 400, "Bad Request");
@@ -123,15 +132,40 @@ function handleUpgrade(
       return;
     }
 
+    if (isLocalClientAttempt) {
+      yield* Effect.gen(function* () {
+        const rawWebSocket = yield* acceptUpgrade(webSocketServer, request, socket, head);
+        yield* runLocalClient(yield* acquireGatewayWebSocket(rawWebSocket), headers);
+      }).pipe(Effect.scoped);
+      return;
+    }
+
+    const host = normalizeHost(headers.host);
+    if (host === undefined) {
+      rejectUpgrade(socket, 400, "Bad Request");
+      return;
+    }
+    const route = yield* routes.lookup(host);
+    if (route._tag !== "Found") {
+      rejectUpgrade(
+        socket,
+        route._tag === "Missing" ? 404 : 503,
+        route._tag === "Missing" ? "Not Found" : "Service Unavailable",
+      );
+      return;
+    }
+    if (!admitPublicAccess(route.route.accessPolicy, host, headers, config)) {
+      rejectUpgrade(
+        socket,
+        route.route.accessPolicy.type === "password" ? 401 : 403,
+        route.route.accessPolicy.type === "password" ? "Unauthorized" : "Forbidden",
+      );
+      return;
+    }
     yield* Effect.gen(function* () {
       const rawWebSocket = yield* acceptUpgrade(webSocketServer, request, socket, head);
       const gatewayWebSocket = yield* acquireGatewayWebSocket(rawWebSocket);
-      if (isLocalClientAttempt) {
-        yield* runLocalClient(gatewayWebSocket, headers);
-        return;
-      }
-
-      yield* runPublicWebSocket(gatewayWebSocket, request, headers).pipe(
+      yield* runPublicWebSocket(gatewayWebSocket, request, route.route).pipe(
         Effect.catch((error) =>
           Effect.logError("public WebSocket handling failed").pipe(
             Effect.annotateLogs({ errorTag: error._tag }),

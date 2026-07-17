@@ -18,6 +18,8 @@ import { TunnelRuntime } from "./adapters/tunnel-runtime.js";
 import { DevProcess } from "./adapters/dev-process.js";
 import { PortAllocator } from "./adapters/port-allocator.js";
 import { ProjectDiscovery } from "./adapters/project-discovery.js";
+import { ProjectConfigStore } from "./adapters/project-config-store.js";
+import { ProjectDomain } from "./adapters/project-domain.js";
 import { VercelCli } from "./adapters/vercel-cli.js";
 import { requestedOutput, turbotunnelCommand } from "./cli/commands.js";
 import { prepareCliArgv } from "./cli/argv.js";
@@ -34,6 +36,9 @@ const tunnelRuntimeLayer = TunnelRuntime.live.pipe(
   Layer.provide(Layer.merge(localRuntimeLayer, terminalUiLayer)),
 );
 const gatewayControlLayer = GatewayControlClient.live.pipe(Layer.provide(LocalConfigStore.live));
+const projectDomainLayer = ProjectDomain.live.pipe(
+  Layer.provide(Layer.merge(LocalConfigStore.live, VercelCli.live)),
+);
 
 const liveLayer = Layer.mergeAll(
   Entropy.live,
@@ -47,6 +52,8 @@ const liveLayer = Layer.mergeAll(
   DevProcess.live,
   PortAllocator.live,
   ProjectDiscovery.live,
+  ProjectConfigStore.live,
+  projectDomainLayer,
   terminalUiLayer,
   localRuntimeLayer,
   tunnelRuntimeLayer,

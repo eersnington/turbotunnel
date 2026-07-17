@@ -27,17 +27,16 @@ export const forwardHttpToLocalApp = Effect.fn("forwardHttpToLocalApp")(function
 ): Effect.fn.Return<HttpResponse, never, never> {
   return yield* fetchLocalHttp(frame, target).pipe(
     Effect.catchTags({
-      LocalHttpRequestFailed: (error) =>
+      LocalHttpRequestFailed: () => Effect.succeed(unavailableResponse(frame)),
+      LocalHttpRequestTimedOut: () => Effect.succeed(unavailableResponse(frame)),
+      LocalHttpResponseTooLarge: () =>
         Effect.succeed(
-          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
-        ),
-      LocalHttpRequestTimedOut: (error) =>
-        Effect.succeed(
-          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
-        ),
-      LocalHttpResponseTooLarge: (error) =>
-        Effect.succeed(
-          textResponse(frame.requestId, frame.responseTopic, 502, publicHttpError(error)),
+          textResponse(
+            frame.requestId,
+            frame.responseTopic,
+            502,
+            "Local app response exceeded the tunnel response size limit.",
+          ),
         ),
     }),
   );
@@ -124,6 +123,20 @@ function requestBody(frame: HttpRequest): Uint8Array | undefined {
   return decodeBase64(frame.body);
 }
 
+function unavailableResponse(frame: HttpRequest): HttpResponse {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    type: "http.response",
+    frameId: `frm_${nanoid(12)}`,
+    requestId: frame.requestId,
+    responseTopic: frame.responseTopic,
+    status: 502,
+    headers: [],
+    body: "",
+    tunnelError: "local-app-unavailable",
+  };
+}
+
 function textResponse(
   requestId: string,
   responseTopic: string,
@@ -140,16 +153,4 @@ function textResponse(
     headers: [["content-type", "text/plain; charset=utf-8"]],
     body: encodeBase64(encodeUtf8(`${message}\n`)),
   };
-}
-
-function publicHttpError(
-  error: LocalHttpRequestFailed | LocalHttpRequestTimedOut | LocalHttpResponseTooLarge,
-): string {
-  switch (error._tag) {
-    case "LocalHttpResponseTooLarge":
-      return "Local app response exceeded the tunnel response size limit.";
-    case "LocalHttpRequestFailed":
-    case "LocalHttpRequestTimedOut":
-      return "Tunnel could not reach the local app. Check the local Turbotunnel process.";
-  }
 }

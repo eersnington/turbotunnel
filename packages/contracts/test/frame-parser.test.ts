@@ -59,6 +59,11 @@ function validHttpRequestFrame() {
     frameId: "frm_1",
     requestId: "req_1",
     responseTopic: "tt_res_req_1",
+    routeIdentity: {
+      publicHost: "demo-turbotunnel.vercel.app",
+      policyFingerprint: "policy-v1:test",
+      sessionId: "session_1",
+    },
     method: "GET",
     path: "/hello?name=tt",
     headers: [["accept", "text/plain"]],

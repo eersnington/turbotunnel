@@ -28,7 +28,7 @@ export function relaySocketUrl(config: HttpTunnelConfig): string {
     return url.toString();
   }
 
-  const host = tunnelHost(config);
+  const host = config.publicHost;
   return `${localHostName(host) ? "ws" : "wss"}://${host}/`;
 }
 
@@ -38,7 +38,7 @@ export function relayHeaders(config: HttpTunnelConfig): Record<string, string> {
   };
 
   if (config.relayUrl !== undefined) {
-    headers.host = tunnelHost(config);
+    headers.host = config.publicHost;
   }
 
   return headers;
@@ -57,7 +57,7 @@ export function publicTunnelUrl(config: HttpTunnelConfig): string {
 }
 
 export function publicTunnelHost(config: HttpTunnelConfig): string {
-  const host = tunnelHost(config);
+  const host = config.publicHost;
   if (config.relayUrl === undefined || !localHostName(host)) return host;
 
   const relayUrl = new URL(config.relayUrl);

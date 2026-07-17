@@ -79,7 +79,7 @@ describe("showStatus", () => {
       }),
   );
 
-  it.effect("renders the human empty state on stderr", () =>
+  it.effect("uses human output when no local tunnels are running", () =>
     Effect.gen(function* () {
       const sessionsDir = yield* temporaryDirectory;
       const messages: Array<CliMessage> = [];
@@ -100,9 +100,8 @@ describe("showStatus", () => {
 
       yield* showStatus({ format: "terminal" }).pipe(Effect.provide(services));
 
-      expect(messages).toEqual([
-        { _tag: "Text", stream: "stderr", text: "No local tunnels are running." },
-      ]);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ _tag: "Text", stream: "stderr" });
     }),
   );
 

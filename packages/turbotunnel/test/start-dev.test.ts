@@ -9,10 +9,13 @@ import { TestClock } from "effect/testing";
 
 import { DevProcess } from "../src/adapters/dev-process.js";
 import { Entropy } from "../src/adapters/entropy.js";
+import { GatewayStatusChecker } from "../src/adapters/gateway-status-checker.js";
 import { LocalAppProbe } from "../src/adapters/local-app-probe.js";
 import { LocalConfigStore } from "../src/adapters/local-config-store.js";
 import { PortAllocator } from "../src/adapters/port-allocator.js";
 import { ProjectDiscovery } from "../src/adapters/project-discovery.js";
+import { ProjectConfigStore } from "../src/adapters/project-config-store.js";
+import { ProjectDomain } from "../src/adapters/project-domain.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
 import { startDev } from "../src/programs/start-dev.js";
 import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
@@ -111,6 +114,12 @@ describe("startDev", () => {
 const makeTestLayer = (events: Array<LifecycleEvent>) =>
   Layer.mergeAll(
     ProjectDiscovery.live,
+    ProjectConfigStore.live,
+    Layer.succeed(
+      ProjectDomain,
+      ProjectDomain.of({ reconcile: () => Effect.die("unexpected domain reconciliation") }),
+    ),
+    gatewayStatusLayer,
     DevProcess.live,
     Layer.succeed(PortAllocator, PortAllocator.of({ freePort: Effect.succeed(6000) })),
     Layer.succeed(
@@ -156,6 +165,12 @@ const makeTestLayer = (events: Array<LifecycleEvent>) =>
 const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
   Layer.mergeAll(
     ProjectDiscovery.live,
+    ProjectConfigStore.live,
+    Layer.succeed(
+      ProjectDomain,
+      ProjectDomain.of({ reconcile: () => Effect.die("unexpected domain reconciliation") }),
+    ),
+    gatewayStatusLayer,
     Layer.succeed(
       DevProcess,
       DevProcess.of({
@@ -199,3 +214,10 @@ const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
     ),
     Layer.succeed(TunnelReporter, TunnelReporter.of({ emit: () => Effect.void })),
   );
+
+const gatewayStatusLayer = Layer.succeed(
+  GatewayStatusChecker,
+  GatewayStatusChecker.of({
+    check: (url) => Effect.succeed({ url, status: "unreachable" }),
+  }),
+);

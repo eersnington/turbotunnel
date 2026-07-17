@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { PROTOCOL_VERSION } from "./constants.js";
+import { accessPolicySchema } from "./access-policy.js";
 
 const nonNegativeIntSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const positiveIntSchema = Schema.Int.check(Schema.isGreaterThan(0));
@@ -9,6 +10,12 @@ const statusCodeSchema = Schema.Int.check(Schema.isBetween({ minimum: 100, maxim
 const wsCloseCodeSchema = Schema.Int.check(Schema.isBetween({ minimum: 1000, maximum: 4999 }));
 
 export const headerPairSchema = Schema.Tuple([Schema.String, Schema.String]);
+
+export const routeIdentitySchema = Schema.Struct({
+  publicHost: Schema.NonEmptyString,
+  policyFingerprint: Schema.NonEmptyString,
+  sessionId: Schema.NonEmptyString,
+});
 
 const baseFrameFields = {
   protocolVersion: Schema.Literal(PROTOCOL_VERSION),
@@ -23,6 +30,8 @@ export const localClientHelloSchema = Schema.Struct({
   protocolVersion: Schema.Literal(PROTOCOL_VERSION),
   frameId: Schema.NonEmptyString,
   slug: Schema.NonEmptyString,
+  publicHost: Schema.NonEmptyString,
+  accessPolicy: accessPolicySchema,
   localClientId: Schema.NonEmptyString,
   sessionId: Schema.NonEmptyString,
   generation: positiveIntSchema,
@@ -33,6 +42,13 @@ export const localClientHelloSchema = Schema.Struct({
     host: Schema.NonEmptyString,
     port: portSchema,
   }),
+});
+
+export const localReadySchema = Schema.Struct({
+  ...baseFrameFields,
+  type: Schema.Literal("local.ready"),
+  publicHost: Schema.NonEmptyString,
+  routeIdentity: routeIdentitySchema,
 });
 
 export const localClientHeartbeatSchema = Schema.Struct({
@@ -51,6 +67,7 @@ export const httpRequestSchema = Schema.Struct({
   type: Schema.Literal("http.request"),
   requestId: Schema.NonEmptyString,
   responseTopic: Schema.NonEmptyString,
+  routeIdentity: routeIdentitySchema,
   method: Schema.NonEmptyString,
   path: Schema.NonEmptyString,
   headers: Schema.Array(headerPairSchema),
@@ -65,6 +82,7 @@ export const httpResponseSchema = Schema.Struct({
   status: statusCodeSchema,
   headers: Schema.Array(headerPairSchema),
   body: Schema.String,
+  tunnelError: Schema.optionalKey(Schema.Literal("local-app-unavailable")),
 });
 
 export const wsOpenSchema = Schema.Struct({
@@ -73,6 +91,7 @@ export const wsOpenSchema = Schema.Struct({
   connId: Schema.NonEmptyString,
   browserOutTopic: Schema.NonEmptyString,
   localInTopic: Schema.NonEmptyString,
+  routeIdentity: routeIdentitySchema,
   path: Schema.NonEmptyString,
   headers: Schema.Array(headerPairSchema),
 });
@@ -83,6 +102,7 @@ export const wsDataSchema = Schema.Struct({
   connId: Schema.NonEmptyString,
   browserOutTopic: Schema.optionalKey(Schema.NonEmptyString),
   localInTopic: Schema.optionalKey(Schema.NonEmptyString),
+  routeIdentity: Schema.optionalKey(routeIdentitySchema),
   seq: nonNegativeIntSchema,
   data: Schema.String,
   binary: Schema.Boolean,
@@ -94,6 +114,7 @@ export const wsCloseSchema = Schema.Struct({
   connId: Schema.NonEmptyString,
   browserOutTopic: Schema.optionalKey(Schema.NonEmptyString),
   localInTopic: Schema.optionalKey(Schema.NonEmptyString),
+  routeIdentity: Schema.optionalKey(routeIdentitySchema),
   code: Schema.optionalKey(wsCloseCodeSchema),
   reason: Schema.optionalKey(Schema.String),
 });
@@ -104,6 +125,7 @@ export const wsDataToLocalSchema = Schema.Struct({
   connId: Schema.NonEmptyString,
   browserOutTopic: Schema.optionalKey(Schema.NonEmptyString),
   localInTopic: Schema.NonEmptyString,
+  routeIdentity: routeIdentitySchema,
   seq: nonNegativeIntSchema,
   data: Schema.String,
   binary: Schema.Boolean,
@@ -115,6 +137,7 @@ export const wsCloseToLocalSchema = Schema.Struct({
   connId: Schema.NonEmptyString,
   browserOutTopic: Schema.optionalKey(Schema.NonEmptyString),
   localInTopic: Schema.NonEmptyString,
+  routeIdentity: routeIdentitySchema,
   code: Schema.optionalKey(wsCloseCodeSchema),
   reason: Schema.optionalKey(Schema.String),
 });
@@ -165,6 +188,7 @@ export const errorFrameSchema = Schema.Struct({
 export const frameSchema = Schema.Union([
   localClientHelloSchema,
   localClientHeartbeatSchema,
+  localReadySchema,
   httpRequestSchema,
   httpResponseSchema,
   wsOpenSchema,
@@ -188,6 +212,7 @@ export const gatewayInboundFrameSchema = Schema.Union([
 
 /** Frames accepted by a local tunnel client from the gateway. */
 export const localClientInboundFrameSchema = Schema.Union([
+  localReadySchema,
   httpRequestSchema,
   wsOpenSchema,
   wsDataToLocalSchema,
@@ -218,9 +243,11 @@ export const isTunnelRequestFrame = frameSchema.isAnyOf([
 ]);
 
 export type HeaderPair = Schema.Schema.Type<typeof headerPairSchema>;
+export type RouteIdentity = Schema.Schema.Type<typeof routeIdentitySchema>;
 export type BaseFrame = Schema.Schema.Type<typeof baseFrameSchema>;
 export type LocalClientHello = Schema.Schema.Type<typeof localClientHelloSchema>;
 export type LocalClientHeartbeat = Schema.Schema.Type<typeof localClientHeartbeatSchema>;
+export type LocalReady = Schema.Schema.Type<typeof localReadySchema>;
 export type HttpRequest = Schema.Schema.Type<typeof httpRequestSchema>;
 export type HttpResponse = Schema.Schema.Type<typeof httpResponseSchema>;
 export type WsOpen = Schema.Schema.Type<typeof wsOpenSchema>;
@@ -234,7 +261,7 @@ export type DeliveryAck = Schema.Schema.Type<typeof deliveryAckSchema>;
 export type DeliveryReject = Schema.Schema.Type<typeof deliveryRejectSchema>;
 export type ErrorFrame = Schema.Schema.Type<typeof errorFrameSchema>;
 export type Frame = Schema.Schema.Type<typeof frameSchema>;
-export type TunnelRequestFrame = HttpRequest | WsOpen | WsData | WsClose;
+export type TunnelRequestFrame = Schema.Schema.Type<typeof tunnelRequestFrameSchema>;
 export type GatewayInboundFrame = Schema.Schema.Type<typeof gatewayInboundFrameSchema>;
 export type LocalClientInboundFrame = Schema.Schema.Type<typeof localClientInboundFrameSchema>;
 export type RoutableTunnelRequestFrame = Schema.Schema.Type<typeof tunnelRequestFrameSchema>;

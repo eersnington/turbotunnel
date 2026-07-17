@@ -4,8 +4,10 @@ import {
   LOCAL_CLIENT_CAPACITY,
   LOCAL_CLIENT_SUBPROTOCOL,
   PROTOCOL_VERSION,
+  accessPolicyFingerprint,
   type Frame,
   type LocalClientInboundFrame,
+  type RouteIdentity,
 } from "@turbotunnel/contracts";
 import { Clock, Effect, Exit, FiberSet, Scope } from "effect";
 import { nanoid } from "nanoid";
@@ -117,6 +119,8 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     protocolVersion: PROTOCOL_VERSION,
     frameId: `frm_${nanoid(12)}`,
     slug: config.slug,
+    publicHost: config.publicHost,
+    accessPolicy: config.accessPolicy,
     localClientId,
     sessionId,
     generation,
@@ -124,6 +128,8 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     capacity: LOCAL_CLIENT_CAPACITY,
     target: config.target,
   });
+  const routeIdentity = yield* awaitGatewayReady(socket, config, sessionId, session, reporter);
+  if (routeIdentity === undefined) return;
   onConnected();
   yield* session.relayConnected(index, yield* Clock.currentTimeMillis);
 
@@ -164,6 +170,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
         localWebSockets,
         parentScope,
         messageFibers,
+        routeIdentity,
       ).pipe(
         Effect.catchTag("RelayWebSocketWriteError", (error) =>
           reporter
@@ -186,7 +193,10 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     }
   });
 
-  yield* Effect.raceFirst(receive, heartbeat);
+  const refreshOidcSession = Effect.sleep(45 * 60 * 1_000 + index * 5_000).pipe(
+    Effect.andThen(socket.close(1012, "refreshing Vercel session")),
+  );
+  yield* Effect.raceFirst(Effect.raceFirst(receive, heartbeat), refreshOidcSession);
 });
 
 function decodeRelayMessage(
@@ -211,8 +221,20 @@ const handleRelayFrame = Effect.fn("handleRelayFrame")(function* (
   localWebSockets: Map<string, LocalWebSocketHandle>,
   parentScope: Scope.Scope,
   messageFibers: FiberSet.FiberSet<void>,
+  routeIdentity: RouteIdentity,
 ): Effect.fn.Return<void, RelayWebSocketWriteError> {
+  if (
+    "routeIdentity" in decoded &&
+    (decoded.routeIdentity.publicHost !== routeIdentity.publicHost ||
+      decoded.routeIdentity.policyFingerprint !== routeIdentity.policyFingerprint ||
+      decoded.routeIdentity.sessionId !== routeIdentity.sessionId)
+  ) {
+    yield* reject(socket, session, decoded.frameId, "frame route does not match this relay");
+    return;
+  }
   switch (decoded.type) {
+    case "local.ready":
+      return;
     case "http.request":
       yield* session.recordHttpRequest;
       yield* ack(socket, session, decoded.frameId);
@@ -270,6 +292,36 @@ const handleRelayFrame = Effect.fn("handleRelayFrame")(function* (
       return;
   }
 });
+
+function awaitGatewayReady(
+  socket: RelayWebSocket,
+  config: HttpTunnelConfig,
+  sessionId: string,
+  session: TunnelSession,
+  reporter: TunnelReporter["Service"],
+): Effect.Effect<RouteIdentity | undefined, RelayWebSocketConnectError> {
+  return Effect.gen(function* () {
+    while (true) {
+      const event = yield* socket.receive;
+      if (event._tag === "Close") return undefined;
+      if (event._tag === "Open") continue;
+      yield* session.recordFrameReceived;
+      if (event.binary) {
+        yield* invalidFrame(session, reporter, "relay sent a binary message before local.ready");
+        continue;
+      }
+      const frame = yield* decodeRelayMessage(decodeUtf8(event.data), session, reporter);
+      if (frame === undefined) continue;
+      if (
+        frame.type === "local.ready" &&
+        frame.routeIdentity.policyFingerprint === accessPolicyFingerprint(config.accessPolicy) &&
+        frame.routeIdentity.sessionId === sessionId
+      )
+        return frame.routeIdentity;
+      yield* invalidFrame(session, reporter, "relay sent a frame before confirming local.ready");
+    }
+  });
+}
 
 const openLocalConnection = Effect.fn("openLocalConnection")(function* (
   socket: RelayWebSocket,

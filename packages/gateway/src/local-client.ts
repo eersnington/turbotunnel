@@ -4,6 +4,7 @@ import {
   decodeTunnelRequestFramePayload,
   LOCAL_CLIENT_ACK_TIMEOUT_MS,
   LOCAL_CLIENT_CAPACITY,
+  PROTOCOL_VERSION,
   localConsumerGroup,
   QUEUE_RECEIVE_COLD_AFTER_EMPTY,
   QUEUE_RECEIVE_COLD_DELAY_MS,
@@ -23,10 +24,10 @@ import {
 } from "@turbotunnel/contracts";
 import { Clock, Effect, FiberSet, Option, Scope } from "effect";
 
-import { GatewayConfig } from "./gateway-config.js";
-import { GatewayState, type LocalClient } from "./gateway-state.js";
+import { isValidAccessPolicy } from "./access.js";
+import { GatewayState, sameRouteIdentity, type LocalClient } from "./gateway-state.js";
 import type { GatewayRequestHeaders } from "./headers.js";
-import { extractSlugFromHost } from "./host.js";
+import { normalizeHost } from "./host.js";
 import { routeWebSocketFrameToBrowser } from "./public-websocket.js";
 import { publishPresence } from "./presence.js";
 import {
@@ -54,25 +55,18 @@ export type LocalClientError =
 export const runLocalClient = Effect.fn("runLocalClient")(function* (
   socket: GatewayWebSocket,
   headers: GatewayRequestHeaders,
-): Effect.fn.Return<void, LocalClientError, GatewayConfig | GatewayState | Queue | Scope.Scope> {
-  const config = yield* GatewayConfig;
-  const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
-  if (slugResult._tag === "err") {
+): Effect.fn.Return<void, LocalClientError, GatewayState | Queue | Scope.Scope> {
+  const registrationHost = normalizeHost(headers.host);
+  if (registrationHost === undefined) {
     yield* socket.close(1008, "invalid tunnel host");
     return;
   }
-
-  const expectedSlug = slugResult.value;
   const firstEvent = yield* socket.receive;
   if (firstEvent._tag === "Close") {
     return;
   }
   const firstFrame = yield* decodeLocalClientMessage(socket, firstEvent);
-  if (
-    Option.isNone(firstFrame) ||
-    firstFrame.value.type !== "local.hello" ||
-    firstFrame.value.slug !== expectedSlug
-  ) {
+  if (Option.isNone(firstFrame) || firstFrame.value.type !== "local.hello") {
     if (Option.isSome(firstFrame)) {
       yield* socket.close(1008, "invalid local client hello");
     }
@@ -81,10 +75,21 @@ export const runLocalClient = Effect.fn("runLocalClient")(function* (
 
   const state = yield* GatewayState;
   const frame = firstFrame.value;
+  const publicHost = normalizeHost(frame.publicHost);
+  if (
+    publicHost === undefined ||
+    publicHost !== registrationHost ||
+    !isValidAccessPolicy(frame.accessPolicy)
+  ) {
+    yield* socket.close(1008, "invalid public access registration");
+    return;
+  }
   const connectedAt =
     frame.connectedAt === undefined ? yield* Clock.currentTimeMillis : frame.connectedAt;
   const localClient = yield* state.registerLocalClient({
     slug: frame.slug,
+    publicHost,
+    accessPolicy: frame.accessPolicy,
     socket,
     clientId: frame.localClientId,
     sessionId: frame.sessionId,
@@ -113,6 +118,13 @@ export const runLocalClient = Effect.fn("runLocalClient")(function* (
   );
   const connection = Effect.gen(function* () {
     yield* publishPresence(localClient, "upsert");
+    yield* socket.sendFrame({
+      type: "local.ready",
+      protocolVersion: PROTOCOL_VERSION,
+      frameId: `ready_${frame.frameId}`,
+      publicHost,
+      routeIdentity: localClient.routeIdentity,
+    });
     const messages = processRegisteredLocalClient(socket, localClient);
     const pump = startLocalQueuePump(localClient, connectionFibers);
     yield* Effect.raceFirst(messages, pump).pipe(Effect.ensuring(FiberSet.clear(connectionFibers)));
@@ -241,6 +253,12 @@ const startLocalQueuePump = Effect.fn("startLocalQueuePump")(function* (
         continue;
       }
       const frame = frameResult.value;
+      if (!sameRouteIdentity(frame.routeIdentity, localClient.routeIdentity)) {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
+        yield* logMismatchedQueuedRoute(localClient, frame.frameId);
+        continue;
+      }
 
       const accepted = yield* state.sendFrameAndWaitForAck(
         localClient,
@@ -305,6 +323,12 @@ const startLocalWsInputPump = Effect.fn("startLocalWsInputPump")(function* (
       if (frame.type !== "ws.data" && frame.type !== "ws.close") {
         yield* message.ack;
         yield* state.recordMetric("queueAcks");
+        continue;
+      }
+      if (!sameRouteIdentity(frame.routeIdentity, localClient.routeIdentity)) {
+        yield* message.ack;
+        yield* state.recordMetric("queueAcks");
+        yield* logMismatchedQueuedRoute(localClient, frame.frameId);
         continue;
       }
 
@@ -405,4 +429,10 @@ function queueReceiveDelay(emptyReceives: number): number {
 /** Reports whether a queued frame's optional deadline has passed. */
 function isExpired(frame: Frame, now: number): boolean {
   return "deadlineAt" in frame && frame.deadlineAt !== undefined && frame.deadlineAt < now;
+}
+
+function logMismatchedQueuedRoute(localClient: LocalClient, frameId: string): Effect.Effect<void> {
+  return Effect.logWarning("discarded queued frame for a different exact-host route").pipe(
+    Effect.annotateLogs({ frameId, slug: localClient.slug, publicHost: localClient.publicHost }),
+  );
 }

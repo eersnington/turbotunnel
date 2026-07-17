@@ -147,12 +147,11 @@ function deployPreviewText(plan: DeployPlan, account: string, colors: ColorPalet
     ...(account.length > 0 ? [{ label: "Vercel", value: account }] : []),
     { label: "Project", value: plan.project },
     { label: "Gateway", value: colors.cyan(`https://${plan.publicHost}/`) },
-    { label: "Tunnel domain", value: plan.baseDomain },
     { label: "Queue region", value: plan.queueRegion },
     { label: "Config", value: plan.configPath },
   ];
 
-  return `\n${colors.bold(heading)}\n\n${formatRows(rows, colors)}\n`;
+  return `\n${colors.bold(heading)}\n\n${formatRows(rows, colors)}\n\n`;
 }
 
 function deployProgressText(phase: DeployPhase): string {
@@ -179,15 +178,11 @@ function deploySummaryText(
   const gateway = `https://${summary.plan.publicHost}/`;
   return `\n${formatRows(
     [
-      { glyph: "success", label: "Gateway", value: "deployed" },
-      { label: "Gateway", value: colors.cyan(gateway) },
+      { glyph: "success", label: "Gateway", value: colors.cyan(gateway) },
       ...(summary.deploymentUrl === gateway
         ? []
         : [{ label: "Deployment", value: colors.cyan(summary.deploymentUrl) }]),
-      { label: "Tunnel domain", value: summary.plan.baseDomain },
-      { label: "Queue region", value: summary.plan.queueRegion },
-      { label: "Config", value: summary.plan.configPath },
-      { label: "Next", value: "tt http 5173" },
+      { label: "Next", value: "tt http" },
     ],
     colors,
   )}\n`;
@@ -205,7 +200,7 @@ function deploySummaryJson(summary: Extract<DeployMessage, { readonly _tag: "Sum
       queueRegion: summary.plan.queueRegion,
       configPath: summary.plan.configPath,
     },
-    next: [{ command: "tt http 5173", argv: ["tt", "http", "5173"] }],
+    next: [{ command: "tt http", argv: ["tt", "http"] }],
   };
 }
 

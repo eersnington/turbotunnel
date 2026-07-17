@@ -49,15 +49,15 @@ Read [how Turbotunnel works](https://turbotunnel.eers.dev/docs/how-it-works) for
 
 ## Limits
 
-| Surface | Limit |
-| --- | --- |
-| Tunnel availability | While `tt http` or `tt dev` runs |
-| HTTP request duration | 30s |
-| Request body | 4 MiB (4,194,304 bytes) |
-| Response body | 4 MiB (4,194,304 bytes) |
-| Direct HTTP capacity | 32 in-flight requests per relay socket |
-| Public WebSockets | 32 per slug per gateway instance |
-| Relay pool | 1 to 16 sockets; default 2 |
+| Surface               | Limit                                  |
+| --------------------- | -------------------------------------- |
+| Tunnel availability   | While `tt http` or `tt dev` runs       |
+| HTTP request duration | 30s                                    |
+| Request body          | 4 MiB (4,194,304 bytes)                |
+| Response body         | 4 MiB (4,194,304 bytes)                |
+| Direct HTTP capacity  | 32 in-flight requests per relay socket |
+| Public WebSockets     | 32 per slug per gateway instance       |
+| Relay pool            | 1 to 16 sockets; default 2             |
 
 See [Turbotunnel limits](https://turbotunnel.eers.dev/docs/limits) for scopes and HTTP or WebSocket failure behavior.
 

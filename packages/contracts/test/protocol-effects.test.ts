@@ -46,7 +46,6 @@ describe("Effect protocol codecs", () => {
       expect(payloadTag).toBe("ProtocolPayloadDecodeError");
     }),
   );
-
 });
 
 describe("directional protocol decoders", () => {
@@ -57,6 +56,8 @@ describe("directional protocol decoders", () => {
         protocolVersion: PROTOCOL_VERSION,
         frameId: "frm_hello",
         slug: "demo",
+        publicHost: "demo.tunnel.test",
+        accessPolicy: { type: "public" },
         localClientId: "client_1",
         sessionId: "session_1",
         generation: 1,
@@ -147,6 +148,11 @@ function validHttpRequestFrame(): Frame {
     frameId: "frm_1",
     requestId: "req_1",
     responseTopic: "tt_res_req_1",
+    routeIdentity: {
+      publicHost: "demo.test",
+      policyFingerprint: "policy-v1:public",
+      sessionId: "session_1",
+    },
     method: "GET",
     path: "/hello?name=tt",
     headers: [["accept", "text/plain"]],
@@ -161,6 +167,11 @@ function validWsDataToLocalFrame() {
     frameId: "frm_local_1",
     connId: "conn_1",
     localInTopic: "tt_wsin_conn_1",
+    routeIdentity: {
+      publicHost: "demo.test",
+      policyFingerprint: "policy-v1:public",
+      sessionId: "session_1",
+    },
     seq: 0,
     data: "aGVsbG8=",
     binary: false,

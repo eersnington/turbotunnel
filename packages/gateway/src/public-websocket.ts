@@ -13,6 +13,8 @@ import {
   QUEUE_REQUEST_TTL_SECONDS,
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   requestTopic,
+  type WsCloseToLocal,
+  type WsDataToLocal,
   type WsClose,
   type WsData,
   type WsOpen,
@@ -23,10 +25,9 @@ import {
 import { Clock, Effect, Option, Scope } from "effect";
 import { nanoid } from "nanoid";
 
-import { GatewayConfig } from "./gateway-config.js";
-import { GatewayState, type PublicConnection } from "./gateway-state.js";
-import { type GatewayRequestHeaders, publicWebSocketHeaders } from "./headers.js";
-import { extractSlugFromHost } from "./host.js";
+import { GatewayState, sameRouteIdentity, type PublicConnection } from "./gateway-state.js";
+import { publicWebSocketHeaders } from "./headers.js";
+import type { PublicRoute } from "./public-route-registry.js";
 import {
   Queue,
   type QueueAckError,
@@ -48,25 +49,14 @@ export type PublicWebSocketError =
 export const runPublicWebSocket = Effect.fn("runPublicWebSocket")(function* (
   socket: GatewayWebSocket,
   request: IncomingMessage,
-  headers: GatewayRequestHeaders,
-): Effect.fn.Return<
-  void,
-  PublicWebSocketError,
-  GatewayConfig | GatewayState | Queue | Scope.Scope
-> {
-  const config = yield* GatewayConfig;
+  route: PublicRoute,
+): Effect.fn.Return<void, PublicWebSocketError, GatewayState | Queue | Scope.Scope> {
   const state = yield* GatewayState;
-  const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
-  if (slugResult._tag === "err") {
-    yield* socket.close(1008, "invalid tunnel host");
-    return;
-  }
-
-  const slug = slugResult.value;
+  const slug = route.slug;
   const connId = `ws_${nanoid(12)}`;
   const browserOutTopicName = wsBrowserOutTopic(connId);
   const localInTopicName = wsLocalInTopic(connId);
-  const localClient = yield* state.pickLocalClient(slug);
+  const localClient = yield* state.pickLocalClient(slug, route.identity);
   // Capacity rejection retains precedence when both admission and request-target checks fail.
   const registration = yield* state.registerPublicConnection({
     connId,
@@ -74,6 +64,7 @@ export const runPublicWebSocket = Effect.fn("runPublicWebSocket")(function* (
     socket,
     browserOutTopic: browserOutTopicName,
     localInTopic: localInTopicName,
+    routeIdentity: route.identity,
     localClient,
     capacity: MAX_PUBLIC_WEBSOCKETS_PER_TUNNEL,
   });
@@ -100,6 +91,7 @@ export const runPublicWebSocket = Effect.fn("runPublicWebSocket")(function* (
     connId,
     browserOutTopic: browserOutTopicName,
     localInTopic: localInTopicName,
+    routeIdentity: route.identity,
     deadlineAt: now + PUBLIC_HTTP_TIMEOUT_MS,
     path: requestTarget.value.path,
     headers: [...publicWebSocketHeaders(request.rawHeaders)],
@@ -109,6 +101,7 @@ export const runPublicWebSocket = Effect.fn("runPublicWebSocket")(function* (
     const selectedLocalClient = yield* state.findLocalClient(connection.route.localClientId);
     const sent =
       selectedLocalClient !== undefined &&
+      sameRouteIdentity(selectedLocalClient.routeIdentity, connection.routeIdentity) &&
       (yield* selectedLocalClient.socket
         .sendFrame(openFrame)
         .pipe(Effect.tapError(() => socket.close(1013, "local tunnel client disconnected"))));
@@ -142,12 +135,13 @@ const processBrowserMessages = Effect.fn("processBrowserMessages")(function* (
   while (true) {
     const event = yield* socket.receive;
     if (event._tag === "Message") {
-      const frame: WsData = {
+      const frame: WsDataToLocal = {
         protocolVersion: PROTOCOL_VERSION,
         type: "ws.data",
         frameId: `frm_${nanoid(12)}`,
         connId: connection.connId,
         localInTopic: connection.localInTopic,
+        routeIdentity: connection.routeIdentity,
         seq: yield* state.nextBrowserSequence(connection),
         data: event.data.toString("base64"),
         binary: event.binary,
@@ -156,12 +150,13 @@ const processBrowserMessages = Effect.fn("processBrowserMessages")(function* (
       continue;
     }
 
-    const closeFrame: WsClose = {
+    const closeFrame: WsCloseToLocal = {
       protocolVersion: PROTOCOL_VERSION,
       type: "ws.close",
       frameId: `frm_${nanoid(12)}`,
       connId: connection.connId,
       localInTopic: connection.localInTopic,
+      routeIdentity: connection.routeIdentity,
       code: event.code,
       reason: event.reason,
     };
@@ -173,7 +168,7 @@ const processBrowserMessages = Effect.fn("processBrowserMessages")(function* (
 /** Sends directly when the selected client remains available, otherwise falls back to the queue. */
 function sendBrowserWebSocketFrame(
   connection: PublicConnection,
-  frame: WsData | WsClose,
+  frame: WsDataToLocal | WsCloseToLocal,
 ): Effect.Effect<
   void,
   GatewayWebSocketWriteError | QueueAuthError | QueueSendError,
@@ -184,7 +179,11 @@ function sendBrowserWebSocketFrame(
     const queue = yield* Queue;
     if (connection.route._tag === "Direct") {
       const localClient = yield* state.findLocalClient(connection.route.localClientId);
-      if (localClient !== undefined && (yield* localClient.socket.sendFrame(frame))) {
+      if (
+        localClient !== undefined &&
+        sameRouteIdentity(localClient.routeIdentity, connection.routeIdentity) &&
+        (yield* localClient.socket.sendFrame(frame))
+      ) {
         return;
       }
     }

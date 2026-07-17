@@ -13,6 +13,8 @@ describe("presence contracts", () => {
       version: 1,
       type: "upsert",
       slug: "demo",
+      publicHost: "demo.tunnel.test",
+      accessPolicy: { type: "public" },
       sessionId: "session_1",
       localClientId: "client_1",
       generation: 1,

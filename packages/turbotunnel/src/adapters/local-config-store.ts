@@ -2,8 +2,8 @@ import { dirname } from "node:path";
 
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import { FileSystem } from "effect/FileSystem";
+import { nanoid } from "nanoid";
 
-import type { SavedDeployConfig } from "../domain/deploy-plan.js";
 import { ConfigFileParseError, ConfigFileReadError, ConfigFileWriteError } from "../errors.js";
 import { AppPaths } from "./app-paths.js";
 
@@ -12,8 +12,8 @@ export type LocalConfig = typeof LocalConfigSchema.Type;
 export type LocalConfigStoreShape = {
   readonly read: Effect.Effect<LocalConfig, ConfigFileReadError | ConfigFileParseError>;
   readonly write: (
-    config: Required<SavedDeployConfig>,
-  ) => Effect.Effect<void, ConfigFileWriteError>;
+    config: LocalConfig,
+  ) => Effect.Effect<void, ConfigFileReadError | ConfigFileParseError | ConfigFileWriteError>;
 };
 
 export class LocalConfigStore extends Context.Service<LocalConfigStore, LocalConfigStoreShape>()(
@@ -29,13 +29,26 @@ export class LocalConfigStore extends Context.Service<LocalConfigStore, LocalCon
   );
 }
 
+export const ProjectDomainAssignmentSchema = Schema.Struct({
+  configIdentity: Schema.String,
+  targetName: Schema.optional(Schema.String),
+  targetPath: Schema.String,
+  domain: Schema.String,
+  slug: Schema.String,
+});
+
+export type ProjectDomainAssignment = typeof ProjectDomainAssignmentSchema.Type;
+
 export const LocalConfigSchema = Schema.Struct({
   project: Schema.optional(Schema.String),
+  teamId: Schema.optional(Schema.String),
+  projectId: Schema.optional(Schema.String),
   slug: Schema.optional(Schema.String),
   relayDomain: Schema.optional(Schema.String),
   relaySecret: Schema.optional(Schema.String),
   relayUrl: Schema.optional(Schema.String),
   queueRegion: Schema.optional(Schema.String),
+  domainAssignments: Schema.optional(Schema.Array(ProjectDomainAssignmentSchema)),
 });
 
 const decodeJsonString = Schema.decodeUnknownEffect(Schema.UnknownFromJsonString);
@@ -47,7 +60,10 @@ const makeLocalConfigStore = Effect.fn("LocalConfigStore.make")(function* (
   const fs = yield* FileSystem;
   return LocalConfigStore.of({
     read: readConfig(fs, path),
-    write: (config) => writeConfig(fs, path, config),
+    write: (config) =>
+      readConfig(fs, path).pipe(
+        Effect.flatMap((saved) => writeConfig(fs, path, { ...saved, ...config })),
+      ),
   });
 });
 
@@ -100,7 +116,7 @@ const readConfig = Effect.fn("LocalConfigStore.read")(function* (
           path,
           cause,
           message:
-            "The Turbotunnel config file has an unsupported shape. Keep only string fields and retry.",
+            "The Turbotunnel config file has an unsupported shape. Fix the reported field types or remove the file, then retry.",
         }),
     ),
   );
@@ -109,7 +125,7 @@ const readConfig = Effect.fn("LocalConfigStore.read")(function* (
 const writeConfig = Effect.fn("LocalConfigStore.write")(function* (
   fs: FileSystem,
   path: string,
-  config: Required<SavedDeployConfig>,
+  config: LocalConfig,
 ): Effect.fn.Return<void, ConfigFileWriteError> {
   yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(
     Effect.mapError(
@@ -118,34 +134,34 @@ const writeConfig = Effect.fn("LocalConfigStore.write")(function* (
           path: dirname(path),
           cause,
           message:
-            "Gateway was deployed, but Turbotunnel could not create the local config directory. Fix file permissions, then run `tt deploy` again to save the config.",
+            "Turbotunnel could not create its local config directory. Fix the directory permissions and retry. Existing gateway state remains unchanged.",
         }),
     ),
   );
+  const temporaryPath = `${path}.tmp-${process.pid}-${nanoid(6)}`;
+  const writeError = (cause: unknown) =>
+    new ConfigFileWriteError({
+      path,
+      cause,
+      message:
+        "Turbotunnel could not save its local gateway configuration. Fix the file permissions and retry. Existing configuration remains intact.",
+    });
   yield* fs
     .writeFileString(
-      path,
+      temporaryPath,
       `${JSON.stringify(
         {
-          project: config.project,
-          slug: config.slug,
-          relayDomain: config.relayDomain,
-          queueRegion: config.queueRegion,
-          relaySecret: Redacted.value(Redacted.make(config.relaySecret, { label: "relay-secret" })),
+          ...config,
+          relaySecret:
+            config.relaySecret === undefined
+              ? undefined
+              : Redacted.value(Redacted.make(config.relaySecret, { label: "relay-secret" })),
         },
         null,
         2,
       )}\n`,
     )
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new ConfigFileWriteError({
-            path,
-            cause,
-            message:
-              "Gateway was deployed, but Turbotunnel could not write the local config. Fix file permissions, then run `tt deploy` again to save the config.",
-          }),
-      ),
-    );
+    .pipe(Effect.mapError(writeError));
+  yield* fs.chmod(temporaryPath, 0o600).pipe(Effect.mapError(writeError));
+  yield* fs.rename(temporaryPath, path).pipe(Effect.mapError(writeError));
 });

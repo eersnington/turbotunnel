@@ -2,6 +2,18 @@ export function formatProcessCommand(executable: string, args: ReadonlyArray<str
   return [executable, ...redactArguments(args)].map(formatArgument).join(" ");
 }
 
+export function redactShellCommand(command: string): string {
+  return escapeControls(command)
+    .replace(
+      /\b([A-Z0-9_]*(?:AUTH|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)[A-Z0-9_]*)=(?:"[^"]*"|'[^']*'|\S+)/gu,
+      "$1=<redacted>",
+    )
+    .replace(
+      /(--?(?:[a-z0-9]+-)*(?:auth|credential|key|password|secret|token)(?:-[a-z0-9]+)*)(?:=|\s+)(?:"[^"]*"|'[^']*'|\S+)/giu,
+      "$1 <redacted>",
+    );
+}
+
 function formatArgument(argument: string): string {
   const escaped = escapeControls(argument);
   return /^[A-Za-z0-9_./:@%+=,<>{}-]+$/u.test(escaped) ? escaped : JSON.stringify(escaped);

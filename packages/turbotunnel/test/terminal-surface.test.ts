@@ -37,7 +37,6 @@ describe("TerminalSurface", () => {
       expect(outputAfterRelease).toContain("Relay disconnected");
     }).pipe(Effect.provide(interactiveLayer(writes)));
   });
-
 });
 
 describe("terminalCapabilities", () => {

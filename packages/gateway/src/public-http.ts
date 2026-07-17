@@ -17,6 +17,7 @@ import { Clock, Effect, Option, Redacted, Schema } from "effect";
 import { nanoid } from "nanoid";
 
 import { GatewayConfig } from "./gateway-config.js";
+import { admitPublicAccess, makeAccessCookie, verifyScryptPassword } from "./access.js";
 import { hasValidBearerAuth } from "./auth.js";
 import { GatewayState, type LocalClient } from "./gateway-state.js";
 import {
@@ -24,9 +25,11 @@ import {
   requestHeadersForLocalApp,
   responseHeadersForBrowser,
 } from "./headers.js";
-import { extractSlugFromHost, isGatewayRootHost } from "./host.js";
+import { isGatewayRootHost, normalizeHost } from "./host.js";
+import { localAppUnavailablePage } from "./local-app-unavailable-page.js";
 import { OidcToken } from "./oidc-token.js";
 import { listTunnels, type PresenceReplayLimitError } from "./presence.js";
+import { PublicRouteRegistry, type PublicRoute } from "./public-route-registry.js";
 import {
   Queue,
   type QueueAckError,
@@ -51,11 +54,16 @@ export type PublicHttpError =
 export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
   request: IncomingMessage,
   response: ServerResponse,
-): Effect.fn.Return<void, PublicHttpError, GatewayConfig | GatewayState | OidcToken | Queue> {
+): Effect.fn.Return<
+  void,
+  PublicHttpError,
+  GatewayConfig | GatewayState | OidcToken | PublicRouteRegistry | Queue
+> {
   const config = yield* GatewayConfig;
   const state = yield* GatewayState;
   const oidcToken = yield* OidcToken;
   const queue = yield* Queue;
+  const routes = yield* PublicRouteRegistry;
   const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
   if (headersResult._tag === "err") {
     writePlainResponse(
@@ -85,14 +93,40 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
     yield* writeGatewayStatus(response, request, config, state);
     return;
   }
+  if (isGatewayRootHost(headers.host, config.baseDomain)) {
+    yield* writeGatewayStatus(response, request, config, state);
+    return;
+  }
 
-  const slugResult = extractSlugFromHost(headers.host, config.baseDomain);
-  if (slugResult._tag === "err") {
-    if (isGatewayRootHost(headers.host, config.baseDomain)) {
-      yield* writeGatewayStatus(response, request, config, state);
-      return;
-    }
+  const normalizedHost = normalizeHost(headers.host);
+  if (normalizedHost === undefined) {
     writePlainResponse(response, 404, "Tunnel host was not recognized for this relay domain.");
+    return;
+  }
+
+  const routeLookup = yield* routes.lookup(normalizedHost);
+  if (routeLookup._tag !== "Found") {
+    writePlainResponse(
+      response,
+      routeLookup._tag === "Missing" ? 404 : 503,
+      routeLookup._tag === "Missing"
+        ? "Tunnel host does not have an active registration."
+        : "Tunnel route registry is not ready or has conflicting active registrations. No local app was contacted.",
+    );
+    return;
+  }
+  const route = routeLookup.route;
+  if (pathname === "/_turbotunnel/login") {
+    yield* handlePasswordLogin(request, response, route, config);
+    return;
+  }
+  if (!admitPublicAccess(route.accessPolicy, normalizedHost, headers, config)) {
+    if (route.accessPolicy.type === "password") {
+      response.writeHead(303, { location: "/_turbotunnel/login" });
+      response.end();
+    } else {
+      writePlainResponse(response, 403, "This client IP is not allowed to access the tunnel.");
+    }
     return;
   }
 
@@ -132,10 +166,10 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
     return;
   }
 
-  const slug = slugResult.value;
+  const slug = route.slug;
   const requestId = `req_${nanoid(12)}`;
   const responseTopicName = httpResponseTopic(requestId);
-  const localClient = yield* state.pickLocalClient(slug);
+  const localClient = yield* state.pickLocalClient(slug, route.identity);
   const localHost =
     localClient === undefined
       ? (headers.host ?? "")
@@ -147,6 +181,7 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
     frameId: `frm_${nanoid(12)}`,
     requestId,
     responseTopic: responseTopicName,
+    routeIdentity: route.identity,
     deadlineAt: now + PUBLIC_HTTP_TIMEOUT_MS,
     method: request.method ?? "GET",
     path: requestTarget.value.path,
@@ -215,6 +250,73 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
   }
 });
 
+function handlePasswordLogin(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: PublicRoute,
+  config: GatewayConfig["Service"],
+): Effect.Effect<void> {
+  if (route.accessPolicy.type !== "password") {
+    writePlainResponse(response, 404, "This tunnel does not use password access.");
+    return Effect.void;
+  }
+  const passwordHash = route.accessPolicy.hash;
+  if (request.method === "GET") {
+    response.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+    });
+    response.end(
+      '<!doctype html><meta name="viewport" content="width=device-width"><title>Tunnel access</title><form method="post"><label>Password <input name="password" type="password" required autofocus></label><button type="submit">Continue</button></form>',
+    );
+    return Effect.void;
+  }
+  if (request.method !== "POST") {
+    response.writeHead(405, { allow: "GET, POST" });
+    response.end();
+    return Effect.void;
+  }
+  return Effect.gen(function* () {
+    const body = yield* readLimitedBody(request, 16 * 1024).pipe(
+      Effect.map(Option.some),
+      Effect.catchTags({
+        RequestBodyTooLargeError: () => {
+          writePlainResponse(
+            response,
+            413,
+            "Request body is larger than the login limit. Password was not checked.",
+          );
+          return Effect.succeed(Option.none<Buffer>());
+        },
+        RequestBodyReadError: () => {
+          writePlainResponse(
+            response,
+            400,
+            "Request body could not be read. Password was not checked.",
+          );
+          return Effect.succeed(Option.none<Buffer>());
+        },
+      }),
+    );
+    if (Option.isNone(body)) return;
+    const password = new URLSearchParams(body.value.toString("utf8")).get("password");
+    if (password === null || !(yield* verifyScryptPassword(password, passwordHash))) {
+      writePlainResponse(response, 401, "The password was not accepted.");
+      return;
+    }
+    response.writeHead(303, {
+      location: "/",
+      "cache-control": "no-store",
+      "set-cookie": makeAccessCookie(
+        route.identity.publicHost,
+        passwordHash,
+        Redacted.value(config.relaySecret),
+      ),
+    });
+    response.end();
+  });
+}
+
 /** Registers a scoped direct request and classifies forwarding, disconnect, and timeout outcomes. */
 function forwardHttpDirect(
   state: GatewayState["Service"],
@@ -262,8 +364,23 @@ function writeHttpResponse(response: ServerResponse, frame: HttpResponse): void 
   if (response.writableEnded) {
     return;
   }
+  if (frame.tunnelError === "local-app-unavailable") {
+    writeLocalAppUnavailable(response);
+    return;
+  }
   response.writeHead(frame.status, responseHeadersForBrowser(frame.headers));
   response.end(Buffer.from(frame.body, "base64"));
+}
+
+function writeLocalAppUnavailable(response: ServerResponse): void {
+  response.writeHead(502, {
+    "cache-control": "no-store",
+    "content-security-policy":
+      "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "content-type": "text/html; charset=utf-8",
+    "x-content-type-options": "nosniff",
+  });
+  response.end(localAppUnavailablePage);
 }
 
 /** Writes a plain-text response unless the Node response has already ended. */

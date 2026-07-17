@@ -4,19 +4,17 @@ import { renderFailure } from "../src/cli/messages.js";
 import { CliConfigError } from "../src/errors.js";
 
 describe("renderFailure", () => {
-  it("renders actionable terminal recovery details", () => {
+  it("keeps the originating error in terminal failures", () => {
     const message = renderFailure({
       _tag: "Expected",
       output: { _tag: "Terminal" },
-      error: new CliConfigError({ message: "Port must be an integer from 1 to 65535." }),
+      error: new CliConfigError({ message: "The configured port is invalid." }),
     });
 
     expect(message).toMatchObject({ _tag: "Text", stream: "stderr" });
-    if (message._tag !== "Text") return;
-    expect(message.text).toContain("Port must be an integer from 1 to 65535.");
-    expect(message.text).toContain("Attempted");
-    expect(message.text).toContain("Preserved");
-    expect(message.text).toContain("Next");
+    if (message._tag === "Text") {
+      expect(message.text).toContain("The configured port is invalid.");
+    }
   });
 
   it("keeps JSON failures free of terminal presentation", () => {

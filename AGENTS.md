@@ -8,3 +8,9 @@
 - Prefer small, cohesive modules over speculative abstractions.
 - Preserve behavior unless a change is explicitly requested.
 - Test through real seams. No module mocks or spies.
+
+# Verification Commands
+
+- Use `bun run lint`, `bun run format`, and `bun run format:fix`.
+- Use `bun run check-types` for type checking, `bun run test` for tests, and `bun run build` for production builds.
+- Do not use `bunx` for linting, formatting, type checking, testing, or builds; use the repository scripts above.

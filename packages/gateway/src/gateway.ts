@@ -8,6 +8,7 @@ import { GatewayState } from "./gateway-state.js";
 import { MemoryQueue } from "./memory-queue.js";
 import { makeNodeGatewayServer } from "./node-server.js";
 import { OidcToken } from "./oidc-token.js";
+import { PublicRouteRegistry } from "./public-route-registry.js";
 import { VercelQueue } from "./vercel-queue.js";
 
 /** Effect service for the scoped Node server owned by the gateway runtime. */
@@ -34,5 +35,6 @@ export const GatewayLive = (env: NodeJS.ProcessEnv) => {
     ),
   ).pipe(Layer.provide(baseLayer));
   const dependencies = Layer.mergeAll(baseLayer, queueLayer);
-  return GatewayServer.layer.pipe(Layer.provideMerge(dependencies));
+  const registryLayer = PublicRouteRegistry.layer.pipe(Layer.provide(dependencies));
+  return GatewayServer.layer.pipe(Layer.provideMerge(Layer.merge(dependencies, registryLayer)));
 };

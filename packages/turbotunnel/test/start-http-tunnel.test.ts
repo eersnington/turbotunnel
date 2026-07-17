@@ -2,8 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Redacted } from "effect";
 
 import { Entropy } from "../src/adapters/entropy.js";
+import { GatewayStatusChecker } from "../src/adapters/gateway-status-checker.js";
 import { LocalAppProbe } from "../src/adapters/local-app-probe.js";
 import { LocalConfigStore } from "../src/adapters/local-config-store.js";
+import { ProjectConfigStore } from "../src/adapters/project-config-store.js";
+import { ProjectDomain } from "../src/adapters/project-domain.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
 import type { HttpTunnelConfig, LocalTarget } from "../src/domain/tunnel-config.js";
 import { LocalTargetNotReachable } from "../src/errors.js";
@@ -11,7 +14,7 @@ import { startHttpTunnel } from "../src/programs/start-http-tunnel.js";
 import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
 
 describe("startHttpTunnel", () => {
-  it.effect("resolves saved config, probes local app, then starts runtime", () =>
+  it.effect("starts the tunnel without requiring the local app to be reachable", () =>
     Effect.gen(function* () {
       const recorder = new TunnelRecorder();
 
@@ -21,7 +24,7 @@ describe("startHttpTunnel", () => {
       );
       yield* Effect.yieldNow;
 
-      expect(recorder.probedTarget).toEqual({ protocol: "http", host: "localhost", port: 5173 });
+      expect(recorder.probedTarget).toBeUndefined();
       expect(recorder.startedConfig?.slug).toBe("demo");
       expect(recorder.startedConfig?.relayDomain).toBe("tunnel.example.com");
       expect(recorder.events[0]).toMatchObject({
@@ -47,18 +50,23 @@ describe("startHttpTunnel", () => {
     }),
   );
 
-  it.effect("fails before runtime when local app probe fails", () =>
+  it.effect("starts the runtime when the local app probe would fail", () =>
     Effect.gen(function* () {
       const recorder = new TunnelRecorder();
       recorder.failProbe = true;
 
-      const exit = yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
+      yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
         Effect.provide(recorder.layer()),
-        Effect.exit,
+        Effect.forkScoped,
       );
+      yield* Effect.yieldNow;
 
-      expect(exit._tag).toBe("Failure");
-      expect(recorder.startedConfig).toBeUndefined();
+      expect(recorder.probedTarget).toBeUndefined();
+      expect(recorder.startedConfig?.target).toEqual({
+        protocol: "http",
+        host: "localhost",
+        port: 5173,
+      });
     }),
   );
 });
@@ -74,6 +82,20 @@ class TunnelRecorder {
   layer() {
     const savedGateway = this.options.savedGateway !== false;
     return Layer.mergeAll(
+      Layer.succeed(
+        ProjectConfigStore,
+        ProjectConfigStore.of({ discover: () => Effect.succeed(undefined) }),
+      ),
+      Layer.succeed(
+        ProjectDomain,
+        ProjectDomain.of({ reconcile: () => Effect.die("unexpected domain reconciliation") }),
+      ),
+      Layer.succeed(
+        GatewayStatusChecker,
+        GatewayStatusChecker.of({
+          check: (url) => Effect.succeed({ url, status: "unreachable" }),
+        }),
+      ),
       Layer.succeed(
         Entropy,
         Entropy.of({

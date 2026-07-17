@@ -11,6 +11,8 @@ export type DevProcessSpec = {
   readonly args: ReadonlyArray<string>;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
+  readonly shell?: boolean;
+  readonly displayCommand?: string;
 };
 
 export type RunningDevProcess = {
@@ -35,7 +37,7 @@ export class DevProcess extends Context.Service<DevProcess, DevProcessShape>()(
 const spawnDevProcess = Effect.fn("DevProcess.spawn")(function* (
   spec: DevProcessSpec,
 ): Effect.fn.Return<RunningDevProcess, DevProcessError, Scope.Scope> {
-  const command = formatProcessCommand(spec.executable, []);
+  const command = spec.displayCommand ?? formatProcessCommand(spec.executable, spec.args);
   const exitCode = yield* Deferred.make<number>();
   const child = yield* startChild(spec, command, exitCode);
   const pid = child.pid;
@@ -83,7 +85,7 @@ function startChild(
       env: { ...process.env, ...spec.env },
       stdio: "inherit",
       detached: process.platform !== "win32",
-      shell: false,
+      shell: spec.shell ?? false,
     });
     let started = false;
     child.once("error", (cause) => {

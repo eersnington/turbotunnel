@@ -44,7 +44,8 @@ export class TerminalSurface extends Context.Service<TerminalSurface, TerminalSu
   });
 }
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+// Full-cell braille keeps the glyph optical center aligned with Latin text.
+const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"] as const;
 const CLEAR_LINE = "\r\u001B[2K";
 const CLEAR_VIEWPORT = "\u001B[H\u001B[2J";
 

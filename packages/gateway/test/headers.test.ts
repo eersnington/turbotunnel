@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  parseGatewayRequestHeaders,
-  publicWebSocketHeaders,
-} from "../src/headers.js";
+import { parseGatewayRequestHeaders, publicWebSocketHeaders } from "../src/headers.js";
 
 describe("parseGatewayRequestHeaders", () => {
   test("rejects duplicate Host", () => {

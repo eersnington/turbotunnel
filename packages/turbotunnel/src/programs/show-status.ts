@@ -60,5 +60,5 @@ function checkDistinctGateways(
   tunnels: ReadonlyArray<TunnelLifecycleSnapshot>,
 ): Effect.Effect<ReadonlyArray<GatewayStatusCheck>> {
   const urls = [...new Set(tunnels.map((tunnel) => tunnel.gatewayStatusUrl))];
-  return Effect.forEach(urls, checker.check, { concurrency: 4 });
+  return Effect.forEach(urls, (url) => checker.check(url), { concurrency: 4 });
 }

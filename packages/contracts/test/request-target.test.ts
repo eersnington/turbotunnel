@@ -7,6 +7,7 @@ import {
   localUrlFromTunnelRequestTarget,
   makeLocalUrlFromTunnelRequestTarget,
   parseTunnelRequestTarget,
+  TunnelRequestTargetError,
 } from "../src/index.js";
 
 describe("tunnel request target", () => {
@@ -37,9 +38,8 @@ describe("tunnel request target", () => {
 
     expect(Result.isFailure(parsed)).toBe(true);
     if (Result.isFailure(parsed)) {
-      expect(parsed.failure.message).toBe(
-        "Tunnel request target must be an origin-form path starting with /.",
-      );
+      expect(parsed.failure).toBeInstanceOf(TunnelRequestTargetError);
+      expect(parsed.failure.input).toBe("https://example.com/path");
     }
   });
 

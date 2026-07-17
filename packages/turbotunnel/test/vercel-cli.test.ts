@@ -43,7 +43,7 @@ process.exit(1);
 
         expect(error._tag).toBe("VercelCliNotFound");
         expect(error.message).toContain("Vercel CLI is required");
-        expect(error.message).toContain("No gateway was deployed");
+        expect(error.message).toContain("No gateway or tunnel configuration was changed");
       }),
     ),
   );
@@ -90,6 +90,32 @@ process.exit(1);
         expect(account).toBe("demo-user");
         expect(yield* readCalls(fake.callsPath)).toEqual([
           expect.objectContaining({ argv: ["whoami"] }),
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("apiGet requests and parses machine-readable JSON", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fake = yield* fakeVercel(`
+if (command === "api /v9/projects/gateway -X GET --raw") {
+  console.log(JSON.stringify({ id: "prj_123", name: "gateway" }));
+  process.exit(0);
+}
+process.exit(1);
+`);
+
+        const project = yield* Effect.gen(function* () {
+          const vercel = yield* VercelCli;
+          return yield* vercel.apiGet("/v9/projects/gateway");
+        }).pipe(Effect.provide(vercelLayer(fake)));
+
+        expect(project).toEqual({ id: "prj_123", name: "gateway" });
+        expect(yield* readCalls(fake.callsPath)).toEqual([
+          expect.objectContaining({
+            argv: ["api", "/v9/projects/gateway", "-X", "GET", "--raw"],
+          }),
         ]);
       }),
     ),
@@ -214,9 +240,50 @@ process.exit(0);
           _tag: "VercelCliFailed",
           failure: { _tag: "NonZeroExit", exitCode: 1 },
         });
-        expect(error.message).toContain("Failed to add the gateway domain");
+        expect(error.message).toContain("Failed to attach the domain");
         expect(error.message).toContain("Vercel output:");
         expect(error.message).toContain("domain not verified");
+      }),
+    ),
+  );
+
+  it.effect("verifyDomain surfaces strict custom-domain verification failures", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const workspace = yield* temporaryRealDirectory("turbotunnel-vercel-workspace-");
+        const fake = yield* fakeVercel(`
+if (command.startsWith("domains verify ")) {
+  console.error("missing required DNS record");
+  process.exit(1);
+}
+process.exit(0);
+`);
+
+        const error = yield* Effect.gen(function* () {
+          const vercel = yield* VercelCli;
+          return yield* vercel.verifyDomain(workspace, "app.example.com", "gateway");
+        }).pipe(Effect.flip, Effect.provide(vercelLayer(fake)));
+
+        expect(error).toMatchObject({
+          _tag: "VercelCliFailed",
+          failure: { _tag: "NonZeroExit", exitCode: 1 },
+        });
+        expect(error.message).toContain("attached app.example.com");
+        expect(error.message).toContain("missing required DNS record");
+        expect(yield* readCalls(fake.callsPath)).toEqual([
+          expect.objectContaining({
+            argv: [
+              "domains",
+              "verify",
+              "app.example.com",
+              "--project",
+              "gateway",
+              "--strict",
+              "--format=json",
+              "--non-interactive",
+            ],
+          }),
+        ]);
       }),
     ),
   );
