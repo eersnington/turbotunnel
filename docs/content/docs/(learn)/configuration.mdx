@@ -36,7 +36,7 @@ Run `tt dev dashboard` from the configuration directory. Run `tt dev` anywhere u
 
 `slug: "dashboard"` first requests `dashboard-turbotunnel.vercel.app`. If another Vercel project owns that name, Turbotunnel assigns and saves `tt<random>-dashboard.vercel.app`. `domain` selects one exact custom hostname. You cannot combine `domain` with `slug`.
 
-Supported access policies are `public`, `password`, and `ip` with an `allow` array. Passwords come from `TURBOTUNNEL_PASSWORD` or a hidden terminal prompt. Turbotunnel never writes passwords to configuration.
+Supported access policies are `public`, `password`, and `ip` with an `allow` array. Password secrets resolve in order: `--password <value>`, `TURBOTUNNEL_PASSWORD`, then a hidden terminal prompt. Turbotunnel never writes passwords to configuration.
 
 ## Saved configuration
 
