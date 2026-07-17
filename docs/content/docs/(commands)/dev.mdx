@@ -4,11 +4,17 @@ description: Run a project dev server and public tunnel as one managed process.
 ---
 
 ```sh
-tt dev [--port <port>]
-tt dev [--port <port>] -- <command> [args...]
+tt dev [project] [--port <port>] [access options]
+tt dev [project] [--port <port>] -- <command> [args...]
 ```
 
-`tt dev` runs a development server and public tunnel in one lifecycle. It starts the nearest package's `dev` script or a command passed after `--`, waits for HTTP readiness, and stops both processes when you press `Ctrl-C`.
+`tt dev` runs a configured project and its public tunnel in one lifecycle. It finds the nearest `turbotunnel.json` and selects a project by name or current directory. It waits for HTTP readiness and stops both processes when you press `Ctrl-C`. Without project configuration, it runs the nearest package's `dev` script.
+
+```sh
+tt dev dashboard
+tt dev dashboard --protect password
+tt dev dashboard --allow-ip 203.0.113.0/24
+```
 
 ## Select a port
 
@@ -37,7 +43,7 @@ The child receives these environment variables:
 | `TURBOTUNNEL_HOST` | The public tunnel host.   |
 | `TURBOTUNNEL_SLUG` | The resolved tunnel slug. |
 
-Turbotunnel recognizes these framework commands: Next.js, Vite, Astro, Nuxt, and Storybook. It replaces an existing framework port argument and appends the selected port in the framework's normal form. Vite also receives `--strictPort`.
+Turbotunnel recognizes Next.js, Vite, Astro, Nuxt, and Storybook commands. It replaces an existing framework port argument or appends the selected port in the framework's normal form. Vite also receives `--strictPort`.
 
 For other executables, `--port <port>` or `--port=<port>` in the child arguments selects the tunnel port. Turbotunnel normalizes either form to `--port <port>`. Without that argument, the executable must read `PORT`.
 
@@ -59,7 +65,7 @@ Use a fixed port when the script already hardcodes one:
 tt dev --port 1024
 ```
 
-At a monorepo root, the nearest package is the root package. If its `dev` script starts several workspaces, run Turbotunnel from the application package or pass a custom command instead.
+At a monorepo root, pass the configured project name. From a configured project root, `tt dev` selects that project automatically. Project roots may be `docs`, `packages/dashboard`, or another relative directory. Turbotunnel does not assume an `apps/*` layout or run a workspace-wide task unless you configure one.
 
 ## Custom commands
 
@@ -75,11 +81,11 @@ When running the repository CLI through Bun, preserve both argument boundaries:
 bun run tt -- dev --port 1024 -- bun run --cwd docs dev
 ```
 
-Turbotunnel prints the custom command before launch. It escapes control characters and redacts values attached to options containing `auth`, `credential`, `key`, `password`, `secret`, or `token`. It also redacts uppercase environment assignments whose names contain those terms.
+Turbotunnel prints the custom command before launch. It escapes control characters and redacts values for options containing `auth`, `credential`, `key`, `password`, `secret`, or `token`. It also redacts uppercase environment assignments with those terms in their names.
 
 ## Terminal output
 
-The startup block shows the public URL, local target, relay count, command, and working directory. Turbotunnel then marks where inherited child output begins and where tunnel lifecycle output resumes:
+The startup block shows the public URL, local target, relay count, command, and working directory. Turbotunnel marks where child output begins and tunnel lifecycle output resumes:
 
 ```text
 . turbotunnel 0.0.2
