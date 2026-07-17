@@ -20,12 +20,9 @@ export function normalizeHost(hostHeader: string | undefined): string | undefine
   }
   const withoutPort = value.replace(/:\d+$/, "").replace(/\.$/, "");
   if (withoutPort.length === 0 || withoutPort.includes(":")) return undefined;
-  try {
-    const parsed = new URL(`http://${withoutPort}`);
-    return parsed.hostname === withoutPort ? parsed.hostname : undefined;
-  } catch {
-    return undefined;
-  }
+  if (!URL.canParse(`http://${withoutPort}`)) return undefined;
+  const parsed = new URL(`http://${withoutPort}`);
+  return parsed.hostname === withoutPort ? parsed.hostname : undefined;
 }
 
 /** Extract the tunnel slug from a request host using a domain or slug pattern. */

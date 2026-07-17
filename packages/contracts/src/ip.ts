@@ -1,52 +1,56 @@
+import { BlockList, isIP } from "node:net";
+
 /** CIDR support shared by relay configuration and gateway admission. */
 export function isSupportedCidr(cidr: string): boolean {
-  const separator = cidr.lastIndexOf("/");
-  if (separator <= 0) return false;
-  const network = parseIpAddress(cidr.slice(0, separator));
-  const prefix = Number(cidr.slice(separator + 1));
-  return network !== undefined && Number.isInteger(prefix) && prefix >= 0 && prefix <= network.bits;
+  return parseCidr(cidr) !== undefined;
+}
+
+/** Normalize a bare IP or CIDR to `address/prefix`, or `undefined` if invalid. */
+export function normalizeCidr(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  if (!trimmed.includes("/")) {
+    if (trimmed.includes("%")) return undefined;
+    const version = isIP(trimmed);
+    if (version === 0 || isIpv4MappedIpv6(trimmed)) return undefined;
+    return `${trimmed}/${version === 4 ? 32 : 128}`;
+  }
+  const parsed = parseCidr(trimmed);
+  return parsed === undefined ? undefined : `${parsed.address}/${parsed.prefix}`;
 }
 
 /** Match IPv4 or non-mapped IPv6 addresses against a validated CIDR. */
 export function addressInCidr(address: string, cidr: string): boolean {
-  const separator = cidr.lastIndexOf("/");
-  if (separator <= 0) return false;
-  const addressValue = parseIpAddress(address);
-  const network = parseIpAddress(cidr.slice(0, separator));
-  const prefix = Number(cidr.slice(separator + 1));
-  if (
-    addressValue === undefined ||
-    network === undefined ||
-    addressValue.bits !== network.bits ||
-    !Number.isInteger(prefix) ||
-    prefix < 0 ||
-    prefix > network.bits
-  )
-    return false;
-  const shift = BigInt(network.bits - prefix);
-  return addressValue.value >> shift === network.value >> shift;
+  if (address.includes("%")) return false;
+  const version = isIP(address);
+  if (version === 0 || isIpv4MappedIpv6(address)) return false;
+  const parsed = parseCidr(cidr);
+  if (parsed === undefined || parsed.version !== version) return false;
+  const list = new BlockList();
+  list.addSubnet(parsed.address, parsed.prefix, version === 4 ? "ipv4" : "ipv6");
+  return list.check(address, version === 4 ? "ipv4" : "ipv6");
 }
 
-function parseIpAddress(
-  address: string,
-): { readonly bits: 32 | 128; readonly value: bigint } | undefined {
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)) {
-    const parts = address.split(".").map(Number);
-    if (parts.some((part) => part > 255)) return undefined;
-    return { bits: 32, value: parts.reduce((value, part) => (value << 8n) | BigInt(part), 0n) };
-  }
-  if (!address.includes(":") || address.includes(".") || address.includes(":::")) return undefined;
-  const halves = address.toLowerCase().split("::");
-  if (halves.length > 2) return undefined;
-  const left = halves[0]?.split(":").filter(Boolean) ?? [];
-  const right = halves[1]?.split(":").filter(Boolean) ?? [];
-  if ([...left, ...right].some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return undefined;
-  const missing = 8 - left.length - right.length;
-  if ((halves.length === 1 && missing !== 0) || missing < 0) return undefined;
-  let value = 0n;
-  for (const group of [...left, ...Array.from({ length: missing }, () => "0"), ...right]) {
-    value = (value << 16n) | BigInt(Number.parseInt(group, 16));
-  }
-  if (value >> 32n === 0xffffn) return undefined;
-  return { bits: 128, value };
+function parseCidr(
+  cidr: string,
+): { readonly address: string; readonly prefix: number; readonly version: 4 | 6 } | undefined {
+  const separator = cidr.lastIndexOf("/");
+  if (separator <= 0 || separator === cidr.length - 1) return undefined;
+  const address = cidr.slice(0, separator);
+  const prefixText = cidr.slice(separator + 1);
+  if (!/^\d{1,3}$/u.test(prefixText) || address.includes("%")) return undefined;
+  const version = isIP(address);
+  if (version === 0 || isIpv4MappedIpv6(address)) return undefined;
+  const prefix = Number(prefixText);
+  const maximum = version === 4 ? 32 : 128;
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > maximum) return undefined;
+  return { address, prefix, version: version as 4 | 6 };
+}
+
+function isIpv4MappedIpv6(address: string): boolean {
+  if (isIP(address) !== 6) return false;
+  const lowered = address.toLowerCase();
+  if (lowered.includes(".")) return true;
+  // Canonical form is ::ffff:0:0/96; also reject expanded leading zeros variants.
+  return /^:?:ffff:/u.test(lowered) || lowered.startsWith("0:0:0:0:0:ffff:");
 }

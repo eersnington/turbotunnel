@@ -1,7 +1,14 @@
 import { createHmac, scrypt as nodeScrypt, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 
-import { addressInCidr, isSupportedCidr, type AccessPolicy } from "@turbotunnel/contracts";
+import {
+  ACCESS_SCRYPT_N,
+  ACCESS_SCRYPT_P,
+  ACCESS_SCRYPT_R,
+  addressInCidr,
+  isSupportedCidr,
+  type AccessPolicy,
+} from "@turbotunnel/contracts";
 import { Effect, Redacted } from "effect";
 
 import type { GatewayConfig } from "./gateway-config.js";
@@ -10,24 +17,26 @@ import type { GatewayRequestHeaders } from "./headers.js";
 export const GATEWAY_COOKIE_NAME = "__Host-turbotunnel";
 const ACCESS_COOKIE_MAX_AGE_SECONDS = 8 * 60 * 60;
 
+/** Pure public-traffic admission for cookie, IP allowlist, and open policies. */
 export function admitPublicAccess(
   policy: AccessPolicy,
   host: string,
   headers: GatewayRequestHeaders,
   config: GatewayConfig["Service"],
-): Effect.Effect<boolean> {
+): boolean {
   switch (policy.type) {
     case "public":
-      return Effect.succeed(true);
+      return true;
     case "password":
-      return Effect.succeed(
-        hasValidAccessCookie(headers.cookie, host, policy.hash, Redacted.value(config.relaySecret)),
+      return hasValidAccessCookie(
+        headers.cookie,
+        host,
+        policy.hash,
+        Redacted.value(config.relaySecret),
       );
     case "ipAllowlist": {
-      const address = clientIp(headers);
-      return Effect.succeed(
-        address !== undefined && policy.cidrs.some((cidr) => addressInCidr(address, cidr)),
-      );
+      const address = clientIp(headers, config.brokerKind);
+      return address !== undefined && policy.cidrs.some((cidr) => addressInCidr(address, cidr));
     }
   }
 }
@@ -46,7 +55,7 @@ export function verifyScryptPassword(password: string, encoded: string): Effect.
       password,
       parsed.salt,
       parsed.expected.byteLength,
-      { N: parsed.N, r: parsed.r, p: parsed.p, maxmem: 256 * 1024 * 1024 },
+      { N: parsed.N, r: parsed.r, p: parsed.p, maxmem: 64 * 1024 * 1024 },
       (error, derived) => {
         resume(
           Effect.succeed(
@@ -72,7 +81,13 @@ export function isValidAccessPolicy(policy: AccessPolicy): boolean {
   }
 }
 
-function clientIp(headers: GatewayRequestHeaders): string | undefined {
+function clientIp(
+  headers: GatewayRequestHeaders,
+  brokerKind: GatewayConfig["Service"]["brokerKind"],
+): string | undefined {
+  // Only platform-injected proxy headers are trusted. Memory/local brokers do not admit
+  // client-supplied X-Real-IP / X-Forwarded-For for allowlists.
+  if (brokerKind !== "vercel") return undefined;
   const candidate = headers.realIp ?? headers.forwardedFor?.split(",", 1)[0]?.trim();
   return candidate !== undefined && isIP(candidate) !== 0 ? candidate : undefined;
 }
@@ -132,16 +147,9 @@ function parseScryptHash(encoded: string):
   const r = Number(rText);
   const p = Number(pText);
   if (
-    !Number.isInteger(N) ||
-    N < 2 ||
-    N > 1_048_576 ||
-    (N & (N - 1)) !== 0 ||
-    !Number.isInteger(r) ||
-    r < 1 ||
-    r > 32 ||
-    !Number.isInteger(p) ||
-    p < 1 ||
-    p > 32 ||
+    N !== ACCESS_SCRYPT_N ||
+    r !== ACCESS_SCRYPT_R ||
+    p !== ACCESS_SCRYPT_P ||
     saltText === undefined ||
     hashText === undefined
   )

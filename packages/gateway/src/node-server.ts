@@ -154,7 +154,7 @@ function handleUpgrade(
       );
       return;
     }
-    if (!(yield* admitPublicAccess(route.route.accessPolicy, host, headers, config))) {
+    if (!admitPublicAccess(route.route.accessPolicy, host, headers, config)) {
       rejectUpgrade(
         socket,
         route.route.accessPolicy.type === "password" ? 401 : 403,

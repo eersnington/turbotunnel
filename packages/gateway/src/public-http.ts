@@ -120,7 +120,7 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
     yield* handlePasswordLogin(request, response, route, config);
     return;
   }
-  if (!(yield* admitPublicAccess(route.accessPolicy, normalizedHost, headers, config))) {
+  if (!admitPublicAccess(route.accessPolicy, normalizedHost, headers, config)) {
     if (route.accessPolicy.type === "password") {
       response.writeHead(303, { location: "/_turbotunnel/login" });
       response.end();
@@ -278,9 +278,28 @@ function handlePasswordLogin(
   }
   return Effect.gen(function* () {
     const body = yield* readLimitedBody(request, 16 * 1024).pipe(
-      Effect.catch(() => Effect.succeed(Buffer.alloc(0))),
+      Effect.map(Option.some),
+      Effect.catchTags({
+        RequestBodyTooLargeError: () => {
+          writePlainResponse(
+            response,
+            413,
+            "Request body is larger than the login limit. Password was not checked.",
+          );
+          return Effect.succeed(Option.none<Buffer>());
+        },
+        RequestBodyReadError: () => {
+          writePlainResponse(
+            response,
+            400,
+            "Request body could not be read. Password was not checked.",
+          );
+          return Effect.succeed(Option.none<Buffer>());
+        },
+      }),
     );
-    const password = new URLSearchParams(body.toString("utf8")).get("password");
+    if (Option.isNone(body)) return;
+    const password = new URLSearchParams(body.value.toString("utf8")).get("password");
     if (password === null || !(yield* verifyScryptPassword(password, passwordHash))) {
       writePlainResponse(response, 401, "The password was not accepted.");
       return;

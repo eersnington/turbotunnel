@@ -1,7 +1,12 @@
 import { randomBytes, scrypt as nodeScrypt } from "node:crypto";
-import { isIP } from "node:net";
 
-import type { AccessPolicy } from "@turbotunnel/contracts";
+import {
+  ACCESS_SCRYPT_N,
+  ACCESS_SCRYPT_P,
+  ACCESS_SCRYPT_R,
+  normalizeCidr as normalizeSharedCidr,
+  type AccessPolicy,
+} from "@turbotunnel/contracts";
 import { Effect } from "effect";
 
 import type { ProjectAccess } from "../adapters/project-config-store.js";
@@ -67,27 +72,15 @@ export const resolveAccessPolicy = Effect.fn("resolveAccessPolicy")(function* (o
 });
 
 function normalizeCidr(value: string): Effect.Effect<string, CliConfigError> {
-  const trimmed = value.trim();
-  const separator = trimmed.lastIndexOf("/");
-  const address = separator === -1 ? trimmed : trimmed.slice(0, separator);
-  const version = isIP(address);
-  const prefix =
-    separator === -1
-      ? version === 4
-        ? 32
-        : version === 6
-          ? 128
-          : -1
-      : Number(trimmed.slice(separator + 1));
-  const maximum = version === 4 ? 32 : version === 6 ? 128 : -1;
-  if (maximum === -1 || !Number.isInteger(prefix) || prefix < 0 || prefix > maximum) {
+  const normalized = normalizeSharedCidr(value);
+  if (normalized === undefined) {
     return Effect.fail(
       new CliConfigError({
-        message: `Invalid IP allowlist entry ${JSON.stringify(value)}. Use a valid IPv4 or IPv6 address or CIDR. No tunnel was made public.`,
+        message: `Invalid IP allowlist entry ${JSON.stringify(value)}. Use a valid IPv4 or IPv6 address or CIDR. IPv4-mapped IPv6 is not supported. No tunnel was made public.`,
       }),
     );
   }
-  return Effect.succeed(`${address}/${prefix}`);
+  return Effect.succeed(normalized);
 }
 
 const hashPassword = Effect.fn("ProjectAccess.hashPassword")(function* (password: string) {
@@ -97,13 +90,13 @@ const hashPassword = Effect.fn("ProjectAccess.hashPassword")(function* (password
       password,
       salt,
       32,
-      { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 },
+      { N: ACCESS_SCRYPT_N, r: ACCESS_SCRYPT_R, p: ACCESS_SCRYPT_P, maxmem: 64 * 1024 * 1024 },
       (error, key) => {
         resume(error === null ? Effect.succeed(key) : Effect.die(error));
       },
     );
   });
-  return `scrypt$1$16384$8$1$${salt.toString("base64url")}$${derived.toString("base64url")}`;
+  return `scrypt$1$${ACCESS_SCRYPT_N}$${ACCESS_SCRYPT_R}$${ACCESS_SCRYPT_P}$${salt.toString("base64url")}$${derived.toString("base64url")}`;
 });
 
 const promptPassword = Effect.callback<string, CliConfigError>((resume) => {

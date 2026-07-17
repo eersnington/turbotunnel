@@ -10,7 +10,7 @@ import {
   type RouteIdentity,
   type TunnelPresenceEvent,
 } from "@turbotunnel/contracts";
-import { Clock, Context, Effect, Layer, Result, Schema } from "effect";
+import { Clock, Context, Deferred, Effect, Layer, Result, Schema } from "effect";
 import { nanoid } from "nanoid";
 
 import { GatewayState } from "./gateway-state.js";
@@ -46,7 +46,17 @@ export class PublicRouteRegistry extends Context.Service<
       const state = yield* GatewayState;
       const records = new Map<string, PresenceRecord>();
       const consumerGroup = `tt_route_registry_${nanoid(12)}`;
-      let ready = false;
+      // Completes once the first empty receive (or over-limit) is observed; current capacity
+      // is tracked separately so the registry can recover after leases expire.
+      const firstCatchUp = yield* Deferred.make<void>();
+      let catchUpCompleted = false;
+      let overLimit = false;
+
+      const markCatchUpComplete = Effect.gen(function* () {
+        if (catchUpCompleted) return;
+        catchUpCompleted = true;
+        yield* Deferred.succeed(firstCatchUp, undefined);
+      });
 
       const runPass = Effect.gen(function* () {
         const messages = yield* queue.receive({
@@ -58,7 +68,8 @@ export class PublicRouteRegistry extends Context.Service<
         yield* state.recordMetric("queueReceives");
         if (messages.length === 0) {
           compactRecords(records, yield* Clock.currentTimeMillis);
-          ready = records.size <= PRESENCE_REPLAY_EVENT_LIMIT;
+          overLimit = records.size > PRESENCE_REPLAY_EVENT_LIMIT;
+          yield* markCatchUpComplete;
           return false;
         }
         for (const message of messages) {
@@ -75,7 +86,8 @@ export class PublicRouteRegistry extends Context.Service<
           yield* message.ack;
           yield* state.recordMetric("queueAcks");
         }
-        if (records.size > PRESENCE_REPLAY_EVENT_LIMIT) ready = false;
+        overLimit = records.size > PRESENCE_REPLAY_EVENT_LIMIT;
+        if (overLimit) yield* markCatchUpComplete;
         return true;
       });
 
@@ -83,14 +95,8 @@ export class PublicRouteRegistry extends Context.Service<
         while (true) {
           const hot = yield* runPass.pipe(
             Effect.catch((error) =>
-              Effect.sync(() => {
-                ready = false;
-              }).pipe(
-                Effect.andThen(
-                  Effect.logError("public route registry queue pass failed").pipe(
-                    Effect.annotateLogs({ errorTag: error._tag }),
-                  ),
-                ),
+              Effect.logError("public route registry queue pass failed").pipe(
+                Effect.annotateLogs({ errorTag: error._tag }),
                 Effect.as(false),
               ),
             ),
@@ -103,12 +109,11 @@ export class PublicRouteRegistry extends Context.Service<
       return PublicRouteRegistry.of({
         lookup: (host) =>
           Effect.gen(function* () {
-            for (let attempt = 0; !ready && attempt < 20; attempt += 1) {
-              yield* Effect.sleep(50);
-            }
-            if (!ready) return { _tag: "NotReady" };
+            yield* Deferred.await(firstCatchUp);
+            if (overLimit) return { _tag: "NotReady" };
             const now = yield* Clock.currentTimeMillis;
             compactRecords(records, now);
+            if (records.size > PRESENCE_REPLAY_EVENT_LIMIT) return { _tag: "NotReady" };
             const active = [...records.values()].filter(({ event }) => event.type !== "remove");
             const matching = active.filter(({ event }) => event.publicHost === host);
             const first = matching[0];

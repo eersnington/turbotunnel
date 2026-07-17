@@ -1,5 +1,4 @@
-import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
-import { Effect, Redacted } from "effect";
+import { Effect } from "effect";
 
 import { DevProcess } from "../adapters/dev-process.js";
 import { Entropy } from "../adapters/entropy.js";
@@ -16,9 +15,11 @@ import {
   type DevCommandInput,
   resolveDevLaunch,
 } from "../domain/dev-project.js";
+import { parseEnvironmentPort } from "../domain/environment-port.js";
+import { assertCompatibleGateway } from "../domain/gateway-compat.js";
 import { resolveTunnelConfig, type TunnelEnvironment } from "../domain/tunnel-config.js";
 import { formatProcessCommand, redactShellCommand } from "../domain/process-command.js";
-import { gatewayUrl, publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
+import { publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
 import {
   accessOverrideFromEnvironment,
   resolveAccessPolicy,
@@ -65,7 +66,10 @@ export const startDev = Effect.fn("startDev")(function* (options: {
 
   const projectConfig = yield* projectConfigStore.discover(options.cwd, options.projectName);
   const project = yield* projectDiscovery.discover(projectConfig?.root ?? options.cwd);
-  const environmentPort = yield* parseEnvironmentPort(options.processEnv?.TURBOTUNNEL_PORT);
+  const environmentPort = yield* parseEnvironmentPort(
+    options.processEnv?.TURBOTUNNEL_PORT,
+    "No child process or tunnel was started.",
+  );
   const customPort =
     options.input.port === undefined ? yield* customCommandPort(options.input.command) : undefined;
   const port =
@@ -109,10 +113,7 @@ export const startDev = Effect.fn("startDev")(function* (options: {
     savedConfig,
     generatedSlug: generatedTunnelSlug,
   });
-  yield* assertCompatibleGateway(gatewayStatusChecker, {
-    ...provisionalConfig,
-    slug: savedConfig.slug ?? provisionalConfig.slug,
-  });
+  yield* assertCompatibleGateway(gatewayStatusChecker, provisionalConfig, savedConfig.slug);
   yield* expandProjectEnvironment(
     projectConfig?.env ?? {},
     {
@@ -219,24 +220,6 @@ export const startDev = Effect.fn("startDev")(function* (options: {
   );
 });
 
-function assertCompatibleGateway(
-  checker: GatewayStatusChecker["Service"],
-  config: import("../domain/tunnel-config.js").HttpTunnelConfig,
-): Effect.Effect<void, CliConfigError> {
-  const statusUrl = new URL("/_turbotunnel/status", gatewayUrl(config)).toString();
-  return checker.check(statusUrl, Redacted.value(config.relaySecret)).pipe(
-    Effect.flatMap((status) =>
-      status.status === "running" && status.version !== TURBOTUNNEL_VERSION
-        ? Effect.fail(
-            new CliConfigError({
-              message: `The deployed gateway is version ${status.version}, but this CLI requires ${TURBOTUNNEL_VERSION}. Run \`tt deploy\` to update the gateway. No domain or tunnel was changed.`,
-            }),
-          )
-        : Effect.void,
-    ),
-  );
-}
-
 const PLACEHOLDER_PATTERN = /\$\{(TURBOTUNNEL_[A-Z0-9_]+)\}/gu;
 
 function expandProjectEnvironment(
@@ -263,27 +246,4 @@ function expandProjectEnvironment(
     result[name] = value;
   }
   return Effect.succeed(result);
-}
-
-function parseEnvironmentPort(
-  value: string | undefined,
-): Effect.Effect<number | undefined, CliConfigError> {
-  if (value === undefined) return Effect.succeed(undefined);
-  if (!/^\d+$/u.test(value)) {
-    return Effect.fail(
-      new CliConfigError({
-        message:
-          "TURBOTUNNEL_PORT must be an integer from 1 to 65535. No child process or tunnel was started.",
-      }),
-    );
-  }
-  const port = Number(value);
-  return port >= 1 && port <= 65_535
-    ? Effect.succeed(port)
-    : Effect.fail(
-        new CliConfigError({
-          message:
-            "TURBOTUNNEL_PORT must be an integer from 1 to 65535. No child process or tunnel was started.",
-        }),
-      );
 }

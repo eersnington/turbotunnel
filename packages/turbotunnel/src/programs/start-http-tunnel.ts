@@ -1,5 +1,4 @@
-import { TURBOTUNNEL_VERSION } from "@turbotunnel/contracts";
-import { Effect, Redacted } from "effect";
+import { Effect } from "effect";
 
 import { Entropy } from "../adapters/entropy.js";
 import { GatewayStatusChecker } from "../adapters/gateway-status-checker.js";
@@ -7,13 +6,14 @@ import { LocalConfigStore } from "../adapters/local-config-store.js";
 import { ProjectConfigStore } from "../adapters/project-config-store.js";
 import { ProjectDomain } from "../adapters/project-domain.js";
 import { TunnelRuntime } from "../adapters/tunnel-runtime.js";
+import { parseEnvironmentPort } from "../domain/environment-port.js";
+import { assertCompatibleGateway } from "../domain/gateway-compat.js";
 import {
   type HttpCommandInput,
   type TunnelEnvironment,
   resolveTunnelConfig,
 } from "../domain/tunnel-config.js";
-import { gatewayUrl } from "../domain/tunnel-url.js";
-import { CliConfigError, type StartHttpTunnelError } from "../errors.js";
+import { type StartHttpTunnelError } from "../errors.js";
 import {
   accessOverrideFromEnvironment,
   resolveAccessPolicy,
@@ -50,7 +50,10 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
     options.cwd,
     options.projectName,
   );
-  const configuredEnvironmentPort = yield* environmentPort(options.processEnv?.TURBOTUNNEL_PORT);
+  const configuredEnvironmentPort = yield* parseEnvironmentPort(
+    options.processEnv?.TURBOTUNNEL_PORT,
+    "No tunnel was started.",
+  );
   const savedConfig = yield* localConfigStore.read;
   const generatedTunnelSlug = yield* entropy.tunnelSlug;
   const environmentSlug = env.TURBOTUNNEL_SLUG;
@@ -83,18 +86,7 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
     savedConfig,
     generatedSlug: generatedTunnelSlug,
   });
-  const gatewayStatus = yield* gatewayStatusChecker.check(
-    new URL(
-      "/_turbotunnel/status",
-      gatewayUrl({ ...provisionalConfig, slug: savedConfig.slug ?? provisionalConfig.slug }),
-    ).toString(),
-    Redacted.value(provisionalConfig.relaySecret),
-  );
-  if (gatewayStatus.status === "running" && gatewayStatus.version !== TURBOTUNNEL_VERSION) {
-    return yield* new CliConfigError({
-      message: `The deployed gateway is version ${gatewayStatus.version}, but this CLI requires ${TURBOTUNNEL_VERSION}. Run \`tt deploy\` to update the gateway. No domain or tunnel was changed.`,
-    });
-  }
+  yield* assertCompatibleGateway(gatewayStatusChecker, provisionalConfig, savedConfig.slug);
   const generatedDeploySlug = yield* entropy.deploySlug;
   if (projectConfig !== undefined || requestedDomain !== undefined) {
     yield* reporter.emit({
@@ -137,27 +129,6 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   });
   return yield* tunnelRuntime.run(config);
 });
-
-function environmentPort(
-  value: string | undefined,
-): Effect.Effect<number | undefined, CliConfigError> {
-  if (value === undefined) return Effect.succeed(undefined);
-  if (!/^\d+$/u.test(value)) {
-    return Effect.fail(
-      new CliConfigError({
-        message: "TURBOTUNNEL_PORT must be an integer from 1 to 65535. No tunnel was started.",
-      }),
-    );
-  }
-  const port = Number(value);
-  return port >= 1 && port <= 65_535
-    ? Effect.succeed(port)
-    : Effect.fail(
-        new CliConfigError({
-          message: "TURBOTUNNEL_PORT must be an integer from 1 to 65535. No tunnel was started.",
-        }),
-      );
-}
 
 export function tunnelEnvironmentFromProcess(env: NodeJS.ProcessEnv): TunnelEnvironment {
   return {

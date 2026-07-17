@@ -55,7 +55,7 @@ const ProjectAccessSchema = Schema.Union([
 const EnvironmentSchema = Schema.Record(Schema.String, Schema.String);
 const ProjectFields = {
   dev: Schema.optional(Schema.String),
-  port: Schema.optional(Schema.Int),
+  port: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }))),
   slug: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
   env: Schema.optional(EnvironmentSchema),
@@ -197,26 +197,35 @@ const selectFromCwd = Effect.fn("ProjectConfigStore.selectFromCwd")(function* (
 function promptForProject(
   entries: ReadonlyArray<readonly [string, typeof RepositoryProjectSchema.Type]>,
 ): Effect.Effect<readonly [string, typeof RepositoryProjectSchema.Type], CliConfigError> {
-  return Effect.tryPromise({
-    try: async () => {
-      process.stdout.write(
-        `Select a Turbotunnel project:\n${entries.map(([name, project], index) => `  ${index + 1}. ${name}  ${project.root}`).join("\n")}\n`,
+  return Effect.callback((resume) => {
+    process.stdout.write(
+      `Select a Turbotunnel project:\n${entries.map(([name, project], index) => `  ${index + 1}. ${name}  ${project.root}`).join("\n")}\n`,
+    );
+    const terminal = createInterface({ input: process.stdin, output: process.stdout });
+    const failSelection = (): void => {
+      resume(
+        Effect.fail(
+          new CliConfigError({
+            message: `Project selection was not recognized. Retry with an explicit project name, for example: tt dev ${entries[0]?.[0] ?? "<project>"}. No child process or tunnel was started.`,
+          }),
+        ),
       );
-      const terminal = createInterface({ input: process.stdin, output: process.stdout });
-      try {
-        const answer = (await terminal.question("Project: ")).trim();
-        const byNumber = /^\d+$/u.test(answer) ? entries[Number(answer) - 1] : undefined;
-        const selected = byNumber ?? entries.find(([name]) => name === answer);
-        if (selected === undefined) throw new Error("selection");
-        return selected;
-      } finally {
-        terminal.close();
-      }
-    },
-    catch: () =>
-      new CliConfigError({
-        message: `Project selection was not recognized. Retry with an explicit project name, for example: tt dev ${entries[0]?.[0] ?? "<project>"}. No child process or tunnel was started.`,
-      }),
+    };
+    void terminal
+      .question("Project: ")
+      .then((answer) => {
+        const trimmed = answer.trim();
+        const byNumber = /^\d+$/u.test(trimmed) ? entries[Number(trimmed) - 1] : undefined;
+        const selected = byNumber ?? entries.find(([name]) => name === trimmed);
+        if (selected === undefined) failSelection();
+        else resume(Effect.succeed(selected));
+      })
+      .catch(() => {
+        failSelection();
+      });
+    return Effect.sync(() => {
+      terminal.close();
+    });
   });
 }
 
@@ -232,36 +241,21 @@ function unknownProject(
   );
 }
 
-function resolveProjectRoot(
-  configPath: string,
-  configRoot: string,
-  name: string,
-  configuredRoot: string,
-): string {
-  const root = resolve(configRoot, configuredRoot);
-  if (isAbsolute(configuredRoot) || !contains(configRoot, root)) {
-    throw new CliConfigError({
-      message: `projects.${name}.root in ${configPath} must be a relative path inside ${configRoot}. No child process or tunnel was started.`,
-    });
-  }
-  return root;
-}
-
 function checkedProjectRoot(
   configPath: string,
   configRoot: string,
   name: string,
   configuredRoot: string,
 ): Effect.Effect<string, CliConfigError> {
-  return Effect.try({
-    try: () => resolveProjectRoot(configPath, configRoot, name, configuredRoot),
-    catch: (cause) =>
-      cause instanceof CliConfigError
-        ? cause
-        : new CliConfigError({
-            message: `Couldn't resolve projects.${name}.root in ${configPath}. No child process or tunnel was started.`,
-          }),
-  });
+  const root = resolve(configRoot, configuredRoot);
+  if (isAbsolute(configuredRoot) || !contains(configRoot, root)) {
+    return Effect.fail(
+      new CliConfigError({
+        message: `projects.${name}.root in ${configPath} must be a relative path inside ${configRoot}. No child process or tunnel was started.`,
+      }),
+    );
+  }
+  return Effect.succeed(root);
 }
 
 function contains(parent: string, child: string): boolean {
@@ -280,13 +274,6 @@ function makeSelection(
     return Effect.fail(
       new CliConfigError({
         message: `${name === undefined ? "Project" : `projects.${name}`} in ${configPath} cannot define both "slug" and "domain". Use "slug" for a managed vercel.app hostname or "domain" for an exact custom hostname. No Vercel project or tunnel was changed.`,
-      }),
-    );
-  }
-  if (project.port !== undefined && (project.port < 1 || project.port > 65_535)) {
-    return Effect.fail(
-      new CliConfigError({
-        message: `${name === undefined ? "port" : `projects.${name}.port`} in ${configPath} must be an integer from 1 to 65535. No child process or tunnel was started.`,
       }),
     );
   }
