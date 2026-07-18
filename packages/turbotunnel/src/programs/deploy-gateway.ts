@@ -83,7 +83,7 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   const deploymentUrl = yield* vercel.deployProduction(plan.deployDir);
   yield* progress("VerifyingGateway");
   yield* gatewayVerifier.verify(plan);
-  yield* localConfigStore.write({
+  yield* localConfigStore.update({
     ...toSavedDeployConfig(plan),
     ...(savedConfig.project === plan.project
       ? {}

@@ -139,7 +139,7 @@ const makeTestLayer = (events: Array<LifecycleEvent>) =>
           relaySecret: "secret",
           relayUrl: "http://127.0.0.1:3002",
         }),
-        write: () => Effect.void,
+        update: () => Effect.void,
       }),
     ),
     Layer.succeed(
@@ -195,7 +195,7 @@ const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
           relayDomain: "tunnel.example.com",
           relaySecret: "secret",
         }),
-        write: () => Effect.void,
+        update: () => Effect.void,
       }),
     ),
     Layer.succeed(
@@ -218,6 +218,6 @@ const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
 const gatewayStatusLayer = Layer.succeed(
   GatewayStatusChecker,
   GatewayStatusChecker.of({
-    check: (url) => Effect.succeed({ url, status: "unreachable" }),
+    check: (url) => Effect.succeed({ url, status: "unreachable", reason: "transport-failure" }),
   }),
 );

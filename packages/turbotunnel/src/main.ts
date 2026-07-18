@@ -30,20 +30,25 @@ import { TerminalSurface } from "./cli/terminal-surface.js";
 import type { CliFailure } from "./errors.js";
 import { TunnelReporter } from "./runtime/tunnel-reporter.js";
 
+const platformLayer = Layer.mergeAll(
+  AppPaths.live,
+  CliOutput.live,
+  NodeHttpClient.layerFetch,
+  NodeServices.layer,
+);
+const configurationLayer = Layer.mergeAll(LocalConfigStore.live, VercelCli.live);
 const localRuntimeLayer = Layer.mergeAll(RuntimeRegistry.live, LocalControl.live);
-const terminalUiLayer = tunnelReporterLive.pipe(Layer.provideMerge(TerminalSurface.live));
+const reporterLayer = tunnelReporterLive.pipe(Layer.provide(TerminalSurface.live));
+const terminalUiLayer = Layer.merge(TerminalSurface.live, reporterLayer);
 const tunnelRuntimeLayer = TunnelRuntime.live.pipe(
   Layer.provide(Layer.merge(localRuntimeLayer, terminalUiLayer)),
 );
-const gatewayControlLayer = GatewayControlClient.live.pipe(Layer.provide(LocalConfigStore.live));
-const projectDomainLayer = ProjectDomain.live.pipe(
-  Layer.provide(Layer.merge(LocalConfigStore.live, VercelCli.live)),
-);
+const gatewayControlLayer = GatewayControlClient.live.pipe(Layer.provide(configurationLayer));
+const projectDomainLayer = ProjectDomain.live.pipe(Layer.provide(configurationLayer));
 
-const liveLayer = Layer.mergeAll(
+const applicationLayer = Layer.mergeAll(
   Entropy.live,
-  LocalConfigStore.live,
-  VercelCli.live,
+  configurationLayer,
   GatewayWorkspace.live,
   GatewayVerifier.live,
   LocalAppProbe.live,
@@ -57,12 +62,8 @@ const liveLayer = Layer.mergeAll(
   terminalUiLayer,
   localRuntimeLayer,
   tunnelRuntimeLayer,
-).pipe(
-  Layer.provideMerge(AppPaths.live),
-  Layer.provideMerge(CliOutput.live),
-  Layer.provideMerge(NodeHttpClient.layerFetch),
-  Layer.provideMerge(NodeServices.layer),
-);
+).pipe(Layer.provide(platformLayer));
+const liveLayer = Layer.merge(platformLayer, applicationLayer);
 
 const handleShowHelp = Effect.fn("handleShowHelp")(function* (error: {
   readonly errors: ReadonlyArray<unknown>;

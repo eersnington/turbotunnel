@@ -6,7 +6,6 @@ import type { HeaderPair } from "@turbotunnel/contracts";
 export type GatewayRequestHeaders = {
   readonly host: string | undefined;
   readonly authorization: string | undefined;
-  readonly oidcToken: string | undefined;
   readonly cookie: string | undefined;
   readonly realIp: string | undefined;
   readonly forwardedFor: string | undefined;
@@ -56,7 +55,6 @@ export function parseGatewayRequestHeaders(
 ): GatewayRequestHeadersResult {
   let host: string | undefined;
   let authorization: string | undefined;
-  let oidcToken: string | undefined;
   let cookie: string | undefined;
   let realIp: string | undefined;
   let forwardedFor: string | undefined;
@@ -84,13 +82,6 @@ export function parseGatewayRequestHeaders(
           return { _tag: "err", header: "Authorization" };
         }
         authorization = value;
-        break;
-      }
-      case "x-vercel-oidc-token": {
-        if (oidcToken !== undefined) {
-          return { _tag: "err", header: "X-Vercel-OIDC-Token" };
-        }
-        oidcToken = value;
         break;
       }
       case "cookie": {
@@ -129,7 +120,6 @@ export function parseGatewayRequestHeaders(
     value: {
       host,
       authorization,
-      oidcToken,
       cookie,
       realIp,
       forwardedFor,
@@ -197,6 +187,7 @@ export function publicWebSocketHeaders(
     if (
       HOP_BY_HOP_HEADERS.has(name) ||
       name === "host" ||
+      name === "sec-websocket-protocol" ||
       PLATFORM_REQUEST_HEADERS.has(name) ||
       name.startsWith("x-vercel-") ||
       name.startsWith("x-now-")

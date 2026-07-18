@@ -89,7 +89,8 @@ describe("showStatus", () => {
         Layer.succeed(
           GatewayStatusChecker,
           GatewayStatusChecker.of({
-            check: (url) => Effect.succeed({ url, status: "unreachable" }),
+            check: (url) =>
+              Effect.succeed({ url, status: "unreachable", reason: "transport-failure" }),
           }),
         ),
         Layer.succeed(

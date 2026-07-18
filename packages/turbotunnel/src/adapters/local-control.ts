@@ -132,6 +132,7 @@ function handleConnection(
     handled = true;
 
     let decoded: typeof ControlRequestSchema.Type;
+    // This raw socket callback cannot yield the Effect-based decoder.
     try {
       decoded = decodeControlRequestSync(input.slice(0, newline));
     } catch {

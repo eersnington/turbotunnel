@@ -60,6 +60,35 @@ describe("openLocalWebSocket", () => {
     ),
   );
 
+  it.live("closes instead of dropping relay frames when the command queue overflows", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const upgrade = yield* Queue.bounded<(accepted: boolean) => void>(1);
+        const server = yield* listenWebSocketServer({
+          verifyClient: (_info, callback) => {
+            Queue.offerUnsafe(upgrade, callback);
+          },
+        });
+        const frames = yield* makeRelayFrameRecorder;
+        const handle = yield* openLocalWebSocket(
+          openFrame(),
+          target(server),
+          (frame) => Effect.sync(() => frames.push(frame)),
+          { commandQueueCapacity: 1 },
+        );
+
+        yield* handle.sendData(dataFrame({ text: "queued" }));
+        yield* handle.sendData(dataFrame({ text: "overflow" }));
+        const accept = yield* Queue.take(upgrade);
+        accept(true);
+
+        const close = yield* frames.take((value): value is WsClose => value.type === "ws.close");
+        expect(close.code).toBe(1013);
+        yield* handle.closed;
+      }),
+    ),
+  );
+
   it.live("preserves binary frames in both directions", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -82,14 +111,12 @@ describe("openLocalWebSocket", () => {
     ),
   );
 
-  it.live("passes websocket subprotocols separately from forwarded headers", () =>
+  it.live("does not negotiate a public websocket subprotocol with the local app", () =>
     Effect.scoped(
       Effect.gen(function* () {
         let forwardedHeader: string | string[] | undefined;
         let protocolHeader: string | string[] | undefined;
-        const server = yield* listenWebSocketServer({
-          handleProtocols: (protocols) => (protocols.has("proto-b") ? "proto-b" : false),
-        });
+        const server = yield* listenWebSocketServer();
         const connection = yield* Effect.forkChild(
           waitForConnection(server, (_socket, request) => {
             forwardedHeader = request.headers["x-test"];
@@ -110,9 +137,8 @@ describe("openLocalWebSocket", () => {
 
         const socket = yield* Fiber.join(connection);
         expect(forwardedHeader).toBe("ok");
-        expect(protocolHeader).toContain("proto-a");
-        expect(protocolHeader).toContain("proto-b");
-        expect(socket.protocol).toBe("proto-b");
+        expect(protocolHeader).toBeUndefined();
+        expect(socket.protocol).toBe("");
       }),
     ),
   );

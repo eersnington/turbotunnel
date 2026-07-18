@@ -61,6 +61,28 @@ describe("GatewayState", () => {
       expect(afterRelease._tag).toBe("Registered");
     }).pipe(Effect.provide(GatewayState.layer)),
   );
+
+  it.effect("rejects new direct work on a superseded generation", () =>
+    Effect.gen(function* () {
+      const state = yield* GatewayState;
+      const olderScope = yield* Scope.make();
+      const newerScope = yield* Scope.make();
+      const older = yield* state
+        .registerLocalClient(localRegistration(1))
+        .pipe(Effect.provideService(Scope.Scope, olderScope));
+      yield* state
+        .registerLocalClient(localRegistration(2))
+        .pipe(Effect.provideService(Scope.Scope, newerScope));
+
+      const request = yield* state
+        .registerDirectRequest(older, "req_superseded")
+        .pipe(Effect.scoped);
+
+      expect(request).toBeUndefined();
+      yield* Scope.close(olderScope, Exit.void);
+      yield* Scope.close(newerScope, Exit.void);
+    }).pipe(Effect.provide(GatewayState.layer)),
+  );
 });
 
 function localRegistration(generation: number) {

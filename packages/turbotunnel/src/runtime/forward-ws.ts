@@ -26,6 +26,8 @@ type LocalCommand =
   | { readonly _tag: "Data"; readonly frame: WsData }
   | { readonly _tag: "Close"; readonly frame: WsClose };
 
+export const LOCAL_WEBSOCKET_COMMAND_QUEUE_CAPACITY = 256;
+
 export type LocalWebSocketHandle = {
   readonly sendData: (frame: WsData) => Effect.Effect<void>;
   readonly close: (frame: WsClose) => Effect.Effect<void>;
@@ -37,6 +39,7 @@ export const openLocalWebSocket = Effect.fn("openLocalWebSocket")(function* (
   frame: WsOpen,
   target: LocalTarget,
   sendRelayFrame: SendRelayFrame,
+  options: { readonly commandQueueCapacity?: number } = {},
 ): Effect.fn.Return<
   LocalWebSocketHandle,
   LocalWebSocketProtocolError | RelayWebSocketWriteError,
@@ -75,10 +78,13 @@ export const openLocalWebSocket = Effect.fn("openLocalWebSocket")(function* (
       ),
     ),
   );
-  const commands = yield* Queue.unbounded<LocalCommand>();
+  const commands = yield* Queue.bounded<LocalCommand>(
+    options.commandQueueCapacity ?? LOCAL_WEBSOCKET_COMMAND_QUEUE_CAPACITY,
+  );
+  const overflow = yield* Deferred.make<void>();
   const closed = yield* Deferred.make<void>();
 
-  yield* runLocalWebSocket(frame, url, commands, sendRelayFrame).pipe(
+  yield* runLocalWebSocket(frame, url, commands, overflow, sendRelayFrame).pipe(
     Effect.catchTags({
       LocalWebSocketConnectError: () => sendLocalFailure(frame, sendRelayFrame),
       LocalWebSocketWriteError: () => sendLocalFailure(frame, sendRelayFrame),
@@ -90,9 +96,9 @@ export const openLocalWebSocket = Effect.fn("openLocalWebSocket")(function* (
 
   return {
     sendData: (dataFrame) =>
-      Queue.offer(commands, { _tag: "Data", frame: dataFrame }).pipe(Effect.asVoid),
+      offerLocalCommand(commands, overflow, { _tag: "Data", frame: dataFrame }),
     close: (closeFrame) =>
-      Queue.offer(commands, { _tag: "Close", frame: closeFrame }).pipe(Effect.asVoid),
+      offerLocalCommand(commands, overflow, { _tag: "Close", frame: closeFrame }),
     closed: Deferred.await(closed),
   };
 });
@@ -101,6 +107,7 @@ const runLocalWebSocket = Effect.fn("runLocalWebSocket")(function* (
   frame: WsOpen,
   url: URL,
   commands: Queue.Queue<LocalCommand>,
+  overflow: Deferred.Deferred<void>,
   sendRelayFrame: SendRelayFrame,
 ): Effect.fn.Return<
   void,
@@ -109,7 +116,7 @@ const runLocalWebSocket = Effect.fn("runLocalWebSocket")(function* (
 > {
   const socket = yield* acquireLocalWebSocket({
     url: url.toString(),
-    protocols: extractSubprotocols(frame.headers),
+    protocols: [],
     headers: headersRecord(frame.headers),
   });
   const first = yield* socket.receive;
@@ -161,9 +168,32 @@ const runLocalWebSocket = Effect.fn("runLocalWebSocket")(function* (
       yield* socket.send(command.frame.binary ? bytes : decodeUtf8(bytes), command.frame.binary);
     }
   });
+  const failOnOverflow = Deferred.await(overflow).pipe(
+    Effect.andThen(socket.close(1013, "WebSocket command queue overflow")),
+    Effect.andThen(
+      sendCloseFrame(
+        frame,
+        1013,
+        "Tunnel closed because browser frames arrived faster than they could be forwarded.",
+        sendRelayFrame,
+      ),
+    ),
+  );
 
-  yield* Effect.raceFirst(receive, send);
+  yield* Effect.raceFirst(receive, Effect.raceFirst(send, failOnOverflow));
 });
+
+function offerLocalCommand(
+  commands: Queue.Queue<LocalCommand>,
+  overflow: Deferred.Deferred<void>,
+  command: LocalCommand,
+): Effect.Effect<void> {
+  return Effect.sync(() => Queue.offerUnsafe(commands, command)).pipe(
+    Effect.flatMap((offered) =>
+      offered ? Effect.void : Deferred.succeed(overflow, undefined).pipe(Effect.asVoid),
+    ),
+  );
+}
 
 function sendLocalFailure(frame: WsOpen, sendRelayFrame: SendRelayFrame) {
   return sendCloseFrame(frame, 1011, "Tunnel could not reach the local app.", sendRelayFrame).pipe(
@@ -186,21 +216,6 @@ function sendCloseFrame(
     code,
     reason,
   });
-}
-
-function extractSubprotocols(headers: ReadonlyArray<HeaderPair>): Array<string> {
-  const protocols: Array<string> = [];
-  for (const [name, value] of headers) {
-    if (name.toLowerCase() === "sec-websocket-protocol") {
-      protocols.push(
-        ...value
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-      );
-    }
-  }
-  return protocols;
 }
 
 function headersRecord(headers: ReadonlyArray<HeaderPair>): Record<string, string> {

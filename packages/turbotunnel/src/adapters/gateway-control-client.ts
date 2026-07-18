@@ -179,6 +179,7 @@ const requestTunnelList = Effect.fn("GatewayControlClient.listTunnels")(function
 });
 
 function sanitizedUrl(value: string): string {
+  // Error reporting must remain total even when the configured URL is malformed.
   try {
     const url = new URL(value);
     url.username = "";

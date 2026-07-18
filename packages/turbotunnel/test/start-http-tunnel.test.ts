@@ -3,13 +3,11 @@ import { Effect, Layer, Redacted } from "effect";
 
 import { Entropy } from "../src/adapters/entropy.js";
 import { GatewayStatusChecker } from "../src/adapters/gateway-status-checker.js";
-import { LocalAppProbe } from "../src/adapters/local-app-probe.js";
 import { LocalConfigStore } from "../src/adapters/local-config-store.js";
 import { ProjectConfigStore } from "../src/adapters/project-config-store.js";
 import { ProjectDomain } from "../src/adapters/project-domain.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
-import type { HttpTunnelConfig, LocalTarget } from "../src/domain/tunnel-config.js";
-import { LocalTargetNotReachable } from "../src/errors.js";
+import type { HttpTunnelConfig } from "../src/domain/tunnel-config.js";
 import { startHttpTunnel } from "../src/programs/start-http-tunnel.js";
 import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
 
@@ -24,7 +22,6 @@ describe("startHttpTunnel", () => {
       );
       yield* Effect.yieldNow;
 
-      expect(recorder.probedTarget).toBeUndefined();
       expect(recorder.startedConfig?.slug).toBe("demo");
       expect(recorder.startedConfig?.relayDomain).toBe("tunnel.example.com");
       expect(recorder.events[0]).toMatchObject({
@@ -45,37 +42,14 @@ describe("startHttpTunnel", () => {
       );
 
       expect(exit._tag).toBe("Failure");
-      expect(recorder.probedTarget).toBeUndefined();
       expect(recorder.startedConfig).toBeUndefined();
-    }),
-  );
-
-  it.effect("starts the runtime when the local app probe would fail", () =>
-    Effect.gen(function* () {
-      const recorder = new TunnelRecorder();
-      recorder.failProbe = true;
-
-      yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
-        Effect.provide(recorder.layer()),
-        Effect.forkScoped,
-      );
-      yield* Effect.yieldNow;
-
-      expect(recorder.probedTarget).toBeUndefined();
-      expect(recorder.startedConfig?.target).toEqual({
-        protocol: "http",
-        host: "localhost",
-        port: 5173,
-      });
     }),
   );
 });
 
 class TunnelRecorder {
-  probedTarget: LocalTarget | undefined;
   startedConfig: HttpTunnelConfig | undefined;
   readonly events: Array<Parameters<TunnelReporter["Service"]["emit"]>[0]> = [];
-  failProbe = false;
 
   constructor(private readonly options: { readonly savedGateway?: boolean } = {}) {}
 
@@ -93,7 +67,8 @@ class TunnelRecorder {
       Layer.succeed(
         GatewayStatusChecker,
         GatewayStatusChecker.of({
-          check: (url) => Effect.succeed({ url, status: "unreachable" }),
+          check: (url) =>
+            Effect.succeed({ url, status: "unreachable", reason: "transport-failure" }),
         }),
       ),
       Layer.succeed(
@@ -112,29 +87,7 @@ class TunnelRecorder {
               ? { slug: "demo", relayDomain: "tunnel.example.com", relaySecret: "saved_secret" }
               : {},
           ),
-          write: () => Effect.void,
-        }),
-      ),
-      Layer.succeed(
-        LocalAppProbe,
-        LocalAppProbe.of({
-          assertReachable: (target) =>
-            this.failProbe
-              ? Effect.fail(
-                  new LocalTargetNotReachable({
-                    host: target.host,
-                    port: target.port,
-                    cause: "test",
-                    message: "probe failed",
-                  }),
-                )
-              : Effect.sync(() => {
-                  this.probedTarget = target;
-                }),
-          waitUntilReachable: (target) =>
-            Effect.sync(() => {
-              this.probedTarget = target;
-            }),
+          update: () => Effect.void,
         }),
       ),
       Layer.succeed(

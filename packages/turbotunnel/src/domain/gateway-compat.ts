@@ -17,14 +17,21 @@ export function assertCompatibleGateway(
     gatewayUrl({ ...config, slug: savedSlug ?? config.slug }),
   ).toString();
   return checker.check(statusUrl, Redacted.value(config.relaySecret)).pipe(
-    Effect.flatMap((status) =>
-      status.status === "running" && status.version !== TURBOTUNNEL_VERSION
-        ? Effect.fail(
-            new CliConfigError({
-              message: `The deployed gateway is version ${status.version}, but this CLI requires ${TURBOTUNNEL_VERSION}. Run \`tt deploy\` to update the gateway. No domain or tunnel was changed.`,
-            }),
-          )
-        : Effect.void,
-    ),
+    Effect.flatMap((status) => {
+      if (status.status === "unreachable") return Effect.void;
+      if (status.status === "running" && status.version === TURBOTUNNEL_VERSION) return Effect.void;
+
+      const detail =
+        status.status === "running"
+          ? `The deployed gateway is version ${status.version}, but this CLI requires ${TURBOTUNNEL_VERSION}.`
+          : status.status === "rejected"
+            ? `The gateway status endpoint rejected the request with HTTP ${status.statusCode}.`
+            : `The gateway status endpoint returned an invalid ${status.reason === "too-large" ? "oversized" : "malformed"} response.`;
+      return Effect.fail(
+        new CliConfigError({
+          message: `${detail} Run \`tt deploy\` to restore a compatible gateway. No domain or tunnel was changed.`,
+        }),
+      );
+    }),
   );
 }

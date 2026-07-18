@@ -20,29 +20,27 @@ export type SendOptions = {
   readonly ttlSeconds?: number;
 };
 
-export class QueueSendError extends Schema.TaggedErrorClass<QueueSendError>()("QueueSendError", {
+const queueOperationErrorFields = {
   operation: Schema.String,
   topic: Schema.String,
   message: Schema.String,
   cause: Schema.Defect(),
-}) {}
+};
+
+export class QueueSendError extends Schema.TaggedErrorClass<QueueSendError>()(
+  "QueueSendError",
+  queueOperationErrorFields,
+) {}
 
 export class QueueReceiveError extends Schema.TaggedErrorClass<QueueReceiveError>()(
   "QueueReceiveError",
-  {
-    operation: Schema.String,
-    topic: Schema.String,
-    message: Schema.String,
-    cause: Schema.Defect(),
-  },
+  queueOperationErrorFields,
 ) {}
 
-export class QueueAckError extends Schema.TaggedErrorClass<QueueAckError>()("QueueAckError", {
-  operation: Schema.String,
-  topic: Schema.String,
-  message: Schema.String,
-  cause: Schema.Defect(),
-}) {}
+export class QueueAckError extends Schema.TaggedErrorClass<QueueAckError>()(
+  "QueueAckError",
+  queueOperationErrorFields,
+) {}
 
 export class QueueAuthError extends Schema.TaggedErrorClass<QueueAuthError>()("QueueAuthError", {
   message: Schema.String,

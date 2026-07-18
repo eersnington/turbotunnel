@@ -70,6 +70,39 @@ describe("forwardHttpToLocalApp", () => {
       expect(response.body).toBe("");
     }),
   );
+
+  it.effect("relays redirects without contacting the redirect target", () =>
+    Effect.gen(function* () {
+      let targetRequests = 0;
+      const target = yield* listenScoped(
+        createServer((_request, response) => {
+          targetRequests += 1;
+          response.end("followed");
+        }),
+      );
+      const targetPort = (target.address() as AddressInfo).port;
+      const redirect = yield* listenScoped(
+        createServer((_request, response) => {
+          response.writeHead(302, { location: `http://127.0.0.1:${targetPort}/target` });
+          response.end("redirecting");
+        }),
+      );
+      const redirectPort = (redirect.address() as AddressInfo).port;
+
+      const response = yield* forwardHttpToLocalApp(
+        requestFrame({ method: "GET", path: "/redirect", body: "" }),
+        { protocol: "http", host: "127.0.0.1", port: redirectPort },
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers).toContainEqual([
+        "location",
+        `http://127.0.0.1:${targetPort}/target`,
+      ]);
+      expect(Buffer.from(response.body, "base64").toString("utf8")).toBe("redirecting");
+      expect(targetRequests).toBe(0);
+    }),
+  );
 });
 
 function requestFrame(options: {

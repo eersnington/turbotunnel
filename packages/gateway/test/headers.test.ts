@@ -21,12 +21,6 @@ describe("parseGatewayRequestHeaders", () => {
     ).toEqual({ _tag: "err", header: "Authorization" });
   });
 
-  test("rejects duplicate X-Vercel-OIDC-Token", () => {
-    expect(
-      parseGatewayRequestHeaders(["X-Vercel-OIDC-Token", "first", "x-vercel-oidc-token", "second"]),
-    ).toEqual({ _tag: "err", header: "X-Vercel-OIDC-Token" });
-  });
-
   test("picks the first comma-separated x-forwarded-proto value", () => {
     const result = parseGatewayRequestHeaders(["X-Forwarded-Proto", " http , https"]);
 
@@ -66,9 +60,6 @@ describe("publicWebSocketHeaders", () => {
         "X-Custom",
         "preserved",
       ]),
-    ).toEqual([
-      ["sec-websocket-protocol", "chat"],
-      ["x-custom", "preserved"],
-    ]);
+    ).toEqual([["x-custom", "preserved"]]);
   });
 });

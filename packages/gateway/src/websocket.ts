@@ -127,6 +127,7 @@ function send(
             ),
       );
     };
+    // ws.send can throw before its completion callback is registered.
     try {
       if (options === undefined) {
         ws.send(data, onSent);

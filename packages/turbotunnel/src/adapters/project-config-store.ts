@@ -197,35 +197,24 @@ const selectFromCwd = Effect.fn("ProjectConfigStore.selectFromCwd")(function* (
 function promptForProject(
   entries: ReadonlyArray<readonly [string, typeof RepositoryProjectSchema.Type]>,
 ): Effect.Effect<readonly [string, typeof RepositoryProjectSchema.Type], CliConfigError> {
-  return Effect.callback((resume) => {
+  const selectionError = () =>
+    new CliConfigError({
+      message: `Project selection was not recognized. Retry with an explicit project name, for example: tt dev ${entries[0]?.[0] ?? "<project>"}. No child process or tunnel was started.`,
+    });
+  return Effect.gen(function* () {
     process.stdout.write(
       `Select a Turbotunnel project:\n${entries.map(([name, project], index) => `  ${index + 1}. ${name}  ${project.root}`).join("\n")}\n`,
     );
     const terminal = createInterface({ input: process.stdin, output: process.stdout });
-    const failSelection = (): void => {
-      resume(
-        Effect.fail(
-          new CliConfigError({
-            message: `Project selection was not recognized. Retry with an explicit project name, for example: tt dev ${entries[0]?.[0] ?? "<project>"}. No child process or tunnel was started.`,
-          }),
-        ),
-      );
-    };
-    void terminal
-      .question("Project: ")
-      .then((answer) => {
-        const trimmed = answer.trim();
-        const byNumber = /^\d+$/u.test(trimmed) ? entries[Number(trimmed) - 1] : undefined;
-        const selected = byNumber ?? entries.find(([name]) => name === trimmed);
-        if (selected === undefined) failSelection();
-        else resume(Effect.succeed(selected));
-      })
-      .catch(() => {
-        failSelection();
-      });
-    return Effect.sync(() => {
-      terminal.close();
-    });
+    const answer = yield* Effect.tryPromise({
+      try: () => terminal.question("Project: "),
+      catch: selectionError,
+    }).pipe(Effect.ensuring(Effect.sync(() => terminal.close())));
+    const trimmed = answer.trim();
+    const byNumber = /^\d+$/u.test(trimmed) ? entries[Number(trimmed) - 1] : undefined;
+    const selected = byNumber ?? entries.find(([name]) => name === trimmed);
+    if (selected === undefined) return yield* selectionError();
+    return selected;
   });
 }
 

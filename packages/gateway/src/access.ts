@@ -23,6 +23,7 @@ export function admitPublicAccess(
   host: string,
   headers: GatewayRequestHeaders,
   config: GatewayConfig["Service"],
+  nowSeconds: number,
 ): boolean {
   switch (policy.type) {
     case "public":
@@ -33,6 +34,7 @@ export function admitPublicAccess(
         host,
         policy.hash,
         Redacted.value(config.relaySecret),
+        nowSeconds,
       );
     case "ipAllowlist": {
       const address = clientIp(headers, config.brokerKind);
@@ -41,8 +43,13 @@ export function admitPublicAccess(
   }
 }
 
-export function makeAccessCookie(host: string, hash: string, secret: string): string {
-  const expiresAt = Math.floor(Date.now() / 1000) + ACCESS_COOKIE_MAX_AGE_SECONDS;
+export function makeAccessCookie(
+  host: string,
+  hash: string,
+  secret: string,
+  nowSeconds: number,
+): string {
+  const expiresAt = nowSeconds + ACCESS_COOKIE_MAX_AGE_SECONDS;
   const value = cookieValue(host, hash, expiresAt, secret);
   return `${GATEWAY_COOKIE_NAME}=${value}; Path=/; Max-Age=${ACCESS_COOKIE_MAX_AGE_SECONDS}; Secure; HttpOnly; SameSite=Lax`;
 }
@@ -99,6 +106,7 @@ function hasValidAccessCookie(
   host: string,
   hash: string,
   secret: string,
+  nowSeconds: number,
 ): boolean {
   if (cookieHeader === undefined) return false;
   for (const part of cookieHeader.split(";")) {
@@ -112,7 +120,7 @@ function hasValidAccessCookie(
       excess !== undefined ||
       signature === undefined ||
       !Number.isInteger(expiresAt) ||
-      expiresAt <= Math.floor(Date.now() / 1000)
+      expiresAt <= nowSeconds
     )
       return false;
     const expected = cookieValue(host, hash, expiresAt, secret);

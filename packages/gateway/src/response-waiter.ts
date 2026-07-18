@@ -6,7 +6,9 @@ import {
   QUEUE_VISIBILITY_TIMEOUT_SECONDS,
   type HttpResponse,
 } from "@turbotunnel/contracts";
-import { Clock, Effect, Option } from "effect";
+import { Effect, Option } from "effect";
+
+import type { GatewayMetric } from "./gateway-state.js";
 
 import type { Queue, QueueAckError, QueueAuthError, QueueReceiveError } from "./queue.js";
 
@@ -15,6 +17,7 @@ export type WaitForHttpResponseInput = {
   readonly requestId: string;
   readonly responseTopic: string;
   readonly timeoutMs?: number;
+  readonly recordMetric?: (metric: GatewayMetric) => Effect.Effect<void>;
 };
 
 export type WaitForHttpResponseResult =
@@ -25,38 +28,37 @@ export type WaitForHttpResponseResult =
 export const waitForHttpResponseFromQueue = Effect.fn("waitForHttpResponseFromQueue")(function* (
   input: WaitForHttpResponseInput,
 ): Effect.fn.Return<WaitForHttpResponseResult, QueueAckError | QueueAuthError | QueueReceiveError> {
-  const deadline = (yield* Clock.currentTimeMillis) + (input.timeoutMs ?? PUBLIC_HTTP_TIMEOUT_MS);
   const consumerGroup = httpResponseConsumerGroup(input.requestId);
+  const recordMetric = input.recordMetric ?? (() => Effect.void);
+  const wait = Effect.gen(function* () {
+    while (true) {
+      const messages = yield* input.queue.receive({
+        topic: input.responseTopic,
+        consumerGroup,
+        limit: QUEUE_RECEIVE_LIMIT,
+        visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+      });
+      yield* recordMetric("queueReceives");
 
-  while ((yield* Clock.currentTimeMillis) < deadline) {
-    const messages = yield* input.queue.receive({
-      topic: input.responseTopic,
-      consumerGroup,
-      limit: QUEUE_RECEIVE_LIMIT,
-      visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
-    });
-
-    for (const message of messages) {
-      const parsed = yield* decodeHttpResponseFramePayload(message.payload).pipe(
-        Effect.map(Option.some),
-        Effect.catchTags({ ProtocolPayloadDecodeError: () => Effect.succeed(Option.none()) }),
-      );
-      if (Option.isNone(parsed)) {
+      for (const message of messages) {
+        const parsed = yield* decodeHttpResponseFramePayload(message.payload).pipe(
+          Effect.map(Option.some),
+          Effect.catchTags({ ProtocolPayloadDecodeError: () => Effect.succeed(Option.none()) }),
+        );
         yield* message.ack;
-        continue;
+        yield* recordMetric("queueAcks");
+        if (Option.isSome(parsed) && parsed.value.requestId === input.requestId) {
+          return parsed.value;
+        }
       }
 
-      if (parsed.value.requestId !== input.requestId) {
-        yield* message.ack;
-        continue;
-      }
-
-      yield* message.ack;
-      return { _tag: "ok", value: parsed.value };
+      yield* Effect.sleep("100 millis");
     }
+  }).pipe(Effect.timeoutOption(input.timeoutMs ?? PUBLIC_HTTP_TIMEOUT_MS));
 
-    yield* Effect.sleep("100 millis");
-  }
-
-  return { _tag: "timeout" };
+  const result = yield* wait;
+  return Option.match(result, {
+    onNone: () => ({ _tag: "timeout" }) as const,
+    onSome: (value) => ({ _tag: "ok", value }) as const,
+  });
 });

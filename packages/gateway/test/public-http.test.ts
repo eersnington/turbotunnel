@@ -23,6 +23,8 @@ describe("public HTTP request bodies", () => {
       const error = yield* Fiber.join(result);
       expect(error).toBeInstanceOf(RequestBodyTooLargeError);
       expect(error).toMatchObject({ limitBytes: 3 });
+      expect(request.readableFlowing).toBe(true);
+      expect(request.listenerCount("data")).toBe(0);
     }),
   );
 

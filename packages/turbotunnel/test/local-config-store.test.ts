@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
+import { FileSystem } from "effect/FileSystem";
 
 import { LocalConfigStore } from "../src/adapters/local-config-store.js";
 
@@ -45,7 +46,7 @@ describe("LocalConfigStore", () => {
       const path = yield* tempConfigPath;
       const readBack = yield* Effect.gen(function* () {
         const store = yield* LocalConfigStore;
-        yield* store.write({
+        yield* store.update({
           project: "demo-turbotunnel",
           slug: "demo",
           relayDomain: "tunnel.example.com",
@@ -99,7 +100,7 @@ describe("LocalConfigStore", () => {
 
       const readBack = yield* Effect.gen(function* () {
         const store = yield* LocalConfigStore;
-        yield* store.write({
+        yield* store.update({
           project: "gateway",
           slug: "ttabc123",
           relayDomain: "{slug}-turbotunnel.vercel.app",
@@ -116,6 +117,48 @@ describe("LocalConfigStore", () => {
         domainAssignments: [expect.objectContaining({ targetName: "dashboard" })],
       });
     }),
+  );
+
+  it.effect("serializes concurrent updates within one store instance", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      const readBack = yield* Effect.gen(function* () {
+        const store = yield* LocalConfigStore;
+        yield* Effect.all(
+          [store.update({ project: "gateway" }), store.update({ teamId: "team_123" })],
+          { concurrency: "unbounded" },
+        );
+        return yield* store.read;
+      }).pipe(Effect.provide(LocalConfigStore.layer(path)), Effect.provide(NodeServices.layer));
+
+      expect(readBack).toMatchObject({ project: "gateway", teamId: "team_123" });
+    }),
+  );
+
+  it.effect("removes the secret-bearing temp file when the atomic rename fails", () =>
+    Effect.gen(function* () {
+      const path = yield* tempConfigPath;
+      const fileSystem = yield* FileSystem;
+      const failingRename = Layer.succeed(FileSystem, {
+        ...fileSystem,
+        rename: (oldPath, newPath) =>
+          fileSystem
+            .makeDirectory(newPath)
+            .pipe(Effect.andThen(fileSystem.rename(oldPath, newPath))),
+      });
+
+      const error = yield* Effect.gen(function* () {
+        const store = yield* LocalConfigStore;
+        return yield* store.update({ relaySecret: "secret" });
+      }).pipe(
+        Effect.provide(LocalConfigStore.layer(path)),
+        Effect.provide(failingRename),
+        Effect.flip,
+      );
+
+      expect(error._tag).toBe("ConfigFileWriteError");
+      expect(yield* Effect.promise(() => readdir(join(path, "..")))).toEqual(["config.json"]);
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 

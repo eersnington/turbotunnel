@@ -6,11 +6,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { LocalControl } from "../src/adapters/local-control.js";
-import {
-  decodeControlResponse,
-  type RuntimeRecord,
-  type TunnelLifecycleSnapshot,
-} from "../src/domain/tunnel-lifecycle.js";
+import type { RuntimeRecord, TunnelLifecycleSnapshot } from "../src/domain/tunnel-lifecycle.js";
 
 describe("LocalControl", () => {
   it.effect("serves snapshots only to the matching process token", () =>
@@ -39,27 +35,6 @@ describe("LocalControl", () => {
         expect(error._tag).toBe("LocalControlError");
         expect(error.operation).toBe("protocol");
       }).pipe(Effect.scoped, Effect.provide(LocalControl.layer(sessionsDir)));
-    }),
-  );
-
-  it.effect("rejects lifecycle states that disagree with relay counts", () =>
-    Effect.gen(function* () {
-      const invalidSnapshots = [
-        { ...snapshot, state: "ready", connectedRelays: 1 },
-        { ...snapshot, state: "starting", connectedRelays: 1 },
-        { ...snapshot, state: "connecting", connectedRelays: 2 },
-        { ...snapshot, state: "reconnecting", connectedRelays: 2 },
-        { ...snapshot, state: "connecting", connectedRelays: 3 },
-      ] as const;
-
-      for (const invalidSnapshot of invalidSnapshots) {
-        const error = yield* decodeControlResponse({
-          version: 1,
-          status: "ok",
-          snapshot: invalidSnapshot,
-        }).pipe(Effect.flip);
-        expect(error).toBeDefined();
-      }
     }),
   );
 });

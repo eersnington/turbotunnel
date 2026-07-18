@@ -22,6 +22,8 @@ const ndjsonQueueMessageSchema = Schema.Struct({
   body: Schema.NonEmptyString,
 });
 
+export const MAX_VERCEL_QUEUE_RESPONSE_BYTES = 1024 * 1024;
+
 type NdjsonQueueMessage = typeof ndjsonQueueMessageSchema.Type;
 
 class VercelQueueLive {
@@ -118,16 +120,7 @@ class VercelQueueLive {
         });
       }
 
-      const text = yield* Effect.tryPromise({
-        try: () => response.text(),
-        catch: (cause) =>
-          new QueueReceiveError({
-            operation: "read Vercel Queue response body",
-            topic: options.topic,
-            cause,
-            message: "Unable to read Vercel Queue response body.",
-          }),
-      });
+      const text = yield* readBoundedResponseBody(response, options.topic);
       const messages: Array<NdjsonQueueMessage> = [];
       for (const line of text.split("\n")) {
         const trimmed = line.trim();
@@ -192,6 +185,47 @@ class VercelQueueLive {
       return received;
     });
   }
+}
+
+/** Reads and decodes a fetch body without allowing an untrusted queue response to grow unbounded. */
+export function readBoundedResponseBody(
+  response: Response,
+  topic: string,
+  maxBytes = MAX_VERCEL_QUEUE_RESPONSE_BYTES,
+): Effect.Effect<string, QueueReceiveError> {
+  return Effect.tryPromise({
+    try: async (signal) => {
+      if (response.body === null) return "";
+      const reader = response.body.getReader();
+      const chunks: Array<Uint8Array> = [];
+      let totalBytes = 0;
+      const cancel = (): void => void reader.cancel(signal.reason).catch(() => undefined);
+      signal.addEventListener("abort", cancel, { once: true });
+      try {
+        while (true) {
+          const next = await reader.read();
+          if (next.done) break;
+          totalBytes += next.value.byteLength;
+          if (totalBytes > maxBytes) {
+            await reader.cancel("Vercel Queue response exceeded the configured byte limit");
+            throw new Error(`Vercel Queue response exceeded ${maxBytes} bytes`);
+          }
+          chunks.push(next.value);
+        }
+      } finally {
+        signal.removeEventListener("abort", cancel);
+        reader.releaseLock();
+      }
+      return Buffer.concat(chunks, totalBytes).toString("utf8");
+    },
+    catch: (cause) =>
+      new QueueReceiveError({
+        operation: "read Vercel Queue response body",
+        topic,
+        cause,
+        message: `Unable to read Vercel Queue response body within the ${maxBytes}-byte limit. No messages from this response were processed; retry the receive operation.`,
+      }),
+  });
 }
 
 export class VercelQueue {
