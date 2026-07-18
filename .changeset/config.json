@@ -6,8 +6,6 @@
     [
       "@turbotunnel/contracts",
       "@turbotunnel/gateway",
-      "@turbotunnel/typescript-config",
-      "docs",
       "turbotunnel"
     ]
   ],
