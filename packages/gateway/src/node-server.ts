@@ -107,7 +107,7 @@ export const makeNodeGatewayServer = Effect.fn("makeNodeGatewayServer")(
       Effect.sync(() => {
         const nodeServer = createServer((request, response) => {
           const fiber = runServerFiber(
-            oidcTokenAuthority.accept(request).pipe(
+            oidcTokenAuthority.refresh(vercelOidcToken(request)).pipe(
               Effect.andThen(handlePublicHttp(request, response)),
               Effect.catch((error) =>
                 Effect.logError("gateway HTTP request failed").pipe(
@@ -175,7 +175,7 @@ function handleUpgrade(
   return Effect.gen(function* () {
     const config = yield* GatewayConfig;
     const oidcTokenAuthority = yield* OidcTokenAuthority;
-    yield* oidcTokenAuthority.accept(request);
+    yield* oidcTokenAuthority.refresh(vercelOidcToken(request));
     const routes = yield* PublicRouteRegistry;
     const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
     if (headersResult._tag === "err") {
@@ -242,6 +242,11 @@ function handleUpgrade(
       );
     }).pipe(Effect.scoped);
   });
+}
+
+function vercelOidcToken(request: IncomingMessage): string | undefined {
+  const value = request.headers["x-vercel-oidc-token"];
+  return typeof value === "string" ? value : undefined;
 }
 
 /** Converts `handleUpgrade` callback completion and interruption into an Effect. */

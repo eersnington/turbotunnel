@@ -245,8 +245,7 @@ export class GatewayState extends Context.Service<
             if (
               current !== undefined &&
               current.sessionId === client.sessionId &&
-              current.generation > client.generation &&
-              !current[localClientRecordKey].draining
+              current.generation >= client.generation
             ) {
               record.draining = true;
               return client;

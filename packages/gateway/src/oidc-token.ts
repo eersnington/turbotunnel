@@ -1,5 +1,3 @@
-import type { IncomingMessage } from "node:http";
-
 import { Context, Effect, Layer, Option, Redacted, Ref } from "effect";
 
 export class OidcToken extends Context.Service<
@@ -31,9 +29,9 @@ export class OidcToken extends Context.Service<
 /** Controls which request adapters may refresh process-wide queue credentials. */
 export class OidcTokenAuthority extends Context.Service<
   OidcTokenAuthority,
-  { readonly accept: (request: IncomingMessage) => Effect.Effect<void> }
+  { readonly refresh: (token: string | undefined) => Effect.Effect<void> }
 >()("turbotunnel/gateway/OidcTokenAuthority") {
-  static readonly none = Layer.succeed(this, this.of({ accept: () => Effect.void }));
+  static readonly none = Layer.succeed(this, this.of({ refresh: () => Effect.void }));
 
   /** Trusts Vercel's platform-injected function header at the deployment adapter boundary. */
   static readonly vercel = Layer.effect(
@@ -41,10 +39,8 @@ export class OidcTokenAuthority extends Context.Service<
     Effect.gen(function* () {
       const oidcToken = yield* OidcToken;
       return OidcTokenAuthority.of({
-        accept: (request) => {
-          const value = request.headers["x-vercel-oidc-token"];
-          return typeof value === "string" && value.length > 0 ? oidcToken.set(value) : Effect.void;
-        },
+        refresh: (token) =>
+          token !== undefined && token.length > 0 ? oidcToken.set(token) : Effect.void,
       });
     }),
   );

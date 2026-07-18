@@ -22,7 +22,7 @@ import { publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
 import { type AccessOverride } from "../domain/project-access.js";
 import { CliConfigError, DevServerReadinessTimeout, type StartDevError } from "../errors.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
-import { resolveProjectTunnel } from "./resolve-project-tunnel.js";
+import { prepareProjectTunnel } from "./resolve-project-tunnel.js";
 
 const DEV_SERVER_READINESS_TIMEOUT_SECONDS = 60;
 
@@ -77,7 +77,7 @@ export const startDev = Effect.fn("startDev")(function* (options: {
     options.processEnv?.TURBOTUNNEL_DEV ?? projectConfig?.dev,
   );
   yield* validateProjectEnvironment(projectConfig?.env ?? {});
-  const config = yield* resolveProjectTunnel({
+  const config = yield* prepareProjectTunnel({
     input: {
       port,
       host: "localhost",

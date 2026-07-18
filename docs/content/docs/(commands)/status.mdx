@@ -77,7 +77,7 @@ The command writes a JSON array to stdout. Each item includes the terminal field
 ]
 ```
 
-The `version` field identifies the snapshot schema. The `gateway` field is either `"running"` or `"unreachable"`. Timeouts, non-200 responses, invalid responses, and network failures produce `"unreachable"`. They do not fail `tt status`.
+The `version` field identifies the snapshot schema. The `gateway` field is `"running"`, `"unreachable"`, `"rejected"`, or `"invalid-response"`. Timeouts and network failures produce `"unreachable"`; non-200 responses produce `"rejected"`; malformed or oversized responses produce `"invalid-response"`. These gateway results do not fail `tt status`.
 
 Human output goes to stderr. JSON output goes to stdout without ANSI styling.
 

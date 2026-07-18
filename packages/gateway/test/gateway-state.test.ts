@@ -83,6 +83,27 @@ describe("GatewayState", () => {
       yield* Scope.close(newerScope, Exit.void);
     }).pipe(Effect.provide(GatewayState.layer)),
   );
+
+  it.effect("keeps the existing client when the same generation reconnects", () =>
+    Effect.gen(function* () {
+      const state = yield* GatewayState;
+      const existingScope = yield* Scope.make();
+      const duplicateScope = yield* Scope.make();
+      const existing = yield* state
+        .registerLocalClient(localRegistration(1))
+        .pipe(Effect.provideService(Scope.Scope, existingScope));
+      const duplicate = yield* state
+        .registerLocalClient(localRegistration(1))
+        .pipe(Effect.provideService(Scope.Scope, duplicateScope));
+
+      const selected = yield* state.pickLocalClient("demo", routeIdentity);
+
+      expect(selected).toBe(existing);
+      expect(selected).not.toBe(duplicate);
+      yield* Scope.close(duplicateScope, Exit.void);
+      yield* Scope.close(existingScope, Exit.void);
+    }).pipe(Effect.provide(GatewayState.layer)),
+  );
 });
 
 function localRegistration(generation: number) {

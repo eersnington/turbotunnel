@@ -18,7 +18,8 @@ import {
 } from "../domain/tunnel-config.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 
-export const resolveProjectTunnel = Effect.fn("resolveProjectTunnel")(function* (options: {
+/** Validates gateway access and reconciles any project-owned domain before tunneling. */
+export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* (options: {
   readonly input: HttpCommandInput;
   readonly env: TunnelEnvironment;
   readonly cwd: string;

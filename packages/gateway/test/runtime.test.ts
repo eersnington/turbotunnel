@@ -25,7 +25,7 @@ import { Effect, ManagedRuntime, Result, Schema } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket, type RawData } from "ws";
 
-import { GatewayLive, GatewayServer } from "../src/gateway.js";
+import { GatewayLive, GatewayServer, VercelGatewayLive } from "../src/gateway.js";
 import { Queue } from "../src/queue.js";
 import { PublicRouteRegistry } from "../src/public-route-registry.js";
 
@@ -95,6 +95,37 @@ describe("gateway runtime", () => {
       authorizationHeaders.length = 0;
       await Effect.runPromise(gateway.queue.send("authority-test", { ok: true }));
       expect(authorizationHeaders).toEqual(["Bearer trusted-process-token"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("lets the Vercel adapter refresh the token used by Vercel Queue", async () => {
+    const originalFetch = globalThis.fetch;
+    const authorizationHeaders: Array<string | null> = [];
+    globalThis.fetch = async (_input, init) => {
+      authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+      return new Response(null, { status: 201 });
+    };
+
+    try {
+      const gateway = await startGateway(
+        {
+          TURBOTUNNEL_BROKER: "vercel",
+          VERCEL_OIDC_TOKEN: "initial-token",
+        },
+        "vercel",
+      );
+      const response = await request(gateway.server, {
+        path: "/_turbotunnel/status",
+        host: "tunnel.test",
+        headers: { "x-vercel-oidc-token": "invocation-token" },
+      });
+
+      expect(response.status).toBe(200);
+      authorizationHeaders.length = 0;
+      await Effect.runPromise(gateway.queue.send("authority-test", { ok: true }));
+      expect(authorizationHeaders).toEqual(["Bearer invocation-token"]);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -899,6 +930,40 @@ describe("gateway runtime", () => {
     expect(newer.readyState).toBe(WebSocket.OPEN);
   });
 
+  test("rejects a duplicate generation while keeping the existing client active", async () => {
+    const gateway = await startGateway();
+    const existing = await gateway.openLocalClient("duplicate-generation");
+    const existingFrames = new FrameRecorder(existing);
+    sendHello(existing, {
+      slug: "duplicate-generation",
+      localClientId: "local_duplicate",
+      sessionId: "session_duplicate",
+      generation: 1,
+    });
+    await existingFrames.take((frame): frame is Frame => frame.type === "local.ready");
+
+    const duplicate = await gateway.openLocalClient("duplicate-generation");
+    const duplicateClosed = waitForClose(duplicate);
+    sendHello(duplicate, {
+      slug: "duplicate-generation",
+      localClientId: "local_duplicate",
+      sessionId: "session_duplicate",
+      generation: 1,
+    });
+    await expect(duplicateClosed).resolves.toEqual({
+      code: 1008,
+      reason: "stale local client generation",
+    });
+
+    const status = await request(gateway.server, {
+      path: "/_turbotunnel/status",
+      host: "tunnel.test",
+      accept: "application/json",
+    });
+    expect(JSON.parse(status.body)).toMatchObject({ activeLocalClients: 1 });
+    expect(existing.readyState).toBe(WebSocket.OPEN);
+  });
+
   test("suppresses duplicate local WebSocket frames and closes on a sequence gap", async () => {
     const gateway = await startGateway();
     const local = await gateway.openLocalClient("sequence-demo");
@@ -1153,9 +1218,13 @@ class FrameRecorder {
   }
 }
 
-async function startGateway(env: NodeJS.ProcessEnv = {}): Promise<RunningGateway> {
+async function startGateway(
+  env: NodeJS.ProcessEnv = {},
+  platform: "generic" | "vercel" = "generic",
+): Promise<RunningGateway> {
+  const makeGateway = platform === "vercel" ? VercelGatewayLive : GatewayLive;
   const runtime = ManagedRuntime.make(
-    GatewayLive({
+    makeGateway({
       NODE_ENV: "development",
       TURBOTUNNEL_BASE_DOMAIN: "tunnel.test",
       TURBOTUNNEL_BROKER: "memory",

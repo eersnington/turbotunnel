@@ -11,7 +11,7 @@ import { type HttpCommandInput, type TunnelEnvironment } from "../domain/tunnel-
 import { type StartHttpTunnelError } from "../errors.js";
 import { type AccessOverride } from "../domain/project-access.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
-import { resolveProjectTunnel } from "./resolve-project-tunnel.js";
+import { prepareProjectTunnel } from "./resolve-project-tunnel.js";
 
 export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   input: HttpCommandInput,
@@ -43,7 +43,7 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
     options.processEnv?.TURBOTUNNEL_PORT,
     "No tunnel was started.",
   );
-  const config = yield* resolveProjectTunnel({
+  const config = yield* prepareProjectTunnel({
     input: {
       ...input,
       port: input.port ?? configuredEnvironmentPort ?? projectConfig?.port,
