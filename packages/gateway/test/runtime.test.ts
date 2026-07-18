@@ -337,8 +337,10 @@ describe("gateway runtime", () => {
     expect(response.status).toBe(502);
     expect(response.headers["content-type"]).toContain("text/html");
     expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toContain("Local app unavailable");
     expect(response.body).toContain("tt http");
     expect(response.body).toContain("--host");
+    expect(response.body).toContain("https://turbotunnel.eers.dev/docs");
     expect(response.body).not.toContain("127.0.0.1");
     expect(response.body).not.toContain("4321");
   });
@@ -496,6 +498,16 @@ describe("gateway runtime", () => {
     expect(denied.status).toBe(303);
     expect(denied.headers.location).toBe("/_turbotunnel/login");
 
+    const loginGet = await request(gateway.server, {
+      path: "/_turbotunnel/login",
+      host: "login-demo.tunnel.test",
+    });
+    expect(loginGet.status).toBe(200);
+    expect(loginGet.headers["content-type"]).toContain("text/html");
+    expect(loginGet.body).toContain("Password required");
+    expect(loginGet.body).toContain('name="password"');
+    expect(loginGet.body).toContain("https://turbotunnel.eers.dev/docs");
+
     const wrong = await request(gateway.server, {
       path: "/_turbotunnel/login",
       host: "login-demo.tunnel.test",
@@ -504,6 +516,9 @@ describe("gateway runtime", () => {
       body: "password=wrong",
     });
     expect(wrong.status).toBe(401);
+    expect(wrong.headers["content-type"]).toContain("text/html");
+    expect(wrong.body).toContain("Password was not accepted.");
+    expect(wrong.body).toContain('name="password"');
 
     const login = await request(gateway.server, {
       path: "/_turbotunnel/login",

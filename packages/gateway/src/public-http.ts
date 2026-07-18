@@ -26,7 +26,13 @@ import {
   responseHeadersForBrowser,
 } from "./headers.js";
 import { isGatewayRootHost, normalizeHost } from "./host.js";
-import { localAppUnavailablePage } from "./local-app-unavailable-page.js";
+import {
+  localAppUnavailablePage,
+  passwordLoginPage,
+  routeConflictPage,
+  routeNotReadyPage,
+  tunnelNotFoundPage,
+} from "./gateway-pages.js";
 import { OidcToken } from "./oidc-token.js";
 import { listTunnels, type PresenceReplayLimitError } from "./presence.js";
 import { PublicRouteRegistry, type PublicRoute } from "./public-route-registry.js";
@@ -106,13 +112,17 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
 
   const routeLookup = yield* routes.lookup(normalizedHost);
   if (routeLookup._tag !== "Found") {
-    writePlainResponse(
-      response,
-      routeLookup._tag === "Missing" ? 404 : 503,
-      routeLookup._tag === "Missing"
-        ? "Tunnel host does not have an active registration."
-        : "Tunnel route registry is not ready or has conflicting active registrations. No local app was contacted.",
-    );
+    switch (routeLookup._tag) {
+      case "Missing":
+        writeGatewayHtmlPage(response, 404, tunnelNotFoundPage);
+        break;
+      case "NotReady":
+        writeGatewayHtmlPage(response, 503, routeNotReadyPage);
+        break;
+      case "Conflicting":
+        writeGatewayHtmlPage(response, 503, routeConflictPage);
+        break;
+    }
     return;
   }
   const route = routeLookup.route;
@@ -262,13 +272,7 @@ function handlePasswordLogin(
   }
   const passwordHash = route.accessPolicy.hash;
   if (request.method === "GET") {
-    response.writeHead(200, {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    });
-    response.end(
-      '<!doctype html><meta name="viewport" content="width=device-width"><title>Tunnel access</title><form method="post"><label>Password <input name="password" type="password" required autofocus></label><button type="submit">Continue</button></form>',
-    );
+    writePasswordLoginPage(response, 200);
     return Effect.void;
   }
   if (request.method !== "POST") {
@@ -301,7 +305,7 @@ function handlePasswordLogin(
     if (Option.isNone(body)) return;
     const password = new URLSearchParams(body.value.toString("utf8")).get("password");
     if (password === null || !(yield* verifyScryptPassword(password, passwordHash))) {
-      writePlainResponse(response, 401, "The password was not accepted.");
+      writePasswordLoginPage(response, 401, "Password was not accepted.");
       return;
     }
     response.writeHead(303, {
@@ -373,14 +377,34 @@ function writeHttpResponse(response: ServerResponse, frame: HttpResponse): void 
 }
 
 function writeLocalAppUnavailable(response: ServerResponse): void {
-  response.writeHead(502, {
+  writeGatewayHtmlPage(response, 502, localAppUnavailablePage);
+}
+
+function writePasswordLoginPage(response: ServerResponse, status: 200 | 401, error?: string): void {
+  writeGatewayHtmlPage(
+    response,
+    status,
+    passwordLoginPage(error === undefined ? undefined : { error }),
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  );
+}
+
+function writeGatewayHtmlPage(
+  response: ServerResponse,
+  status: number,
+  html: string,
+  contentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+): void {
+  if (response.writableEnded) {
+    return;
+  }
+  response.writeHead(status, {
     "cache-control": "no-store",
-    "content-security-policy":
-      "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "content-security-policy": contentSecurityPolicy,
     "content-type": "text/html; charset=utf-8",
     "x-content-type-options": "nosniff",
   });
-  response.end(localAppUnavailablePage);
+  response.end(html);
 }
 
 /** Writes a plain-text response unless the Node response has already ended. */
