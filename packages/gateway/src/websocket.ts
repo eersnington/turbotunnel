@@ -1,8 +1,10 @@
 import { Buffer } from "node:buffer";
 
 import { encodeProtocolFrameJson, type Frame } from "@turbotunnel/contracts";
-import { Effect, Queue as EffectQueue, Schema, Scope } from "effect";
+import { Cause, Effect, Queue as EffectQueue, Schema, Scope } from "effect";
 import { WebSocket, type RawData } from "ws";
+
+const GATEWAY_WEBSOCKET_EVENT_QUEUE_CAPACITY = 256;
 
 /** Expected failure reported by the raw `ws` send callback. */
 export class GatewayWebSocketWriteError extends Schema.TaggedErrorClass<GatewayWebSocketWriteError>()(
@@ -36,26 +38,44 @@ export function acquireGatewayWebSocket(
   ws: WebSocket,
 ): Effect.Effect<GatewayWebSocket, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const events = yield* EffectQueue.make<GatewayWebSocketEvent>();
+    const events = yield* EffectQueue.bounded<GatewayWebSocketEvent>(
+      GATEWAY_WEBSOCKET_EVENT_QUEUE_CAPACITY,
+    );
 
     yield* Effect.acquireRelease(
       Effect.sync(() => {
+        const offerEvent = (event: GatewayWebSocketEvent): void => {
+          if (EffectQueue.offerUnsafe(events, event)) return;
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(1013, "WebSocket event queue overflow");
+          } else if (ws.readyState === WebSocket.CONNECTING) {
+            ws.terminate();
+          }
+          EffectQueue.failCauseUnsafe(
+            events,
+            Cause.die(
+              new Error(
+                `Gateway WebSocket event queue exceeded its capacity of ${GATEWAY_WEBSOCKET_EVENT_QUEUE_CAPACITY}; the connection was closed to preserve frame ordering.`,
+              ),
+            ),
+          );
+        };
         const onMessage = (data: RawData, binary: boolean): void => {
-          EffectQueue.offerUnsafe(events, {
+          offerEvent({
             _tag: "Message",
             data: rawDataToBuffer(data),
             binary,
           });
         };
         const onClose = (code: number, reason: Buffer): void => {
-          EffectQueue.offerUnsafe(events, {
+          offerEvent({
             _tag: "Close",
             code,
             reason: reason.toString("utf8"),
           });
         };
         const onError = (): void => {
-          EffectQueue.offerUnsafe(events, {
+          offerEvent({
             _tag: "Close",
             code: 1011,
             reason: "gateway websocket failed",
@@ -127,6 +147,7 @@ function send(
             ),
       );
     };
+    // ws.send can throw before its completion callback is registered.
     try {
       if (options === undefined) {
         ws.send(data, onSent);

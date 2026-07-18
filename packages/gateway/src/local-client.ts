@@ -98,6 +98,10 @@ export const runLocalClient = Effect.fn("runLocalClient")(function* (
     target: frame.target,
     capacity: Math.min(frame.capacity, LOCAL_CLIENT_CAPACITY),
   });
+  if (!(yield* state.isLocalClientActive(localClient))) {
+    yield* socket.close(1008, "stale local client generation");
+    return;
+  }
   const connectionFibers = yield* FiberSet.make<void, LocalClientError>();
   yield* Effect.logInfo("local tunnel client registered").pipe(
     Effect.annotateLogs({
@@ -126,7 +130,9 @@ export const runLocalClient = Effect.fn("runLocalClient")(function* (
       routeIdentity: localClient.routeIdentity,
     });
     const messages = processRegisteredLocalClient(socket, localClient);
-    const pump = startLocalQueuePump(localClient, connectionFibers);
+    const pump = startLocalQueuePump(localClient, connectionFibers).pipe(
+      Effect.flatMap(() => Effect.never),
+    );
     yield* Effect.raceFirst(messages, pump).pipe(Effect.ensuring(FiberSet.clear(connectionFibers)));
   });
   yield* connection.pipe(
@@ -233,6 +239,9 @@ const startLocalQueuePump = Effect.fn("startLocalQueuePump")(function* (
       limit: QUEUE_RECEIVE_LIMIT,
       visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
     });
+    if (!(yield* state.isLocalClientActive(localClient))) {
+      return;
+    }
     yield* state.recordMetric("queueReceives");
     if (messages.length === 0) {
       const emptyReceives = yield* state.noteQueueReceive(localClient, false);
@@ -300,6 +309,9 @@ const startLocalWsInputPump = Effect.fn("startLocalWsInputPump")(function* (
       limit: QUEUE_RECEIVE_LIMIT,
       visibilityTimeoutSeconds: QUEUE_VISIBILITY_TIMEOUT_SECONDS,
     });
+    if (!(yield* state.isLocalClientActive(localClient))) {
+      return;
+    }
     yield* state.recordMetric("queueReceives");
     if (messages.length === 0) {
       const emptyReceives = yield* state.noteQueueReceive(localClient, false);

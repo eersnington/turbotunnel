@@ -74,4 +74,6 @@ Turbotunnel connects without waiting for the local app. If the app is unavailabl
 
 WebSocket connections close with code `1011` while the local app is unavailable. Reconnect after the app starts.
 
+Public WebSocket subprotocol negotiation is not supported. Upgrade requests containing `Sec-WebSocket-Protocol` are rejected with HTTP `400` rather than forwarding a protocol the gateway did not negotiate.
+
 If no gateway settings are available from options, environment variables, or the saved config, run `tt deploy` first.

@@ -1,8 +1,4 @@
-import {
-  listedTunnelSchema,
-  tunnelListResponseSchema,
-  tunnelPresenceEventSchema,
-} from "../src/presence.js";
+import { tunnelListResponseSchema, tunnelPresenceEventSchema } from "../src/presence.js";
 import { describe, expect, it } from "@effect/vitest";
 import { Result, Schema } from "effect";
 
@@ -33,7 +29,7 @@ describe("presence contracts", () => {
       version: 1,
       consistency: "bounded",
       generatedAt: 2_000,
-      tunnels: [Schema.decodeUnknownSync(listedTunnelSchema)(tunnelInput)],
+      tunnels: [tunnelInput],
     } as const;
 
     const event = Schema.decodeUnknownResult(tunnelPresenceEventSchema)(eventInput);

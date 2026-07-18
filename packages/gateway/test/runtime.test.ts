@@ -25,7 +25,7 @@ import { Effect, ManagedRuntime, Result, Schema } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket, type RawData } from "ws";
 
-import { GatewayLive, GatewayServer } from "../src/gateway.js";
+import { GatewayLive, GatewayServer, VercelGatewayLive } from "../src/gateway.js";
 import { Queue } from "../src/queue.js";
 import { PublicRouteRegistry } from "../src/public-route-registry.js";
 
@@ -69,6 +69,66 @@ describe("gateway runtime", () => {
     });
     expect(landing.status).toBe(200);
     expect(landing.headers["content-type"]).toContain("text/plain");
+  });
+
+  test("does not let a public request replace the token used by Vercel Queue", async () => {
+    const originalFetch = globalThis.fetch;
+    const authorizationHeaders: Array<string | null> = [];
+    globalThis.fetch = async (input, init) => {
+      authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+      const url = String(input);
+      return new Response(null, { status: url.includes("/consumer/") ? 204 : 201 });
+    };
+
+    try {
+      const gateway = await startGateway({
+        TURBOTUNNEL_BROKER: "vercel",
+        VERCEL_OIDC_TOKEN: "trusted-process-token",
+      });
+      const response = await request(gateway.server, {
+        path: "/_turbotunnel/status",
+        host: "tunnel.test",
+        headers: { "x-vercel-oidc-token": "attacker-token" },
+      });
+
+      expect(response.status).toBe(200);
+      authorizationHeaders.length = 0;
+      await Effect.runPromise(gateway.queue.send("authority-test", { ok: true }));
+      expect(authorizationHeaders).toEqual(["Bearer trusted-process-token"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("lets the Vercel adapter refresh the token used by Vercel Queue", async () => {
+    const originalFetch = globalThis.fetch;
+    const authorizationHeaders: Array<string | null> = [];
+    globalThis.fetch = async (_input, init) => {
+      authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+      return new Response(null, { status: 201 });
+    };
+
+    try {
+      const gateway = await startGateway(
+        {
+          TURBOTUNNEL_BROKER: "vercel",
+          VERCEL_OIDC_TOKEN: "initial-token",
+        },
+        "vercel",
+      );
+      const response = await request(gateway.server, {
+        path: "/_turbotunnel/status",
+        host: "tunnel.test",
+        headers: { "x-vercel-oidc-token": "invocation-token" },
+      });
+
+      expect(response.status).toBe(200);
+      authorizationHeaders.length = 0;
+      await Effect.runPromise(gateway.queue.send("authority-test", { ok: true }));
+      expect(authorizationHeaders).toEqual(["Bearer invocation-token"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("rejects hosts outside the configured tunnel domain", async () => {
@@ -476,6 +536,19 @@ describe("gateway runtime", () => {
     expect(forwarded).toBe(false);
   });
 
+  test("rejects unsupported public WebSocket subprotocols before sending 101", async () => {
+    const gateway = await startGateway();
+
+    const status = await rejectedWebSocketStatus(
+      gateway.server,
+      "subprotocol-demo.tunnel.test",
+      "/socket",
+      "graphql-ws",
+    );
+
+    expect(status).toBe(400);
+  });
+
   test("password login sets a cookie that admits subsequent HTTP", async () => {
     const gateway = await startGateway();
     const local = await gateway.openLocalClient("login-demo");
@@ -725,9 +798,10 @@ describe("gateway runtime", () => {
     });
   });
 
-  test("keeps a newer local-client generation registered when the older socket closes", async () => {
+  test("hands new work to a newer generation while the older generation completes owned work", async () => {
     const gateway = await startGateway();
     const older = await gateway.openLocalClient("generation-demo");
+    const olderFrames = new FrameRecorder(older);
     older.send(
       JSON.stringify({
         protocolVersion: PROTOCOL_VERSION,
@@ -745,7 +819,15 @@ describe("gateway runtime", () => {
     );
     await waitForActiveLocalClient(gateway, "generation-demo.tunnel.test");
 
-    const olderFrames = new FrameRecorder(older);
+    const olderRequest = request(gateway.server, {
+      path: "/owned-by-generation-1",
+      host: "generation-demo.tunnel.test",
+    });
+    const owned = await olderFrames.take(
+      (frame): frame is HttpRequest =>
+        frame.type === "http.request" && frame.path === "/owned-by-generation-1",
+    );
+
     const newer = await gateway.openLocalClient("generation-demo");
     const newerFrames = new FrameRecorder(newer);
     await sendText(
@@ -765,50 +847,21 @@ describe("gateway runtime", () => {
       }),
     );
 
-    const maximumProbeAttempts = 5;
-    let probeAttempts = 0;
-    let routedToNewer = false;
-    while (probeAttempts < maximumProbeAttempts && !routedToNewer) {
-      probeAttempts += 1;
-      const path = `/generation-probe-${probeAttempts}`;
-      const pendingProbe = request(gateway.server, {
-        path,
-        host: "generation-demo.tunnel.test",
-      });
-      const predicate = (frame: Frame): frame is HttpRequest =>
-        frame.type === "http.request" && frame.path === path;
-      const olderTake = olderFrames.takeCancellable(predicate);
-      const newerTake = newerFrames.takeCancellable(predicate);
-      const routed = await Promise.race([
-        olderTake.promise.then((frame) => ({ socket: older, frame, newer: false as const })),
-        newerTake.promise.then((frame) => ({ socket: newer, frame, newer: true as const })),
-      ]);
-      if (routed.newer) {
-        olderTake.cancel();
-      } else {
-        newerTake.cancel();
-      }
-      routed.socket.send(
-        JSON.stringify({
-          protocolVersion: PROTOCOL_VERSION,
-          type: "http.response",
-          frameId: `frm_generation_probe_${probeAttempts}_response`,
-          requestId: routed.frame.requestId,
-          responseTopic: routed.frame.responseTopic,
-          status: 200,
-          headers: [],
-          body: Buffer.from("probe").toString("base64"),
-        }),
-      );
-      await expect(pendingProbe).resolves.toMatchObject({ status: 200, body: "probe" });
-      routedToNewer = routed.newer;
-    }
-    expect(routedToNewer).toBe(true);
+    await newerFrames.take((frame): frame is Frame => frame.type === "local.ready");
 
-    const olderClosed = waitForClose(older);
-    older.terminate();
-    await olderClosed;
-    await waitForActiveLocalClient(gateway, "generation-demo.tunnel.test");
+    older.send(
+      JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION,
+        type: "http.response",
+        frameId: "frm_generation_1_response",
+        requestId: owned.requestId,
+        responseTopic: owned.responseTopic,
+        status: 200,
+        headers: [],
+        body: Buffer.from("older-client").toString("base64"),
+      }),
+    );
+    await expect(olderRequest).resolves.toMatchObject({ status: 200, body: "older-client" });
 
     const pendingHttp = request(gateway.server, {
       path: "/new-generation",
@@ -838,9 +891,77 @@ describe("gateway runtime", () => {
       accept: "application/json",
     });
     expect(JSON.parse(status.body)).toMatchObject({
-      directHttpRequests: probeAttempts + 1,
+      directHttpRequests: 2,
       queuedHttpRequests: 0,
     });
+  });
+
+  test("rejects generation 1 arriving after generation 2 for the same session and client", async () => {
+    const gateway = await startGateway();
+    const newer = await gateway.openLocalClient("reordered-generation");
+    const newerFrames = new FrameRecorder(newer);
+    sendHello(newer, {
+      slug: "reordered-generation",
+      localClientId: "local_reordered",
+      sessionId: "session_reordered",
+      generation: 2,
+    });
+    await newerFrames.take((frame): frame is Frame => frame.type === "local.ready");
+
+    const stale = await gateway.openLocalClient("reordered-generation");
+    const staleClosed = waitForClose(stale);
+    sendHello(stale, {
+      slug: "reordered-generation",
+      localClientId: "local_reordered",
+      sessionId: "session_reordered",
+      generation: 1,
+    });
+    await expect(staleClosed).resolves.toEqual({
+      code: 1008,
+      reason: "stale local client generation",
+    });
+
+    const status = await request(gateway.server, {
+      path: "/_turbotunnel/status",
+      host: "tunnel.test",
+      accept: "application/json",
+    });
+    expect(JSON.parse(status.body)).toMatchObject({ activeLocalClients: 1 });
+    expect(newer.readyState).toBe(WebSocket.OPEN);
+  });
+
+  test("rejects a duplicate generation while keeping the existing client active", async () => {
+    const gateway = await startGateway();
+    const existing = await gateway.openLocalClient("duplicate-generation");
+    const existingFrames = new FrameRecorder(existing);
+    sendHello(existing, {
+      slug: "duplicate-generation",
+      localClientId: "local_duplicate",
+      sessionId: "session_duplicate",
+      generation: 1,
+    });
+    await existingFrames.take((frame): frame is Frame => frame.type === "local.ready");
+
+    const duplicate = await gateway.openLocalClient("duplicate-generation");
+    const duplicateClosed = waitForClose(duplicate);
+    sendHello(duplicate, {
+      slug: "duplicate-generation",
+      localClientId: "local_duplicate",
+      sessionId: "session_duplicate",
+      generation: 1,
+    });
+    await expect(duplicateClosed).resolves.toEqual({
+      code: 1008,
+      reason: "stale local client generation",
+    });
+
+    const status = await request(gateway.server, {
+      path: "/_turbotunnel/status",
+      host: "tunnel.test",
+      accept: "application/json",
+    });
+    expect(JSON.parse(status.body)).toMatchObject({ activeLocalClients: 1 });
+    expect(existing.readyState).toBe(WebSocket.OPEN);
   });
 
   test("suppresses duplicate local WebSocket frames and closes on a sequence gap", async () => {
@@ -1097,13 +1218,18 @@ class FrameRecorder {
   }
 }
 
-async function startGateway(): Promise<RunningGateway> {
+async function startGateway(
+  env: NodeJS.ProcessEnv = {},
+  platform: "generic" | "vercel" = "generic",
+): Promise<RunningGateway> {
+  const makeGateway = platform === "vercel" ? VercelGatewayLive : GatewayLive;
   const runtime = ManagedRuntime.make(
-    GatewayLive({
+    makeGateway({
       NODE_ENV: "development",
       TURBOTUNNEL_BASE_DOMAIN: "tunnel.test",
       TURBOTUNNEL_BROKER: "memory",
       TURBOTUNNEL_RELAY_SECRET: "test_secret",
+      ...env,
     }),
   );
   const server = await runtime.runPromise(GatewayServer);
@@ -1209,10 +1335,17 @@ function openSocket(
   );
 }
 
-function rejectedWebSocketStatus(server: Server, host: string, path: string): Promise<number> {
-  const socket = new WebSocket(`ws://127.0.0.1:${serverPort(server)}${path}`, {
-    headers: { host },
-  });
+function rejectedWebSocketStatus(
+  server: Server,
+  host: string,
+  path: string,
+  protocol?: string,
+): Promise<number> {
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${serverPort(server)}${path}`,
+    protocol === undefined ? undefined : protocol,
+    { headers: { host } },
+  );
   socket.on("error", () => undefined);
   return withTimeout(
     new Promise((resolve, reject) => {

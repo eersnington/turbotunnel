@@ -33,7 +33,6 @@ import {
   routeNotReadyPage,
   tunnelNotFoundPage,
 } from "./gateway-pages.js";
-import { OidcToken } from "./oidc-token.js";
 import { listTunnels, type PresenceReplayLimitError } from "./presence.js";
 import { PublicRouteRegistry, type PublicRoute } from "./public-route-registry.js";
 import {
@@ -63,11 +62,10 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
 ): Effect.fn.Return<
   void,
   PublicHttpError,
-  GatewayConfig | GatewayState | OidcToken | PublicRouteRegistry | Queue
+  GatewayConfig | GatewayState | PublicRouteRegistry | Queue
 > {
   const config = yield* GatewayConfig;
   const state = yield* GatewayState;
-  const oidcToken = yield* OidcToken;
   const queue = yield* Queue;
   const routes = yield* PublicRouteRegistry;
   const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
@@ -81,9 +79,6 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
   }
 
   const headers = headersResult.value;
-  if (headers.oidcToken !== undefined) {
-    yield* oidcToken.set(headers.oidcToken);
-  }
   const pathname = URL.parse(request.url ?? "/", "http://gateway.invalid")?.pathname;
   if (request.method === "GET" && pathname === "/_turbotunnel/tunnels") {
     if (!hasValidBearerAuth(headers.authorization, Redacted.value(config.relaySecret))) {
@@ -130,7 +125,8 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
     yield* handlePasswordLogin(request, response, route, config);
     return;
   }
-  if (!admitPublicAccess(route.accessPolicy, normalizedHost, headers, config)) {
+  const accessNowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+  if (!admitPublicAccess(route.accessPolicy, normalizedHost, headers, config, accessNowSeconds)) {
     if (route.accessPolicy.type === "password") {
       response.writeHead(303, { location: "/_turbotunnel/login" });
       response.end();
@@ -217,6 +213,8 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
       case "disconnected-before-forwarding":
         writePlainResponse(response, 502, "Local tunnel client disconnected before forwarding.");
         return;
+      case "superseded-before-forwarding":
+        break;
       case "disconnected-before-response":
         writePlainResponse(
           response,
@@ -246,6 +244,7 @@ export const handlePublicHttp = Effect.fn("handlePublicHttp")(function* (
     requestId,
     responseTopic: responseTopicName,
     timeoutMs: PUBLIC_HTTP_TIMEOUT_MS,
+    recordMetric: state.recordMetric,
   });
   if (result._tag === "ok") {
     writeHttpResponse(response, result.value);
@@ -315,6 +314,7 @@ function handlePasswordLogin(
         route.identity.publicHost,
         passwordHash,
         Redacted.value(config.relaySecret),
+        Math.floor((yield* Clock.currentTimeMillis) / 1000),
       ),
     });
     response.end();
@@ -329,6 +329,9 @@ function forwardHttpDirect(
 ) {
   return Effect.gen(function* () {
     const request = yield* state.registerDirectRequest(localClient, frame.requestId);
+    if (request === undefined) {
+      return { _tag: "superseded-before-forwarding" } as const;
+    }
     if (!(yield* localClient.socket.sendFrame(frame))) {
       return { _tag: "disconnected-before-forwarding" } as const;
     }
@@ -464,7 +467,6 @@ export function readLimitedBody(
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalBytes += bytes.byteLength;
       if (totalBytes > maxBytes) {
-        request.pause();
         finish(
           Effect.fail(
             new RequestBodyTooLargeError({
@@ -473,6 +475,8 @@ export function readLimitedBody(
             }),
           ),
         );
+        // The HTTP handler still owns the socket long enough to send 413, so discard the remainder.
+        request.resume();
         return;
       }
       chunks.push(bytes);

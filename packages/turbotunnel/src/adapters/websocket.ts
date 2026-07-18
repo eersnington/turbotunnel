@@ -16,6 +16,8 @@ export type SocketEvent =
   | { readonly _tag: "Message"; readonly data: Uint8Array; readonly binary: boolean }
   | { readonly _tag: "Close"; readonly code: number; readonly reason: string };
 
+export const SOCKET_EVENT_QUEUE_CAPACITY = 256;
+
 export type RelayWebSocket = {
   readonly receive: Effect.Effect<SocketEvent, RelayWebSocketConnectError>;
   readonly sendFrame: (frame: Frame) => Effect.Effect<void, RelayWebSocketWriteError>;
@@ -92,6 +94,7 @@ export function acquireLocalWebSocket(options: {
   readonly url: string;
   readonly protocols: ReadonlyArray<string>;
   readonly headers: Readonly<Record<string, string>>;
+  readonly eventQueueCapacity?: number;
 }): Effect.Effect<LocalWebSocket, LocalWebSocketConnectError, Scope.Scope> {
   return acquireSocket(
     options.url,
@@ -102,6 +105,7 @@ export function acquireLocalWebSocket(options: {
         cause,
         message: "Tunnel could not connect to the local WebSocket endpoint.",
       }),
+    options.eventQueueCapacity,
   ).pipe(
     Effect.map(({ socket, receive }) => ({
       receive,
@@ -135,13 +139,14 @@ function acquireSocket<E>(
   url: string,
   construct: () => WebSocket,
   connectError: (cause: unknown) => E,
+  eventQueueCapacity = SOCKET_EVENT_QUEUE_CAPACITY,
 ): Effect.Effect<
   { readonly socket: WebSocket; readonly receive: Effect.Effect<SocketEvent, E> },
   E,
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const events = yield* Queue.unbounded<SocketEvent, E>();
+    const events = yield* Queue.bounded<SocketEvent, E>(eventQueueCapacity);
     const socket = yield* Effect.acquireRelease(
       Effect.try({ try: construct, catch: connectError }),
       (socket) => closeOwnedSocket(socket).pipe(Effect.andThen(Queue.shutdown(events))),
@@ -149,14 +154,26 @@ function acquireSocket<E>(
 
     yield* Effect.acquireRelease(
       Effect.sync(() => {
+        const offerEvent = (event: SocketEvent): void => {
+          if (Queue.offerUnsafe(events, event)) return;
+          const cause = new Error(
+            `WebSocket event queue exceeded its capacity of ${eventQueueCapacity}; the connection was closed to preserve frame ordering.`,
+          );
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(1013, "WebSocket event queue overflow");
+          } else if (socket.readyState === WebSocket.CONNECTING) {
+            socket.terminate();
+          }
+          Queue.failCauseUnsafe(events, Cause.fail(connectError(cause)));
+        };
         const onOpen = (): void => {
-          Queue.offerUnsafe(events, { _tag: "Open" });
+          offerEvent({ _tag: "Open" });
         };
         const onMessage = (data: RawData, binary: boolean): void => {
-          Queue.offerUnsafe(events, { _tag: "Message", data: rawDataToBuffer(data), binary });
+          offerEvent({ _tag: "Message", data: rawDataToBuffer(data), binary });
         };
         const onClose = (code: number, reason: Buffer): void => {
-          Queue.offerUnsafe(events, {
+          offerEvent({
             _tag: "Close",
             code,
             reason: reason.toString("utf8"),
@@ -195,6 +212,7 @@ function sendSocket<E>(
       resume(Effect.fail(writeError(new Error("WebSocket is not open."))));
       return;
     }
+    // ws.send can throw before its completion callback is registered.
     try {
       socket.send(data, { binary }, (cause) => {
         resume(cause == null ? Effect.void : Effect.fail(writeError(cause)));

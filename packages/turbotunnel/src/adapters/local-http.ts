@@ -27,6 +27,7 @@ export const requestLocalHttp = Effect.fn("requestLocalHttp")(function* (options
         method: options.method,
         headers: options.headers.map(([name, value]) => [name, value] as [string, string]),
         body: options.body === undefined ? undefined : new Uint8Array(options.body),
+        redirect: "manual",
         signal,
       }),
     catch: (cause) => requestFailed(options.host, options.port, cause),

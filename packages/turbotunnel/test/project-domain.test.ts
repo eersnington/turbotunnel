@@ -18,7 +18,7 @@ describe("ProjectDomain", () => {
               LocalConfigStore,
               LocalConfigStore.of({
                 read: Effect.succeed({ project: "gateway" }),
-                write: (config) =>
+                update: (config) =>
                   Effect.sync(() => {
                     written = config;
                   }),

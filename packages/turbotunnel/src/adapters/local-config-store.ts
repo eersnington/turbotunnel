@@ -1,6 +1,6 @@
 import { dirname } from "node:path";
 
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Effect, Layer, Redacted, Schema, Semaphore } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { nanoid } from "nanoid";
 
@@ -11,8 +11,9 @@ export type LocalConfig = typeof LocalConfigSchema.Type;
 
 export type LocalConfigStoreShape = {
   readonly read: Effect.Effect<LocalConfig, ConfigFileReadError | ConfigFileParseError>;
-  readonly write: (
-    config: LocalConfig,
+  /** Atomically merges a patch with the latest config, serialized within this process. */
+  readonly update: (
+    patch: LocalConfig,
   ) => Effect.Effect<void, ConfigFileReadError | ConfigFileParseError | ConfigFileWriteError>;
 };
 
@@ -58,11 +59,16 @@ const makeLocalConfigStore = Effect.fn("LocalConfigStore.make")(function* (
   path: string,
 ): Effect.fn.Return<LocalConfigStoreShape, never, FileSystem> {
   const fs = yield* FileSystem;
+  // This prevents lost updates between fibers sharing this service. Separate processes are not
+  // coordinated and can still race; the atomic rename only guarantees a complete file on disk.
+  const updateLock = yield* Semaphore.make(1);
   return LocalConfigStore.of({
     read: readConfig(fs, path),
-    write: (config) =>
-      readConfig(fs, path).pipe(
-        Effect.flatMap((saved) => writeConfig(fs, path, { ...saved, ...config })),
+    update: (patch) =>
+      updateLock.withPermits(1)(
+        readConfig(fs, path).pipe(
+          Effect.flatMap((saved) => writeConfig(fs, path, { ...saved, ...patch })),
+        ),
       ),
   });
 });
@@ -160,8 +166,11 @@ const writeConfig = Effect.fn("LocalConfigStore.write")(function* (
         null,
         2,
       )}\n`,
+      { mode: 0o600 },
     )
-    .pipe(Effect.mapError(writeError));
-  yield* fs.chmod(temporaryPath, 0o600).pipe(Effect.mapError(writeError));
-  yield* fs.rename(temporaryPath, path).pipe(Effect.mapError(writeError));
+    .pipe(
+      Effect.andThen(fs.rename(temporaryPath, path)),
+      Effect.mapError(writeError),
+      Effect.onError(() => fs.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
+    );
 });

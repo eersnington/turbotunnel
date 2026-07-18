@@ -35,6 +35,29 @@ describe("GatewayWebSocket", () => {
       }),
     ),
   );
+
+  it.live("closes instead of buffering unbounded inbound events", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* acquireGatewayFixture;
+        const connection = yield* Effect.forkChild(waitForConnection(fixture.webSocketServer));
+        const client = yield* acquireClient(`ws://127.0.0.1:${fixture.port}`);
+        yield* waitForOpen(client);
+        const { rawWebSocket } = yield* Fiber.join(connection);
+        yield* acquireGatewayWebSocket(rawWebSocket);
+        const closed = yield* Effect.forkChild(waitForClientClose(client));
+
+        for (let index = 0; index <= 256; index += 1) {
+          client.send(String(index));
+        }
+
+        expect(yield* Fiber.join(closed)).toEqual({
+          code: 1013,
+          reason: "WebSocket event queue overflow",
+        });
+      }),
+    ),
+  );
 });
 
 type GatewayFixture = {
@@ -108,6 +131,28 @@ function waitForConnection(webSocketServer: WebSocketServer) {
       resume(Effect.succeed({ rawWebSocket, request }));
     webSocketServer.once("connection", listener);
     return Effect.sync(() => webSocketServer.off("connection", listener));
+  }).pipe(Effect.timeout("1 second"));
+}
+
+function waitForOpen(client: WebSocket) {
+  return Effect.callback<void, Error>((resume) => {
+    const onOpen = () => resume(Effect.void);
+    const onError = (error: Error) => resume(Effect.fail(error));
+    client.once("open", onOpen);
+    client.once("error", onError);
+    return Effect.sync(() => {
+      client.off("open", onOpen);
+      client.off("error", onError);
+    });
+  }).pipe(Effect.timeout("1 second"));
+}
+
+function waitForClientClose(client: WebSocket) {
+  return Effect.callback<{ readonly code: number; readonly reason: string }>((resume) => {
+    const onClose = (code: number, reason: Buffer) =>
+      resume(Effect.succeed({ code, reason: reason.toString("utf8") }));
+    client.once("close", onClose);
+    return Effect.sync(() => client.off("close", onClose));
   }).pipe(Effect.timeout("1 second"));
 }
 

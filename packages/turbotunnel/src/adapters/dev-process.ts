@@ -144,6 +144,7 @@ function sendSignal(pid: number, signal: NodeJS.Signals): void {
     }
     return;
   }
+  // process.kill reports an already-exited process by throwing ESRCH.
   try {
     process.kill(-pid, signal);
   } catch (cause) {
@@ -168,6 +169,7 @@ function processGroupExists(pid: number): boolean {
       return match?.[2] === String(pid) && !match[1]?.startsWith("Z");
     });
   }
+  // Signal 0 is Node's throwing process-existence probe.
   try {
     process.kill(-pid, 0);
     return true;

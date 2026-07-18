@@ -157,7 +157,7 @@ export class GatewayState extends Context.Service<
     readonly registerDirectRequest: (
       client: LocalClient,
       requestId: string,
-    ) => Effect.Effect<DirectRequest, never, Scope.Scope>;
+    ) => Effect.Effect<DirectRequest | undefined, never, Scope.Scope>;
     readonly completeDirectRequest: (response: HttpResponse) => Effect.Effect<boolean>;
     readonly registerPublicConnection: (
       input: RegisterPublicConnection,
@@ -241,6 +241,15 @@ export class GatewayState extends Context.Service<
               [localClientRecordKey]: record,
             };
             const clientIds = localClientIdsBySlug.get(client.slug);
+            const current = localClients.get(client.clientId);
+            if (
+              current !== undefined &&
+              current.sessionId === client.sessionId &&
+              current.generation >= client.generation
+            ) {
+              record.draining = true;
+              return client;
+            }
             if (clientIds !== undefined) {
               for (const clientId of clientIds) {
                 const existing = localClients.get(clientId);
@@ -372,15 +381,22 @@ export class GatewayState extends Context.Service<
         registerDirectRequest: (client, requestId) =>
           Effect.acquireRelease(
             Effect.gen(function* () {
-              const result = yield* Deferred.make<DirectHttpResult>();
               const record = client[localClientRecordKey];
+              const socketOpen = yield* client.socket.isOpen;
+              if (record.draining || localClients.get(client.clientId) !== client || !socketOpen) {
+                return undefined;
+              }
+              const result = yield* Deferred.make<DirectHttpResult>();
               pendingHttpRequests.set(requestId, { result });
               record.pendingDirectHttpRequests.add(requestId);
               record.inFlight += 1;
               return { await: Deferred.await(result) };
             }),
-            () =>
+            (request) =>
               Effect.sync(() => {
+                if (request === undefined) {
+                  return;
+                }
                 const record = client[localClientRecordKey];
                 if (!record.pendingDirectHttpRequests.delete(requestId)) {
                   return;

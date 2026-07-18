@@ -279,7 +279,7 @@ const saveAssignment = Effect.fn("ProjectDomain.saveAssignment")(function* (
       item.targetName !== assignment.targetName ||
       item.targetPath !== assignment.targetPath,
   );
-  yield* store.write({
+  yield* store.update({
     teamId,
     projectId: project.id,
     domainAssignments: [...assignments, assignment],

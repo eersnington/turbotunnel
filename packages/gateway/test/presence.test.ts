@@ -18,7 +18,6 @@ import { compactExpiredMemoryQueueEntries, MemoryQueue } from "../src/memory-que
 import { listTunnels, PresenceReplayLimitError, reducePresence } from "../src/presence.js";
 import { Queue, QueueSendError } from "../src/queue.js";
 import type { GatewayWebSocket } from "../src/websocket.js";
-import { parseVercelQueueTimestamp } from "../src/vercel-queue.js";
 
 const target = { protocol: "http", host: "127.0.0.1", port: 3000 } as const;
 
@@ -44,20 +43,6 @@ describe("tunnel presence", () => {
       expect(messages).toHaveLength(1);
       expect(messages[0]?.sentAt).toBe(12_345);
     }).pipe(Effect.provide(MemoryQueue.isolatedLayer())),
-  );
-
-  it.effect("parses Vercel NDJSON server timestamps and rejects malformed values", () =>
-    Effect.gen(function* () {
-      const timestamp = yield* parseVercelQueueTimestamp(
-        "2026-01-13T12:00:00.000Z",
-        PRESENCE_TOPIC,
-      );
-      const invalid = yield* Effect.result(
-        parseVercelQueueTimestamp("not-a-timestamp", PRESENCE_TOPIC),
-      );
-      expect(timestamp).toBe(Date.parse("2026-01-13T12:00:00.000Z"));
-      expect(Result.isFailure(invalid)).toBe(true);
-    }),
   );
 
   it.effect("terminates a relay when its presence publication fails", () => {
@@ -125,7 +110,6 @@ describe("tunnel presence", () => {
       runLocalClient(socket, {
         host: "publication-failure.tunnel.test",
         authorization: "Bearer test_secret",
-        oidcToken: undefined,
         cookie: undefined,
         realIp: undefined,
         forwardedFor: undefined,
@@ -188,7 +172,10 @@ describe("tunnel presence", () => {
       }),
     );
     const layer = Layer.mergeAll(
-      GatewayConfig.layerFromEnv({ TURBOTUNNEL_BASE_DOMAIN: "tunnel.test" }),
+      GatewayConfig.layerFromEnv({
+        TURBOTUNNEL_BASE_DOMAIN: "tunnel.test",
+        TURBOTUNNEL_RELAY_SECRET: "test_secret",
+      }),
       GatewayState.layer,
       recordingQueue,
     );
@@ -199,7 +186,6 @@ describe("tunnel presence", () => {
         runLocalClient(socket, {
           host: "clock-fallback.tunnel.test",
           authorization: undefined,
-          oidcToken: undefined,
           cookie: undefined,
           realIp: undefined,
           forwardedFor: undefined,

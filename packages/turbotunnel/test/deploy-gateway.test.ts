@@ -160,7 +160,7 @@ class DeployRecorder {
         LocalConfigStore,
         LocalConfigStore.of({
           read: Effect.succeed(this.savedConfig),
-          write: (config) =>
+          update: (config) =>
             Effect.sync(() => {
               this.writtenConfig = config;
             }),

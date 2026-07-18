@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { LOCAL_CLIENT_SUBPROTOCOL } from "@turbotunnel/contracts";
-import { Effect, FiberSet, Redacted, Scope } from "effect";
+import { Clock, Effect, FiberSet, Redacted, Schema, Scope } from "effect";
 import { WebSocketServer } from "ws";
 
 import { GatewayConfig } from "./gateway-config.js";
@@ -14,7 +14,7 @@ import { GatewayState } from "./gateway-state.js";
 import { parseGatewayRequestHeaders } from "./headers.js";
 import { normalizeHost } from "./host.js";
 import { runLocalClient, type LocalClientError } from "./local-client.js";
-import { OidcToken } from "./oidc-token.js";
+import { OidcTokenAuthority } from "./oidc-token.js";
 import { handlePublicHttp } from "./public-http.js";
 import { runPublicWebSocket, type PublicWebSocketError } from "./public-websocket.js";
 import { Queue } from "./queue.js";
@@ -24,15 +24,77 @@ import { acquireGatewayWebSocket } from "./websocket.js";
 type NodeGatewayRequirements =
   | GatewayConfig
   | GatewayState
-  | OidcToken
+  | OidcTokenAuthority
   | PublicRouteRegistry
   | Queue;
 type UpgradeError = LocalClientError | PublicWebSocketError;
+
+export class GatewayListenError extends Schema.TaggedErrorClass<GatewayListenError>()(
+  "GatewayListenError",
+  {
+    port: Schema.Number,
+    host: Schema.optional(Schema.String),
+    code: Schema.optional(Schema.String),
+    cause: Schema.Defect(),
+    message: Schema.String,
+  },
+) {}
+
+/** Binds a Node server and removes temporary startup listeners on every exit path. */
+export function listenNodeServer(
+  server: Server,
+  port: number,
+  host?: string,
+): Effect.Effect<void, GatewayListenError> {
+  return Effect.callback((resume) => {
+    const cleanup = (): void => {
+      server.removeListener("error", onError);
+      server.removeListener("listening", onListening);
+    };
+    const onListening = (): void => {
+      cleanup();
+      resume(Effect.void);
+    };
+    const onError = (cause: NodeJS.ErrnoException): void => {
+      cleanup();
+      resume(
+        Effect.fail(
+          new GatewayListenError({
+            port,
+            ...(host === undefined ? {} : { host }),
+            ...(cause.code === undefined ? {} : { code: cause.code }),
+            cause,
+            message: `Gateway could not listen on ${host === undefined ? "port" : `${host}:`}${port}${cause.code === undefined ? "" : ` (${cause.code})`}. Check whether the address is already in use and retry.`,
+          }),
+        ),
+      );
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    if (host === undefined) {
+      server.listen(port);
+    } else {
+      server.listen(port, host);
+    }
+    return Effect.callback<void>((closed) => {
+      const onCloseError = (cause?: NodeJS.ErrnoException): void => {
+        if (cause !== undefined && cause.code !== "ERR_SERVER_NOT_RUNNING") {
+          closed(Effect.die(cause));
+        } else {
+          closed(Effect.void);
+        }
+      };
+      cleanup();
+      server.close(onCloseError);
+    });
+  });
+}
 
 /** Constructs the scoped raw Node HTTP/WebSocket server adapter. */
 export const makeNodeGatewayServer = Effect.fn("makeNodeGatewayServer")(
   function* (): Effect.fn.Return<Server, never, NodeGatewayRequirements | Scope.Scope> {
     const config = yield* GatewayConfig;
+    const oidcTokenAuthority = yield* OidcTokenAuthority;
     const runServerFiber = yield* FiberSet.makeRuntime<NodeGatewayRequirements, void, never>();
     const webSocketServer = new WebSocketServer({
       noServer: true,
@@ -45,7 +107,8 @@ export const makeNodeGatewayServer = Effect.fn("makeNodeGatewayServer")(
       Effect.sync(() => {
         const nodeServer = createServer((request, response) => {
           const fiber = runServerFiber(
-            handlePublicHttp(request, response).pipe(
+            oidcTokenAuthority.refresh(vercelOidcToken(request)).pipe(
+              Effect.andThen(handlePublicHttp(request, response)),
               Effect.catch((error) =>
                 Effect.logError("gateway HTTP request failed").pipe(
                   Effect.annotateLogs({ errorTag: error._tag }),
@@ -111,7 +174,8 @@ function handleUpgrade(
 ): Effect.Effect<void, UpgradeError, NodeGatewayRequirements> {
   return Effect.gen(function* () {
     const config = yield* GatewayConfig;
-    const oidcToken = yield* OidcToken;
+    const oidcTokenAuthority = yield* OidcTokenAuthority;
+    yield* oidcTokenAuthority.refresh(vercelOidcToken(request));
     const routes = yield* PublicRouteRegistry;
     const headersResult = parseGatewayRequestHeaders(request.rawHeaders);
     if (headersResult._tag === "err") {
@@ -120,9 +184,6 @@ function handleUpgrade(
     }
 
     const headers = headersResult.value;
-    if (headers.oidcToken !== undefined) {
-      yield* oidcToken.set(headers.oidcToken);
-    }
     const isLocalClientAttempt = headers.secWebSocketProtocols.includes(LOCAL_CLIENT_SUBPROTOCOL);
     if (
       isLocalClientAttempt &&
@@ -140,6 +201,11 @@ function handleUpgrade(
       return;
     }
 
+    if (headers.secWebSocketProtocols.length > 0) {
+      rejectUpgrade(socket, 400, "WebSocket Subprotocols Not Supported");
+      return;
+    }
+
     const host = normalizeHost(headers.host);
     if (host === undefined) {
       rejectUpgrade(socket, 400, "Bad Request");
@@ -154,7 +220,8 @@ function handleUpgrade(
       );
       return;
     }
-    if (!admitPublicAccess(route.route.accessPolicy, host, headers, config)) {
+    const accessNowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
+    if (!admitPublicAccess(route.route.accessPolicy, host, headers, config, accessNowSeconds)) {
       rejectUpgrade(
         socket,
         route.route.accessPolicy.type === "password" ? 401 : 403,
@@ -175,6 +242,11 @@ function handleUpgrade(
       );
     }).pipe(Effect.scoped);
   });
+}
+
+function vercelOidcToken(request: IncomingMessage): string | undefined {
+  const value = request.headers["x-vercel-oidc-token"];
+  return typeof value === "string" ? value : undefined;
 }
 
 /** Converts `handleUpgrade` callback completion and interruption into an Effect. */

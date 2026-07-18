@@ -16,17 +16,13 @@ import {
   resolveDevLaunch,
 } from "../domain/dev-project.js";
 import { parseEnvironmentPort } from "../domain/environment-port.js";
-import { assertCompatibleGateway } from "../domain/gateway-compat.js";
-import { resolveTunnelConfig, type TunnelEnvironment } from "../domain/tunnel-config.js";
+import { type TunnelEnvironment } from "../domain/tunnel-config.js";
 import { formatProcessCommand, redactShellCommand } from "../domain/process-command.js";
 import { publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
-import {
-  accessOverrideFromEnvironment,
-  resolveAccessPolicy,
-  type AccessOverride,
-} from "../domain/project-access.js";
+import { type AccessOverride } from "../domain/project-access.js";
 import { CliConfigError, DevServerReadinessTimeout, type StartDevError } from "../errors.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
+import { prepareProjectTunnel } from "./resolve-project-tunnel.js";
 
 const DEV_SERVER_READINESS_TIMEOUT_SECONDS = 60;
 
@@ -54,13 +50,9 @@ export const startDev = Effect.fn("startDev")(function* (options: {
 > {
   const projectDiscovery = yield* ProjectDiscovery;
   const projectConfigStore = yield* ProjectConfigStore;
-  const projectDomain = yield* ProjectDomain;
   const portAllocator = yield* PortAllocator;
   const devProcess = yield* DevProcess;
-  const entropy = yield* Entropy;
-  const localConfigStore = yield* LocalConfigStore;
   const localAppProbe = yield* LocalAppProbe;
-  const gatewayStatusChecker = yield* GatewayStatusChecker;
   const tunnelRuntime = yield* TunnelRuntime;
   const reporter = yield* TunnelReporter;
 
@@ -84,79 +76,18 @@ export const startDev = Effect.fn("startDev")(function* (options: {
     port,
     options.processEnv?.TURBOTUNNEL_DEV ?? projectConfig?.dev,
   );
-  const savedConfig = yield* localConfigStore.read;
-  const generatedTunnelSlug = yield* entropy.tunnelSlug;
-  const environmentSlug = options.env.TURBOTUNNEL_SLUG;
-  const environmentDomain = options.processEnv?.TURBOTUNNEL_DOMAIN;
-  const requestedSlug =
-    environmentDomain === undefined ? (environmentSlug ?? projectConfig?.slug) : undefined;
-  const requestedDomain =
-    environmentDomain ?? (environmentSlug === undefined ? projectConfig?.domain : undefined);
-  const accessPolicy = yield* resolveAccessPolicy({
-    configured: projectConfig?.access,
-    override:
-      options.accessOverride ?? (yield* accessOverrideFromEnvironment(options.processEnv ?? {})),
-    password: options.processEnv?.TURBOTUNNEL_PASSWORD,
-    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
-  });
-  const provisionalConfig = yield* resolveTunnelConfig({
+  yield* validateProjectEnvironment(projectConfig?.env ?? {});
+  const config = yield* prepareProjectTunnel({
     input: {
       port,
       host: "localhost",
-      slug: requestedSlug,
-      publicHost:
-        requestedDomain ??
-        (requestedSlug === undefined ? undefined : `${requestedSlug}-turbotunnel.vercel.app`),
-      accessPolicy,
     },
     env: options.env,
-    savedConfig,
-    generatedSlug: generatedTunnelSlug,
-  });
-  yield* assertCompatibleGateway(gatewayStatusChecker, provisionalConfig, savedConfig.slug);
-  yield* expandProjectEnvironment(
-    projectConfig?.env ?? {},
-    {
-      TURBOTUNNEL_URL: publicTunnelUrl(provisionalConfig),
-      TURBOTUNNEL_HOST: publicTunnelHost(provisionalConfig),
-      TURBOTUNNEL_SLUG: provisionalConfig.slug,
-    },
-    options.processEnv ?? {},
-  );
-  const generatedDeploySlug = yield* entropy.deploySlug;
-  if (projectConfig !== undefined || requestedDomain !== undefined) {
-    yield* reporter.emit({
-      _tag: "DomainConfiguring",
-      hostname: requestedDomain ?? `${requestedSlug ?? generatedDeploySlug}-turbotunnel.vercel.app`,
-    });
-  }
-  const domainAssignment =
-    projectConfig === undefined && requestedDomain === undefined
-      ? undefined
-      : yield* projectDomain.reconcile({
-          configIdentity: projectConfig?.configPath ?? options.cwd,
-          targetName: projectConfig?.name,
-          targetPath: project.root,
-          requestedSlug,
-          requestedDomain,
-          gateway: {
-            project: savedConfig.project,
-            teamId: savedConfig.teamId,
-            projectId: savedConfig.projectId,
-          },
-          generatedDeploySlug,
-        });
-  const config = yield* resolveTunnelConfig({
-    input: {
-      port,
-      host: "localhost",
-      slug: domainAssignment?.slug ?? projectConfig?.slug,
-      publicHost: domainAssignment?.domain,
-      accessPolicy,
-    },
-    env: options.env,
-    savedConfig,
-    generatedSlug: generatedTunnelSlug,
+    cwd: options.cwd,
+    targetPath: project.root,
+    projectConfig,
+    processEnv: options.processEnv ?? {},
+    accessOverride: options.accessOverride,
   });
   const publicUrl = publicTunnelUrl(config);
   const command =
@@ -221,6 +152,19 @@ export const startDev = Effect.fn("startDev")(function* (options: {
 });
 
 const PLACEHOLDER_PATTERN = /\$\{(TURBOTUNNEL_[A-Z0-9_]+)\}/gu;
+const SUPPORTED_PLACEHOLDERS = new Set(["TURBOTUNNEL_URL", "TURBOTUNNEL_HOST", "TURBOTUNNEL_SLUG"]);
+
+function validateProjectEnvironment(
+  configured: Readonly<Record<string, string>>,
+): Effect.Effect<void, CliConfigError> {
+  for (const [name, template] of Object.entries(configured)) {
+    for (const match of template.matchAll(PLACEHOLDER_PATTERN)) {
+      const placeholder = match[1]!;
+      if (!SUPPORTED_PLACEHOLDERS.has(placeholder)) return invalidPlaceholder(name, placeholder);
+    }
+  }
+  return Effect.void;
+}
 
 function expandProjectEnvironment(
   configured: Readonly<Record<string, string>>,
@@ -237,13 +181,20 @@ function expandProjectEnvironment(
       return "";
     });
     if (invalid !== undefined) {
-      return Effect.fail(
-        new CliConfigError({
-          message: `Unknown Turbotunnel placeholder \${${invalid}} in environment variable ${name}. Supported placeholders are \${TURBOTUNNEL_URL}, \${TURBOTUNNEL_HOST}, and \${TURBOTUNNEL_SLUG}. No child process or tunnel was started.`,
-        }),
-      );
+      return invalidPlaceholder(name, invalid);
     }
     result[name] = value;
   }
   return Effect.succeed(result);
+}
+
+function invalidPlaceholder(
+  name: string,
+  placeholder: string,
+): Effect.Effect<never, CliConfigError> {
+  return Effect.fail(
+    new CliConfigError({
+      message: `Unknown Turbotunnel placeholder \${${placeholder}} in environment variable ${name}. Supported placeholders are \${TURBOTUNNEL_URL}, \${TURBOTUNNEL_HOST}, and \${TURBOTUNNEL_SLUG}. No child process or tunnel was started.`,
+    }),
+  );
 }

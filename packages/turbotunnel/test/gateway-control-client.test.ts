@@ -164,7 +164,7 @@ describe("GatewayControlClient.live", () => {
               relayUrl: "http://127.0.0.1:3002",
               relaySecret: "test_secret",
             }),
-            write: () => Effect.void,
+            update: () => Effect.void,
           }),
         ),
         Effect.provideService(
