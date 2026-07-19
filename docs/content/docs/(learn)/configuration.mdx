@@ -31,6 +31,70 @@ Run `tt dev dashboard` to select a named project. With one configured project, `
 
 Supported access policies are `public`, `password`, and `ip` with an `allow` array. Password access generates a fresh `tt_<nanoid>` password for each session. Pass `--password <value>` to use a custom value. Turbotunnel never writes passwords to configuration.
 
+### Configuration fields
+
+| Field      | Type                                                          | Default                 | Description                                                            |
+| ---------- | ------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| `port`     | Integer from 1 to 65535                                       | `--port`                | Local HTTP port targeted by the tunnel.                                |
+| `slug`     | Lowercase letters, digits, and hyphens; maximum 63 characters | Generated or saved slug | Requests a managed `<slug>-turbotunnel.vercel.app` hostname.           |
+| `domain`   | Hostname string                                               | None                    | Uses one exact custom public hostname. Cannot be combined with `slug`. |
+| `access`   | Access policy object                                          | `public`                | Controls who can reach the public tunnel.                              |
+| `projects` | Object of named project fields                                | None                    | Defines multiple selectable tunnel projects.                           |
+
+Unknown fields are rejected. Project configuration does not define commands, working directories, environment variables, or package-manager behavior.
+
+### Access policies
+
+Public access requires no authentication:
+
+```json
+{ "access": { "type": "public" } }
+```
+
+Password access generates and displays a new password when the tunnel starts:
+
+```json
+{ "access": { "type": "password" } }
+```
+
+IP access requires at least one IPv4 or IPv6 address or CIDR:
+
+```json
+{
+  "access": {
+    "type": "ip",
+    "allow": ["203.0.113.10", "2001:db8::/32"]
+  }
+}
+```
+
+In a named-project configuration, top-level `access` is the default for every project. A project's own `access` policy overrides it:
+
+```json
+{
+  "access": { "type": "password" },
+  "projects": {
+    "dashboard": { "port": 3000 },
+    "docs": {
+      "port": 5173,
+      "access": { "type": "public" }
+    }
+  }
+}
+```
+
+### Single-project configuration
+
+When a repository needs one tunnel, omit `projects` and put the project fields at the top level:
+
+```json
+{
+  "port": 3000,
+  "domain": "dashboard.example.com",
+  "access": { "type": "password" }
+}
+```
+
 ## Saved configuration
 
 `tt deploy` writes `~/.turbotunnel/config.json` after it verifies the gateway:
