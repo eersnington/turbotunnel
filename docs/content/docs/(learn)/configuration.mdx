@@ -1,9 +1,9 @@
 ---
 title: Configure project tunnels
-description: Configure repository tunnels and saved gateway settings.
+description: Configure repository tunnels in turbotunnel.json.
 ---
 
-Configure repository tunnels in `turbotunnel.json`. This page also covers the saved gateway settings and production variables managed by `tt deploy`.
+Configure repository tunnels in `turbotunnel.json`. For the gateway settings saved in `~/.turbotunnel`, see [Configure your gateway](/docs/gateway-configuration).
 
 ## Project configuration
 
@@ -104,42 +104,3 @@ When a repository needs one tunnel, omit `projects` and put the project fields a
   "access": { "type": "password" }
 }
 ```
-
-## Saved gateway configuration
-
-`tt deploy` writes `~/.turbotunnel/config.json` after it verifies the gateway:
-
-```json
-{
-  "project": "ttabc123-turbotunnel",
-  "slug": "ttabc123",
-  "relayDomain": "{slug}-turbotunnel.vercel.app",
-  "queueRegion": "iad1",
-  "relaySecret": "ttsec_example_redacted"
-}
-```
-
-The relay secret authenticates local relay connections, access cookies, and requests to the tunnel-list endpoint. The file is written with owner-only permissions. Do not commit or share it.
-
-`tt deploy` also keeps generated deployment files in `~/.turbotunnel/relay`. It preserves that directory's `.vercel` project metadata between deployments.
-
-`tt http` resolves configuration in this order:
-
-1. Command-line options
-2. Repository project configuration
-3. Saved gateway configuration
-4. Generated defaults
-
-## Vercel environment variables
-
-`tt deploy` sets these variables in the project's Production environment:
-
-| Variable                   | Value                                       |
-| -------------------------- | ------------------------------------------- |
-| `TURBOTUNNEL_BASE_DOMAIN`  | The configured base domain or host pattern. |
-| `TURBOTUNNEL_RELAY_SECRET` | The generated or reused relay secret.       |
-| `TURBOTUNNEL_QUEUE_REGION` | The configured queue region.                |
-
-## Local gateway development
-
-The local gateway listens on port `3002` with an in-memory broker. It defaults to domain `localhost`, relay secret `dev_secret`, and Queue region `iad1`. Do not use the development secret for a public deployment.
