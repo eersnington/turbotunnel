@@ -43,7 +43,6 @@ tt http 5173
   Local            http://localhost:5173
   Relays           2 sockets
 
-✓ Local app ready
 ✓ Tunnel ready in 1.2s
 
   Press Ctrl-C to stop
@@ -51,7 +50,7 @@ tt http 5173
 
 The public URL works until you press `Ctrl-C` or the process exits.
 
-Next, use [`tt dev`](/docs/dev) to start a package's development server and tunnel together, or [inspect running tunnels](/docs/status).
+Next, use [`tt dev`](/docs/dev) to open a configured project tunnel and optionally run an exact child command, or [inspect running tunnels](/docs/status).
 
 <CardGroup cols={2}>
   <Card title="Deploy command" href="/docs/deploy">
@@ -61,9 +60,9 @@ Next, use [`tt dev`](/docs/dev) to start a package's development server and tunn
     Slugs, local hosts, socket pools, and development overrides.
   </Card>
   <Card title="Dev command" href="/docs/dev">
-    Managed dev servers, custom commands, ports, and child logs.
+    Named project tunnels, exact child commands, and access controls.
   </Card>
   <Card title="Configure Turbotunnel" href="/docs/configuration">
-    Saved gateway settings, environment variables, and runtime overrides.
+    Project tunnel settings and saved gateway configuration.
   </Card>
 </CardGroup>

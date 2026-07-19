@@ -77,6 +77,7 @@ class TunnelRecorder {
           deploySlug: Effect.succeed("deploy1"),
           tunnelSlug: Effect.succeed("local1"),
           relaySecret: Effect.succeed(Redacted.make("secret", { label: "relay-secret" })),
+          accessPassword: Effect.succeed("tt_generated"),
         }),
       ),
       Layer.succeed(

@@ -50,7 +50,9 @@ export const httpCommand = Command.make(
       Flag.withDescription("temporarily allow public access without authentication"),
     ),
     password: Flag.string("password").pipe(
-      Flag.withDescription("temporarily require password access; pass a value or omit to prompt"),
+      Flag.withDescription(
+        "temporarily require password access; pass a value or omit to generate one",
+      ),
       Flag.optional,
     ),
     allowIp: Flag.string("allow-ip").pipe(
@@ -207,7 +209,9 @@ export const devCommand = Command.make(
       Flag.withDescription("temporarily allow public access without authentication"),
     ),
     password: Flag.string("password").pipe(
-      Flag.withDescription("temporarily require password access; pass a value or omit to prompt"),
+      Flag.withDescription(
+        "temporarily require password access; pass a value or omit to generate one",
+      ),
       Flag.optional,
     ),
     allowIp: Flag.string("allow-ip").pipe(
@@ -236,18 +240,18 @@ export const devCommand = Command.make(
     });
   }),
 ).pipe(
-  Command.withDescription("Start a project dev server and expose it through Turbotunnel"),
+  Command.withDescription("Open a development tunnel and optionally run an exact child command"),
   Command.withExamples([
-    { command: "tt dev", description: "Start the configured project for the current directory" },
-    { command: "tt dev dashboard", description: "Start a named monorepo project" },
-    { command: "tt dev --port 5173", description: "Start the dev server on port 5173" },
+    { command: "tt dev", description: "Open the only configured project tunnel" },
+    { command: "tt dev dashboard", description: "Open a named project tunnel" },
+    { command: "tt dev --port 5173", description: "Open a tunnel to local port 5173" },
     {
       command: "tt dev --password",
-      description: "Start with password access",
+      description: "Open with a generated access password",
     },
     {
-      command: "tt dev -- vite --host 0.0.0.0",
-      description: "Start a custom command without a shell",
+      command: "tt dev dashboard -- pnpm dev",
+      description: "Run an exact child command alongside the tunnel",
     },
   ]),
 );

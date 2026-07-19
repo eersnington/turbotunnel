@@ -1,27 +1,23 @@
 ---
-title: Configure Turbotunnel
-description: Configure projects and saved gateway settings.
+title: Configure project tunnels
+description: Configure repository tunnels and saved gateway settings.
 ---
 
-This page describes repository projects, saved gateway settings, and the production variables managed by `tt deploy`.
+Configure repository tunnels in `turbotunnel.json`. This page also covers the saved gateway settings and production variables managed by `tt deploy`.
 
 ## Project configuration
 
-Place `turbotunnel.json` in a directory that contains the projects it configures. Turbotunnel searches upward from your current directory and uses the nearest file. Named projects use paths relative to that file:
+Place `turbotunnel.json` in a repository directory. Turbotunnel searches upward from your current directory and uses the nearest file. Named projects contain tunnel settings only:
 
 ```json
 {
   "access": { "type": "public" },
   "projects": {
     "dashboard": {
-      "root": "packages/dashboard",
-      "dev": "vp run dev",
       "port": 3000,
       "slug": "dashboard"
     },
     "docs": {
-      "root": "docs",
-      "dev": "pnpm dev",
       "port": 5173,
       "domain": "docs.eers.dev"
     }
@@ -29,13 +25,87 @@ Place `turbotunnel.json` in a directory that contains the projects it configures
 }
 ```
 
-Run `tt dev dashboard` from the configuration directory. Run `tt dev` anywhere under `packages/dashboard`. A single-project configuration can put `dev`, `port`, `slug`, `domain`, `env`, and `access` at the top level.
+Run `tt dev dashboard` to select a named project. With one configured project, `tt dev` selects it automatically. With multiple projects, an interactive terminal presents a selector. Non-interactive commands must name a project.
 
-`slug: "dashboard"` first requests `dashboard-turbotunnel.vercel.app`. If another Vercel project owns that name, Turbotunnel assigns and saves `tt<random>-dashboard.vercel.app`. `domain` selects one exact custom hostname. You cannot combine `domain` with `slug`.
+A single-project configuration puts `port`, `slug`, `domain`, and `access` at the top level. A `slug` requests `<slug>-turbotunnel.vercel.app`. If another Vercel project owns that hostname, Turbotunnel assigns a generated fallback hostname. A `domain` selects one exact custom hostname. You cannot combine `domain` with `slug`.
 
-Supported access policies are `public`, `password`, and `ip` with an `allow` array. Pass a password with `--password <value>` or omit the value to use a hidden terminal prompt. Turbotunnel never writes passwords to configuration.
+Supported access policies are `public`, `password`, and `ip` with an `allow` array. Password access generates a fresh `tt_<nanoid>` password for each session. Pass `--password <value>` to use a custom value. Turbotunnel never writes passwords to configuration.
 
-## Saved configuration
+### Project fields
+
+Use these fields in each named project or at the top level for a single-project configuration:
+
+| Field    | Type                                                                         | Default                     | Description                                                            |
+| -------- | ---------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| `port`   | Integer from 1 to 65535                                                      | None                        | Local HTTP port. Set it or pass `--port` when you start the tunnel.    |
+| `slug`   | 1 to 54 lowercase letters, digits, or hyphens; starts with a letter or digit | Generated or saved slug     | Requests a managed `<slug>-turbotunnel.vercel.app` hostname.           |
+| `domain` | Lowercase hostname without a scheme, port, path, or wildcard                 | None                        | Uses one exact custom public hostname. Cannot be combined with `slug`. |
+| `access` | Access policy object                                                         | Shared `access` or `public` | Controls who can reach the public tunnel.                              |
+
+### Repository fields
+
+Use these fields only in a named-project configuration:
+
+| Field      | Type                         | Default  | Description                                                         |
+| ---------- | ---------------------------- | -------- | ------------------------------------------------------------------- |
+| `access`   | Access policy object         | `public` | Default policy for named projects without their own `access` field. |
+| `projects` | Object keyed by project name | None     | Named project definitions. Commands require at least one project.   |
+
+Unknown fields are rejected. Project configuration does not define commands, working directories, environment variables, or package-manager behavior.
+
+### Access policies
+
+Public access requires no authentication:
+
+```json
+{ "access": { "type": "public" } }
+```
+
+Password access generates and displays a new password when the tunnel starts:
+
+```json
+{ "access": { "type": "password" } }
+```
+
+IP access requires at least one IPv4 or IPv6 address or CIDR:
+
+```json
+{
+  "access": {
+    "type": "ip",
+    "allow": ["203.0.113.10", "2001:db8::/32"]
+  }
+}
+```
+
+In a named-project configuration, top-level `access` is the default for every project. A project's own `access` policy overrides it:
+
+```json
+{
+  "access": { "type": "password" },
+  "projects": {
+    "dashboard": { "port": 3000 },
+    "docs": {
+      "port": 5173,
+      "access": { "type": "public" }
+    }
+  }
+}
+```
+
+### Single-project configuration
+
+When a repository needs one tunnel, omit `projects` and put the project fields at the top level:
+
+```json
+{
+  "port": 3000,
+  "domain": "dashboard.example.com",
+  "access": { "type": "password" }
+}
+```
+
+## Saved gateway configuration
 
 `tt deploy` writes `~/.turbotunnel/config.json` after it verifies the gateway:
 

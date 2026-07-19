@@ -125,16 +125,6 @@ export class GatewayControlError extends Schema.TaggedErrorClass<GatewayControlE
   },
 ) {}
 
-export class LocalTargetNotReachable extends Schema.TaggedErrorClass<LocalTargetNotReachable>()(
-  "LocalTargetNotReachable",
-  {
-    host: Schema.String,
-    port: Schema.Number,
-    message: Schema.String,
-    cause: Schema.Defect(),
-  },
-) {}
-
 export class RuntimeRegistryError extends Schema.TaggedErrorClass<RuntimeRegistryError>()(
   "RuntimeRegistryError",
   {
@@ -156,70 +146,12 @@ export class LocalControlError extends Schema.TaggedErrorClass<LocalControlError
   },
 ) {}
 
-export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()("ProjectNotFound", {
-  cwd: Schema.String,
-  message: Schema.String,
-}) {}
-
-export class ProjectManifestError extends Schema.TaggedErrorClass<ProjectManifestError>()(
-  "ProjectManifestError",
-  {
-    path: Schema.String,
-    message: Schema.String,
-    cause: Schema.Defect(),
-  },
-) {}
-
-export class UnsupportedPackageManager extends Schema.TaggedErrorClass<UnsupportedPackageManager>()(
-  "UnsupportedPackageManager",
-  {
-    packageManager: Schema.String,
-    path: Schema.String,
-    message: Schema.String,
-  },
-) {}
-
-export class ConflictingLockfiles extends Schema.TaggedErrorClass<ConflictingLockfiles>()(
-  "ConflictingLockfiles",
-  {
-    root: Schema.String,
-    lockfiles: Schema.Array(Schema.String),
-    message: Schema.String,
-  },
-) {}
-
-export class DevScriptNotFound extends Schema.TaggedErrorClass<DevScriptNotFound>()(
-  "DevScriptNotFound",
-  {
-    path: Schema.String,
-    message: Schema.String,
-  },
-) {}
-
-export class PortAllocationError extends Schema.TaggedErrorClass<PortAllocationError>()(
-  "PortAllocationError",
-  {
-    message: Schema.String,
-    cause: Schema.Defect(),
-  },
-) {}
-
 export class DevProcessError extends Schema.TaggedErrorClass<DevProcessError>()("DevProcessError", {
   command: Schema.String,
   operation: Schema.Literals(["spawn", "wait"]),
   message: Schema.String,
   cause: Schema.Defect(),
 }) {}
-
-export class DevServerReadinessTimeout extends Schema.TaggedErrorClass<DevServerReadinessTimeout>()(
-  "DevServerReadinessTimeout",
-  {
-    host: Schema.String,
-    port: Schema.Number,
-    timeoutSeconds: Schema.Number,
-    message: Schema.String,
-  },
-) {}
 
 export class LocalHttpRequestFailed extends Schema.TaggedErrorClass<LocalHttpRequestFailed>()(
   "LocalHttpRequestFailed",
@@ -310,7 +242,6 @@ export type StartHttpTunnelError =
   | VercelCliNotFound
   | VercelCliFailed
   | NoGatewayConfigured
-  | LocalTargetNotReachable
   | RuntimeRegistryError
   | LocalControlError;
 
@@ -323,14 +254,7 @@ export type ListTunnelsError =
   | GatewayControlError;
 
 export type StartDevError =
-  | ProjectNotFound
-  | ProjectManifestError
-  | UnsupportedPackageManager
-  | ConflictingLockfiles
-  | DevScriptNotFound
-  | PortAllocationError
   | DevProcessError
-  | DevServerReadinessTimeout
   | ConfigFileWriteError
   | VercelCliNotFound
   | VercelCliFailed

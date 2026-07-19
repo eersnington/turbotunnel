@@ -1,103 +1,62 @@
 ---
 title: tt dev
-description: Run a project dev server and public tunnel as one managed process.
+description: Open a project tunnel and optionally run an exact child command.
 ---
 
 ```sh
 tt dev [project] [--port <port>] [access options]
-tt dev [project] [--port <port>] -- <command> [args...]
+tt dev [project] [--port <port>] [access options] -- <command> [args...]
 ```
 
-`tt dev` runs a configured project and its public tunnel in one lifecycle. It finds the nearest `turbotunnel.json` and selects a project by name or current directory. It waits for HTTP readiness and stops both processes when you press `Ctrl-C`. Without project configuration, it runs the nearest package's `dev` script.
+`tt dev` opens a tunnel to a configured local port. With a command after `--`, it also runs that command as a managed child process. Turbotunnel does not discover package scripts, allocate ports, recognize frameworks, or change child arguments.
+
+## Select a project
 
 ```sh
 tt dev dashboard
+```
+
+The project supplies its port, public hostname, and access policy. With one configured project, `tt dev` selects it automatically. With multiple projects, an interactive terminal presents a selector; non-interactive use requires the project name.
+
+Without project configuration, pass the local port explicitly:
+
+```sh
+tt dev --port 5173
+```
+
+`--port` overrides a configured project port.
+
+## Run a child command
+
+Everything after `--` is executed directly, without a shell or argument rewriting:
+
+```sh
+tt dev dashboard -- pnpm dev
+tt dev dashboard -- pnpm --filter dashboard dev
+tt dev dashboard -- turbo run dev --filter=dashboard
+tt dev dashboard -- vp run dashboard#dev
+tt dev dashboard -- bun run --cwd workbench/dashboard dev
+```
+
+The command runs from the directory where you invoked `tt dev` and inherits the existing process environment. Turbotunnel does not inject environment variables. The child must listen on the port selected by project configuration or `--port`.
+
+Child input and output remain attached to the terminal. `Ctrl-C` stops the child and tunnel. If the child exits, `tt dev` stops the tunnel and returns the child's exit code.
+
+Without a child command, the tunnel remains available while you run the app separately or coordinate both commands with a process supervisor.
+
+## Override tunnel access
+
+Temporarily override the configured access policy:
+
+```sh
+tt dev dashboard --public
 tt dev dashboard --password
+tt dev dashboard --password chosen-password
 tt dev dashboard --allow-ip 203.0.113.0/24
 ```
 
-## Select a port
+Configured password access and bare `--password` generate a fresh `tt_<nanoid>` password for the session. The startup output displays it once. Custom password values are also displayed. Passwords are held in memory and never written to project configuration, `tt status`, or `tt list`.
 
-Pass `--port` to select the local target. Otherwise, Turbotunnel uses a port from the custom command or allocates a free port.
+## Forward requests when your app starts
 
-| Option          | Description                                    | Default                                    |
-| --------------- | ---------------------------------------------- | ------------------------------------------ |
-| `--port <port>` | Select the local server port, from 1 to 65535. | Custom command port, otherwise a free port |
-
-## Command arguments
-
-The second form replaces the package `dev` script with an explicit executable and arguments:
-
-| Input       | Description                                                  |
-| ----------- | ------------------------------------------------------------ |
-| `<command>` | Executable to start directly, without a shell.               |
-| `[args...]` | Child arguments; supported port options may be normalized.   |
-| `--`        | Separator between Turbotunnel options and the child command. |
-
-Turbotunnel recognizes Next.js, Vite, Astro, Nuxt, and Storybook commands. It replaces an existing framework port argument or appends the selected port in the framework's normal form. Vite also receives `--strictPort`.
-
-For other executables, `--port <port>` or `--port=<port>` in the child arguments selects the tunnel port. Turbotunnel normalizes either form to `--port <port>`.
-
-You can also pass `--port <port>` before the separator. For an unrecognized executable, Turbotunnel does not append a child argument.
-
-Turbotunnel waits up to 60 seconds for the selected port to accept an HTTP connection. If the deadline expires, it stops the child process and tunnel.
-
-## Package scripts
-
-Run the nearest package's `dev` script on a free port:
-
-```sh
-tt dev
-```
-
-Use a fixed port when the script already hardcodes one:
-
-```sh
-tt dev --port 1024
-```
-
-At a monorepo root, pass the configured project name. From a configured project root, `tt dev` selects that project automatically. Project roots may be `docs`, `packages/dashboard`, or another relative directory. Turbotunnel does not assume an `apps/*` layout or run a workspace-wide task unless you configure one.
-
-## Custom commands
-
-Everything after `--` belongs to the child process and runs without a shell:
-
-```sh
-tt dev -- vite --host 0.0.0.0
-```
-
-When running the repository CLI through Bun, preserve both argument boundaries:
-
-```sh
-bun run tt -- dev --port 1024 -- bun run --cwd docs dev
-```
-
-Turbotunnel prints the custom command before launch. It escapes control characters and redacts values for options containing `auth`, `credential`, `key`, `password`, `secret`, or `token`. It also redacts uppercase environment assignments with those terms in their names.
-
-## Terminal output
-
-The startup block shows the public URL, local target, relay count, command, and working directory. Turbotunnel marks where child output begins and tunnel lifecycle output resumes:
-
-```text
-. turbotunnel beta
-
-  Public           https://demo-turbotunnel.vercel.app/
-  Local            http://localhost:1024
-  Relays           2 sockets
-  Process          bun run --cwd docs dev
-  Directory        /Users/you/project
-
-Waiting for local app at localhost:1024
-──── dev server ────────────────────────
-$ blume dev --port 1024
-…
-
-──── turbotunnel ────────────────────────
-✓ Local app ready
-· Connecting 2 relay sockets
-✓ Tunnel ready in 3.1s
-
-  Press Ctrl-C to stop
-```
-
-Turbotunnel does not intercept or prefix child output. The child keeps its normal colors, formatting, prompts, and terminal behavior.
+The tunnel starts without waiting for the local app. While the configured target is unavailable, the public URL returns an HTTP `502` page with recovery steps. Forwarding begins automatically when the app starts and resumes after app restarts.
