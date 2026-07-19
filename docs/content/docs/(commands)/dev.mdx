@@ -8,7 +8,7 @@ tt dev [project] [--port <port>] [access options]
 tt dev [project] [--port <port>] [access options] -- <command> [args...]
 ```
 
-`tt dev` opens a public tunnel to a configured local port. With a command after `--`, it also runs that command as a managed child process. Turbotunnel does not discover package scripts, allocate a port, recognize frameworks, or change child arguments.
+`tt dev` opens a tunnel to a configured local port. With a command after `--`, it also runs that command as a managed child process. Turbotunnel does not discover package scripts, allocate ports, recognize frameworks, or change child arguments.
 
 ## Select a project
 
@@ -44,7 +44,7 @@ Child input and output remain attached to the terminal. `Ctrl-C` stops the child
 
 Without a child command, the tunnel remains available while you run the app separately or coordinate both commands with a process supervisor.
 
-## Access
+## Override tunnel access
 
 Temporarily override the configured access policy:
 
@@ -57,6 +57,6 @@ tt dev dashboard --allow-ip 203.0.113.0/24
 
 Configured password access and bare `--password` generate a fresh `tt_<nanoid>` password for the session. The startup output displays it once. Custom password values are also displayed. Passwords are held in memory and never written to project configuration, `tt status`, or `tt list`.
 
-## App availability
+## Forward requests when your app starts
 
 The tunnel starts without waiting for the local app. While the configured target is unavailable, the public URL returns an HTTP `502` page with recovery steps. Forwarding begins automatically when the app starts and resumes after app restarts.

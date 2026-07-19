@@ -45,7 +45,11 @@ Confirm that the active Vercel account can use the domain. Review the Vercel CLI
 
 Turbotunnel keeps your previous local configuration when deployment or verification fails.
 
-## The config file is invalid
+## Project configuration is invalid
+
+Fix the reported fields in `turbotunnel.json`. Project configuration accepts only tunnel fields: `port`, `slug`, `domain`, `access`, and `projects` for named-project configurations.
+
+## Saved gateway configuration is invalid
 
 Fix the JavaScript Object Notation (JSON) in `~/.turbotunnel/config.json`. If you remove the file, you must run `tt deploy` again to recreate the saved gateway settings.
 
