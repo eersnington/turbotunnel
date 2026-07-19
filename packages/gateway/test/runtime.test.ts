@@ -402,7 +402,7 @@ describe("gateway runtime", () => {
     expect(response.body).toContain("Local app unavailable");
     expect(response.body).toContain("tt http");
     expect(response.body).toContain("--host");
-    expect(response.body).toContain("https://turbotunnel.eers.dev/docs");
+    expect(response.body).toContain("https://turbotunnel.dev/docs");
     expect(response.body).not.toContain("127.0.0.1");
     expect(response.body).not.toContain("4321");
   });
@@ -581,7 +581,7 @@ describe("gateway runtime", () => {
     expect(loginGet.headers["content-type"]).toContain("text/html");
     expect(loginGet.body).toContain("Password required");
     expect(loginGet.body).toContain('name="password"');
-    expect(loginGet.body).toContain("https://turbotunnel.eers.dev/docs");
+    expect(loginGet.body).toContain("https://turbotunnel.dev/docs");
 
     const wrong = await request(gateway.server, {
       path: "/_turbotunnel/login",

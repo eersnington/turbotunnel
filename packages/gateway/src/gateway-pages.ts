@@ -1,5 +1,5 @@
-const HOME_URL = "https://turbotunnel.eers.dev/";
-const DOCS_URL = "https://turbotunnel.eers.dev/docs";
+const HOME_URL = "https://turbotunnel.dev/";
+const DOCS_URL = "https://turbotunnel.dev/docs";
 const TROUBLESHOOTING_URL = `${DOCS_URL}/troubleshooting`;
 const PUBLIC_REQUEST_FAILURES_URL = `${TROUBLESHOOTING_URL}#a-public-request-fails`;
 

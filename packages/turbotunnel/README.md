@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://turbotunnel.eers.dev">
+  <a href="https://turbotunnel.dev">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/logo-512-dark.svg?v=3">
       <img src="https://raw.githubusercontent.com/eersnington/turbotunnel/refs/heads/main/media/logo-512.svg?v=3" alt="Turbotunnel" width="192" height="192">
@@ -35,7 +35,7 @@ tt deploy
 tt http 5173
 ```
 
-`tt http` prints the public URL and forwards traffic until you press `Ctrl-C`. See the [get started guide](https://turbotunnel.eers.dev/docs) for the complete setup flow.
+`tt http` prints the public URL and forwards traffic until you press `Ctrl-C`. See the [get started guide](https://turbotunnel.dev/docs) for the complete setup flow.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ tt http 5173
 
 The relay uses a configurable pool of 1 to 16 sockets and defaults to 2. If a Vercel instance has no eligible relay connection, Vercel Queue forwards the request to an instance connected to your machine.
 
-Read [how Turbotunnel works](https://turbotunnel.eers.dev/docs/how-it-works) for gateway status, presence, and retry behavior.
+Read [how Turbotunnel works](https://turbotunnel.dev/docs/how-it-works) for gateway status, presence, and retry behavior.
 
 ## Limits
 
@@ -59,17 +59,17 @@ Read [how Turbotunnel works](https://turbotunnel.eers.dev/docs/how-it-works) for
 | Public WebSockets     | 32 per slug per gateway instance       |
 | Relay pool            | 1 to 16 sockets; default 2             |
 
-See [Turbotunnel limits](https://turbotunnel.eers.dev/docs/limits) for scopes and HTTP or WebSocket failure behavior.
+See [Turbotunnel limits](https://turbotunnel.dev/docs/limits) for scopes and HTTP or WebSocket failure behavior.
 
 ## Common tasks
 
-- [Deploy a gateway and configure domains](https://turbotunnel.eers.dev/docs/deploy)
-- [Expose an already-running app with `tt http`](https://turbotunnel.eers.dev/docs/http)
-- [Run a development server with `tt dev`](https://turbotunnel.eers.dev/docs/dev)
-- [Inspect local tunnels with `tt status`](https://turbotunnel.eers.dev/docs/status)
-- [List gateway-reported tunnels with `tt list`](https://turbotunnel.eers.dev/docs/list)
-- [Configure runtime overrides](https://turbotunnel.eers.dev/docs/configuration)
-- [Troubleshoot failures](https://turbotunnel.eers.dev/docs/troubleshooting)
+- [Deploy a gateway and configure domains](https://turbotunnel.dev/docs/deploy)
+- [Expose an already-running app with `tt http`](https://turbotunnel.dev/docs/http)
+- [Run a development server with `tt dev`](https://turbotunnel.dev/docs/dev)
+- [Inspect local tunnels with `tt status`](https://turbotunnel.dev/docs/status)
+- [List gateway-reported tunnels with `tt list`](https://turbotunnel.dev/docs/list)
+- [Configure runtime overrides](https://turbotunnel.dev/docs/configuration)
+- [Troubleshoot failures](https://turbotunnel.dev/docs/troubleshooting)
 
 ## Development
 
