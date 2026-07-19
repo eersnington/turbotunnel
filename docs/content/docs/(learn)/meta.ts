@@ -2,5 +2,5 @@ import { defineMeta } from "blume";
 
 export default defineMeta({
   title: "Architecture and configuration",
-  pages: ["configuration", "how-it-works"],
+  pages: ["configuration", "gateway-configuration", "how-it-works"],
 });

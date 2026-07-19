@@ -1,0 +1,64 @@
+---
+title: Configure your gateway
+description: Manage the gateway settings saved in your home directory.
+type: Reference
+---
+
+`tt deploy` saves gateway settings in `~/.turbotunnel/config.json`. `tt http` and `tt dev` use the saved tunnel settings. A later `tt deploy` reuses the saved deployment settings unless you pass an option.
+
+## Saved gateway settings
+
+After it verifies the gateway, `tt deploy` writes these deployment settings:
+
+```json
+{
+  "project": "ttabc123-turbotunnel",
+  "slug": "ttabc123",
+  "relayDomain": "{slug}-turbotunnel.vercel.app",
+  "queueRegion": "iad1",
+  "relaySecret": "ttsec_example_redacted"
+}
+```
+
+| Field               | Description                                                                |
+| ------------------- | -------------------------------------------------------------------------- |
+| `project`           | Vercel project that hosts the gateway                                      |
+| `teamId`            | Vercel team ID associated with the gateway project; Turbotunnel manages it |
+| `projectId`         | Vercel project ID; Turbotunnel manages it                                  |
+| `slug`              | Deployment slug used for the default gateway hostname                      |
+| `relayDomain`       | Base tunnel domain or hostname pattern containing `{slug}`                 |
+| `relaySecret`       | Secret that authenticates local relays and control requests                |
+| `relayUrl`          | Optional explicit `http`, `https`, `ws`, or `wss` relay origin             |
+| `queueRegion`       | Vercel Queue region reused by `tt deploy`                                  |
+| `domainAssignments` | Managed mapping from repository projects to their assigned public domains  |
+
+The file has owner-only permissions. Do not commit or share `relaySecret`.
+
+Do not edit `teamId`, `projectId`, or `domainAssignments`. Turbotunnel updates them while it manages project domains.
+
+`tt deploy` also stores generated gateway files in `~/.turbotunnel/relay`. It preserves that directory's `.vercel` project metadata between deployments.
+
+## Tunnel setting precedence
+
+`tt http` and `tt dev` resolve each tunnel setting from the relevant source:
+
+- **Command-line options**: override the matching setting for one command
+- **Repository project configuration**: supplies a project port, slug or domain, and access policy
+- **Saved gateway configuration**: supplies the tunnel slug, relay domain, relay secret, and relay URL
+- **Generated defaults**: supply a tunnel slug when no slug is configured
+
+`tt deploy` resolves its project, slug, relay domain, queue region, and relay secret from command-line options, then saved gateway configuration, then defaults.
+
+## Production environment variables
+
+`tt deploy` sets these variables in the gateway project's Production environment:
+
+| Variable                   | Value                                      |
+| -------------------------- | ------------------------------------------ |
+| `TURBOTUNNEL_BASE_DOMAIN`  | Configured base domain or hostname pattern |
+| `TURBOTUNNEL_RELAY_SECRET` | Generated or reused relay secret           |
+| `TURBOTUNNEL_QUEUE_REGION` | Configured Queue region                    |
+
+## Develop the gateway locally
+
+The local gateway listens on port `3002` with an in-memory broker. It uses domain `localhost`, relay secret `dev_secret`, and Queue region `iad1`. Do not use the development secret in a public deployment.
