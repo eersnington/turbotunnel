@@ -17,31 +17,9 @@ export type AccessOverride =
   | { readonly type: "password"; readonly password?: string }
   | { readonly type: "ip"; readonly allow: ReadonlyArray<string> };
 
-export function accessOverrideFromEnvironment(
-  environment: Readonly<Record<string, string | undefined>>,
-): Effect.Effect<AccessOverride | undefined, CliConfigError> {
-  const type = environment.TURBOTUNNEL_ACCESS;
-  if (type === undefined) return Effect.succeed(undefined);
-  if (type === "public") return Effect.succeed({ type: "public" });
-  if (type === "password") return Effect.succeed({ type: "password" });
-  if (type === "ip") {
-    const allow =
-      environment.TURBOTUNNEL_ALLOW_IP?.split(",")
-        .map((value) => value.trim())
-        .filter(Boolean) ?? [];
-    return Effect.succeed({ type: "ip", allow });
-  }
-  return Effect.fail(
-    new CliConfigError({
-      message: "TURBOTUNNEL_ACCESS must be public, password, or ip. No tunnel was started.",
-    }),
-  );
-}
-
 export const resolveAccessPolicy = Effect.fn("resolveAccessPolicy")(function* (options: {
   readonly configured?: ProjectAccess;
   readonly override?: AccessOverride;
-  readonly password?: string;
   readonly interactive: boolean;
 }): Effect.fn.Return<AccessPolicy, CliConfigError> {
   const selected = options.override ?? options.configured ?? { type: "public" as const };
@@ -61,7 +39,6 @@ export const resolveAccessPolicy = Effect.fn("resolveAccessPolicy")(function* (o
       const inline = options.override?.type === "password" ? options.override.password : undefined;
       const password = yield* resolvePasswordSecret({
         inline,
-        environment: options.password,
         interactive: options.interactive,
       });
       return { type: "password", hash: yield* hashPassword(password) };
@@ -71,18 +48,15 @@ export const resolveAccessPolicy = Effect.fn("resolveAccessPolicy")(function* (o
 
 function resolvePasswordSecret(options: {
   readonly inline: string | undefined;
-  readonly environment: string | undefined;
   readonly interactive: boolean;
 }): Effect.Effect<string, CliConfigError> {
   const inline = nonEmpty(options.inline);
   if (inline !== undefined) return Effect.succeed(inline);
-  const environment = nonEmpty(options.environment);
-  if (environment !== undefined) return Effect.succeed(environment);
   if (options.interactive) return promptPassword;
   return Effect.fail(
     new CliConfigError({
       message:
-        "Password access needs a secret. Pass --password <value>, set TURBOTUNNEL_PASSWORD, or run in a TTY to be prompted. No tunnel was made public.",
+        "Password access needs a secret. Pass --password <value> or run in a TTY to be prompted. No tunnel was made public.",
     }),
   );
 }
@@ -135,7 +109,7 @@ const promptPassword: Effect.Effect<string, CliConfigError> = Effect.gen(functio
   if (!process.stdin.isTTY || !process.stdout.isTTY || process.stdin.setRawMode === undefined) {
     return yield* new CliConfigError({
       message:
-        "Password access needs a secret. Pass --password <value>, set TURBOTUNNEL_PASSWORD, or run in a TTY to be prompted. No tunnel was made public.",
+        "Password access needs a secret. Pass --password <value> or run in a TTY to be prompted. No tunnel was made public.",
     });
   }
   const input = process.stdin;
@@ -147,7 +121,7 @@ const promptPassword: Effect.Effect<string, CliConfigError> = Effect.gen(functio
     },
     catch: (cause) =>
       new CliConfigError({
-        message: `Couldn't read a tunnel password from this terminal (${cause instanceof Error ? cause.message : String(cause)}). Pass --password <value> or set TURBOTUNNEL_PASSWORD. No tunnel was made public.`,
+        message: `Couldn't read a tunnel password from this terminal (${cause instanceof Error ? cause.message : String(cause)}). Pass --password <value>. No tunnel was made public.`,
       }),
   });
   return yield* Effect.callback<string, CliConfigError>((resume) => {
@@ -178,7 +152,7 @@ const promptPassword: Effect.Effect<string, CliConfigError> = Effect.gen(functio
             Effect.fail(
               new CliConfigError({
                 message:
-                  "Password access needs a non-empty password. Retry, pass --password <value>, or set TURBOTUNNEL_PASSWORD. No tunnel was made public.",
+                  "Password access needs a non-empty password. Retry or pass --password <value>. No tunnel was made public.",
               }),
             ),
           );

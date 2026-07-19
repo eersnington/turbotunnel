@@ -6,47 +6,27 @@ import { LocalConfigStore } from "../adapters/local-config-store.js";
 import { type ProjectSelection } from "../adapters/project-config-store.js";
 import { ProjectDomain } from "../adapters/project-domain.js";
 import { assertCompatibleGateway } from "../domain/gateway-compat.js";
-import {
-  accessOverrideFromEnvironment,
-  type AccessOverride,
-  resolveAccessPolicy,
-} from "../domain/project-access.js";
-import {
-  type HttpCommandInput,
-  resolveTunnelConfig,
-  type TunnelEnvironment,
-} from "../domain/tunnel-config.js";
+import { type AccessOverride, resolveAccessPolicy } from "../domain/project-access.js";
+import { type HttpCommandInput, resolveTunnelConfig } from "../domain/tunnel-config.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 
 /** Validates gateway access and reconciles any project-owned domain before tunneling. */
 export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* (options: {
   readonly input: HttpCommandInput;
-  readonly env: TunnelEnvironment;
   readonly cwd: string;
   readonly targetPath: string;
   readonly projectConfig: ProjectSelection | undefined;
-  readonly processEnv: Readonly<Record<string, string | undefined>>;
   readonly accessOverride?: AccessOverride;
 }) {
   const entropy = yield* Entropy;
   const savedConfig = yield* (yield* LocalConfigStore).read;
   const generatedTunnelSlug = yield* entropy.tunnelSlug;
-  const environmentSlug = options.env.TURBOTUNNEL_SLUG;
-  const environmentDomain = options.processEnv.TURBOTUNNEL_DOMAIN;
-  const requestedSlug =
-    options.input.slug ??
-    (environmentDomain === undefined
-      ? (environmentSlug ?? options.projectConfig?.slug)
-      : undefined);
+  const requestedSlug = options.input.slug ?? options.projectConfig?.slug;
   const requestedDomain =
-    options.input.slug === undefined
-      ? (environmentDomain ??
-        (environmentSlug === undefined ? options.projectConfig?.domain : undefined))
-      : undefined;
+    options.input.slug === undefined ? options.projectConfig?.domain : undefined;
   const accessPolicy = yield* resolveAccessPolicy({
     configured: options.projectConfig?.access,
-    override: options.accessOverride ?? (yield* accessOverrideFromEnvironment(options.processEnv)),
-    password: options.processEnv.TURBOTUNNEL_PASSWORD,
+    override: options.accessOverride,
     interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
   });
   const provisionalConfig = yield* resolveTunnelConfig({
@@ -58,7 +38,6 @@ export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* 
         (requestedSlug === undefined ? undefined : `${requestedSlug}-turbotunnel.vercel.app`),
       accessPolicy,
     },
-    env: options.env,
     savedConfig,
     generatedSlug: generatedTunnelSlug,
   });
@@ -94,7 +73,6 @@ export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* 
       publicHost: domainAssignment?.domain,
       accessPolicy,
     },
-    env: options.env,
     savedConfig,
     generatedSlug: generatedTunnelSlug,
   });

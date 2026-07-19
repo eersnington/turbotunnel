@@ -19,14 +19,6 @@ export type HttpCommandInput = {
   readonly accessPolicy?: AccessPolicy;
 };
 
-export type TunnelEnvironment = {
-  readonly TURBOTUNNEL_SLUG?: string;
-  readonly TURBOTUNNEL_BASE_DOMAIN?: string;
-  readonly TURBOTUNNEL_RELAY_DOMAIN?: string;
-  readonly TURBOTUNNEL_RELAY_SECRET?: string;
-  readonly TURBOTUNNEL_RELAY_URL?: string;
-};
-
 export type SavedTunnelConfig = {
   readonly slug?: string;
   readonly relayDomain?: string;
@@ -57,7 +49,6 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (options: {
   readonly input: HttpCommandInput;
-  readonly env: TunnelEnvironment;
   readonly savedConfig: SavedTunnelConfig;
   readonly generatedSlug: string;
 }): Effect.fn.Return<HttpTunnelConfig, CliConfigError | NoGatewayConfigured> {
@@ -67,11 +58,7 @@ export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (o
   const hasExplicitGatewayInput =
     options.input.domain !== undefined ||
     options.input.secret !== undefined ||
-    options.input.relayUrl !== undefined ||
-    options.env.TURBOTUNNEL_BASE_DOMAIN !== undefined ||
-    options.env.TURBOTUNNEL_RELAY_DOMAIN !== undefined ||
-    options.env.TURBOTUNNEL_RELAY_SECRET !== undefined ||
-    options.env.TURBOTUNNEL_RELAY_URL !== undefined;
+    options.input.relayUrl !== undefined;
   const hasSavedGateway =
     (options.savedConfig.relayDomain !== undefined &&
       options.savedConfig.relaySecret !== undefined) ||
@@ -84,11 +71,7 @@ export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (o
     });
   }
 
-  const slug =
-    options.input.slug ??
-    options.env.TURBOTUNNEL_SLUG ??
-    options.savedConfig.slug ??
-    options.generatedSlug;
+  const slug = options.input.slug ?? options.savedConfig.slug ?? options.generatedSlug;
   if (!SLUG_PATTERN.test(slug)) {
     return yield* new CliConfigError({
       message:
@@ -96,21 +79,10 @@ export const resolveTunnelConfig = Effect.fn("resolveTunnelConfig")(function* (o
     });
   }
 
-  const relayDomain =
-    options.input.domain ??
-    options.env.TURBOTUNNEL_BASE_DOMAIN ??
-    options.env.TURBOTUNNEL_RELAY_DOMAIN ??
-    options.savedConfig.relayDomain ??
-    "localhost";
-  const relaySecret =
-    options.input.secret ??
-    options.env.TURBOTUNNEL_RELAY_SECRET ??
-    options.savedConfig.relaySecret ??
-    "dev_secret";
+  const relayDomain = options.input.domain ?? options.savedConfig.relayDomain ?? "localhost";
+  const relaySecret = options.input.secret ?? options.savedConfig.relaySecret ?? "dev_secret";
 
-  const relayUrl = yield* parseRelayUrl(
-    options.input.relayUrl ?? options.env.TURBOTUNNEL_RELAY_URL ?? options.savedConfig.relayUrl,
-  );
+  const relayUrl = yield* parseRelayUrl(options.input.relayUrl ?? options.savedConfig.relayUrl);
   const accessPolicy: AccessPolicy = options.input.accessPolicy ?? { type: "public" };
   if (accessPolicy.type === "ipAllowlist" && !accessPolicy.cidrs.every(isSupportedCidr)) {
     return yield* new CliConfigError({

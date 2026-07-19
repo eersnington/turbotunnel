@@ -25,17 +25,16 @@ export class GatewayServer extends Context.Service<GatewayServer, Server>()(
 /** Builds the complete gateway runtime layer while parsing the supplied process environment. */
 const gatewayLive = (
   env: NodeJS.ProcessEnv,
+  brokerKind: "memory" | "vercel",
   authorityLayer: Layer.Layer<OidcTokenAuthority, never, OidcToken>,
 ) => {
   const oidcTokenLayer = OidcToken.layer(env.VERCEL_OIDC_TOKEN);
-  const configurationLayer = GatewayConfig.layerFromEnv(env);
+  const configurationLayer = GatewayConfig.layerFromEnv(env, brokerKind);
   const stateLayer = GatewayState.layer;
   const baseLayer = Layer.mergeAll(configurationLayer, stateLayer, oidcTokenLayer);
-  const queueLayer = Layer.unwrap(
-    GatewayConfig.use((config) =>
-      Effect.succeed(config.brokerKind === "memory" ? MemoryQueue.sharedLayer : VercelQueue.layer),
-    ),
-  ).pipe(Layer.provide(baseLayer));
+  const queueLayer = (brokerKind === "memory" ? MemoryQueue.sharedLayer : VercelQueue.layer).pipe(
+    Layer.provide(baseLayer),
+  );
   const authorityLayerWithToken = authorityLayer.pipe(Layer.provide(oidcTokenLayer));
   const requestServicesLayer = Layer.mergeAll(baseLayer, queueLayer, authorityLayerWithToken);
   const registryLayer = PublicRouteRegistry.layer.pipe(Layer.provide(requestServicesLayer));
@@ -45,8 +44,9 @@ const gatewayLive = (
 };
 
 /** Gateway runtime that never grants incoming public requests credential authority. */
-export const GatewayLive = (env: NodeJS.ProcessEnv) => gatewayLive(env, OidcTokenAuthority.none);
+export const GatewayLive = (env: NodeJS.ProcessEnv, brokerKind: "memory" | "vercel" = "memory") =>
+  gatewayLive(env, brokerKind, OidcTokenAuthority.none);
 
 /** Vercel deployment runtime whose platform adapter may refresh invocation OIDC credentials. */
 export const VercelGatewayLive = (env: NodeJS.ProcessEnv) =>
-  gatewayLive(env, OidcTokenAuthority.vercel);
+  gatewayLive(env, "vercel", OidcTokenAuthority.vercel);

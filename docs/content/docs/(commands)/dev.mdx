@@ -34,20 +34,11 @@ The second form replaces the package `dev` script with an explicit executable an
 | `[args...]` | Child arguments; supported port options may be normalized.   |
 | `--`        | Separator between Turbotunnel options and the child command. |
 
-The child receives these environment variables:
-
-| Variable           | Value                     |
-| ------------------ | ------------------------- |
-| `PORT`             | The selected local port.  |
-| `TURBOTUNNEL_URL`  | The resolved public URL.  |
-| `TURBOTUNNEL_HOST` | The public tunnel host.   |
-| `TURBOTUNNEL_SLUG` | The resolved tunnel slug. |
-
 Turbotunnel recognizes Next.js, Vite, Astro, Nuxt, and Storybook commands. It replaces an existing framework port argument or appends the selected port in the framework's normal form. Vite also receives `--strictPort`.
 
-For other executables, `--port <port>` or `--port=<port>` in the child arguments selects the tunnel port. Turbotunnel normalizes either form to `--port <port>`. Without that argument, the executable must read `PORT`.
+For other executables, `--port <port>` or `--port=<port>` in the child arguments selects the tunnel port. Turbotunnel normalizes either form to `--port <port>`.
 
-You can also pass `--port <port>` before the separator. For an unrecognized executable, this sets `PORT` but does not append a child argument.
+You can also pass `--port <port>` before the separator. For an unrecognized executable, Turbotunnel does not append a child argument.
 
 Turbotunnel waits up to 60 seconds for the selected port to accept an HTTP connection. If the deadline expires, it stops the child process and tunnel.
 

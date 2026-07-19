@@ -81,10 +81,13 @@ describe("gateway runtime", () => {
     };
 
     try {
-      const gateway = await startGateway({
-        TURBOTUNNEL_BROKER: "vercel",
-        VERCEL_OIDC_TOKEN: "trusted-process-token",
-      });
+      const gateway = await startGateway(
+        {
+          VERCEL_OIDC_TOKEN: "trusted-process-token",
+        },
+        "generic",
+        "vercel",
+      );
       const response = await request(gateway.server, {
         path: "/_turbotunnel/status",
         host: "tunnel.test",
@@ -111,7 +114,6 @@ describe("gateway runtime", () => {
     try {
       const gateway = await startGateway(
         {
-          TURBOTUNNEL_BROKER: "vercel",
           VERCEL_OIDC_TOKEN: "initial-token",
         },
         "vercel",
@@ -1221,16 +1223,15 @@ class FrameRecorder {
 async function startGateway(
   env: NodeJS.ProcessEnv = {},
   platform: "generic" | "vercel" = "generic",
+  brokerKind: "memory" | "vercel" = "memory",
 ): Promise<RunningGateway> {
-  const makeGateway = platform === "vercel" ? VercelGatewayLive : GatewayLive;
+  const completeEnv = {
+    TURBOTUNNEL_BASE_DOMAIN: "tunnel.test",
+    TURBOTUNNEL_RELAY_SECRET: "test_secret",
+    ...env,
+  };
   const runtime = ManagedRuntime.make(
-    makeGateway({
-      NODE_ENV: "development",
-      TURBOTUNNEL_BASE_DOMAIN: "tunnel.test",
-      TURBOTUNNEL_BROKER: "memory",
-      TURBOTUNNEL_RELAY_SECRET: "test_secret",
-      ...env,
-    }),
+    platform === "vercel" ? VercelGatewayLive(completeEnv) : GatewayLive(completeEnv, brokerKind),
   );
   const server = await runtime.runPromise(GatewayServer);
   const queue = await runtime.runPromise(Queue);

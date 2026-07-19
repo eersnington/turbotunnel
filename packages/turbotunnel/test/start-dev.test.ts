@@ -22,7 +22,7 @@ import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
 import type { LifecycleEvent } from "../src/runtime/lifecycle-event.js";
 
 describe("startDev", () => {
-  it.effect("injects the resolved tunnel environment and returns the child exit code", () =>
+  it.effect("inherits the parent environment without injecting tunnel values", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const root = yield* Effect.acquireRelease(
@@ -47,16 +47,10 @@ describe("startDev", () => {
             command: [process.execPath, "-e", script, outputPath, "--api-key", "secret"],
           },
           cwd: root,
-          env: {},
         }).pipe(Effect.provide(makeTestLayer(events)), Effect.provide(NodeServices.layer));
 
         expect(exitCode).toBe(19);
-        expect(JSON.parse(yield* Effect.promise(() => readFile(outputPath, "utf8")))).toEqual({
-          PORT: "5173",
-          URL: "http://demo.localhost:3002/",
-          HOST: "demo.localhost:3002",
-          SLUG: "demo",
-        });
+        expect(JSON.parse(yield* Effect.promise(() => readFile(outputPath, "utf8")))).toEqual({});
         expect(events[0]).toMatchObject({
           _tag: "TunnelStarting",
           launch: {
@@ -93,7 +87,6 @@ describe("startDev", () => {
         const running = startDev({
           input: { port: 5173, command: [process.execPath, "server.js"] },
           cwd: root,
-          env: {},
         }).pipe(Effect.provide(makeTimeoutLayer(started)), Effect.provide(NodeServices.layer));
 
         const fiber = yield* Effect.forkChild(running);

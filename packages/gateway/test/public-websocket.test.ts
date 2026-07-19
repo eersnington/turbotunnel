@@ -47,7 +47,6 @@ describe("public WebSocket pump ownership", () => {
             relaySecret: Redacted.make("test"),
             queueRegion: "iad1",
             brokerKind: "memory",
-            port: 3002,
           }),
         ),
         GatewayState.layer,
