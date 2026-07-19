@@ -154,6 +154,7 @@ class DeployRecorder {
           deploySlug: Effect.succeed("ttabc123"),
           tunnelSlug: Effect.succeed("local1"),
           relaySecret: Effect.succeed(Redacted.make("ttsec_test", { label: "relay-secret" })),
+          accessPassword: Effect.succeed("tt_generated"),
         }),
       ),
       Layer.succeed(

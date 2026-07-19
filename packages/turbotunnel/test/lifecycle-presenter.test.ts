@@ -22,10 +22,6 @@ describe("lifecycle presenter", () => {
         config,
         launch: { _tag: "ManagedProcess", command: "pnpm dev", directory: "/repo" },
       });
-      yield* reporter.emit({
-        _tag: "LocalApplicationWaiting",
-        target: config.target,
-      });
       yield* reporter.emit({ _tag: "DevelopmentOutputStarting" });
       const afterRelease = writes.join("");
       yield* TestClock.adjust(240);
@@ -60,6 +56,7 @@ describe("lifecycle presenter", () => {
         _tag: "DomainConfiguring",
         hostname: "demo.test\u001b[2J",
       });
+      yield* reporter.emit({ _tag: "AccessPasswordReady", password: "tt_generated" });
       yield* reporter.emit({
         _tag: "TunnelStarting",
         config,
@@ -75,6 +72,8 @@ describe("lifecycle presenter", () => {
       expect(interactiveWrites.join("")).toMatch(/[▀▄]/);
       expect(nonInteractiveWrites.join("")).not.toMatch(/[▀▄]/);
       expect(nonInteractiveWrites.join("")).toContain("demo.test\\u001b[2J");
+      expect(interactiveWrites.join("")).toContain("tt_generated");
+      expect(nonInteractiveWrites.join("")).toContain("tt_generated");
     });
   });
 });

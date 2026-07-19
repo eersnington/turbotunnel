@@ -12,6 +12,7 @@ import { type AccessOverride } from "../domain/project-access.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 import { prepareProjectTunnel } from "./resolve-project-tunnel.js";
 
+/** Opens a tunnel to an independently managed local HTTP application. */
 export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
   input: HttpCommandInput,
   options: {
@@ -36,20 +37,23 @@ export const startHttpTunnel = Effect.fn("startHttpTunnel")(function* (
     options.cwd,
     options.projectName,
   );
-  const config = yield* prepareProjectTunnel({
+  const prepared = yield* prepareProjectTunnel({
     input: {
       ...input,
       port: input.port ?? projectConfig?.port,
     },
     cwd: options.cwd,
-    targetPath: projectConfig?.root ?? options.cwd,
+    targetPath: projectConfig?.configRoot ?? options.cwd,
     projectConfig,
     accessOverride: options.accessOverride,
   });
+  if (prepared.password !== undefined) {
+    yield* reporter.emit({ _tag: "AccessPasswordReady", password: prepared.password });
+  }
   yield* reporter.emit({
     _tag: "TunnelStarting",
-    config,
+    config: prepared.config,
     launch: { _tag: "ExistingApplication" },
   });
-  return yield* tunnelRuntime.run(config);
+  return yield* tunnelRuntime.run(prepared.config);
 });

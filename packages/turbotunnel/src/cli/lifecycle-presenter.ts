@@ -15,23 +15,24 @@ export const tunnelReporterLive = Layer.effect(
     const reconnectNoticeVisible = yield* Ref.make(false);
     const developmentOutputVisible = yield* Ref.make(false);
     const tunnelUrl = yield* Ref.make<string | undefined>(undefined);
+    const accessPassword = yield* Ref.make<string | undefined>(undefined);
     const colors = pc.createColors(surface.capabilities.color);
 
     const emit = (event: LifecycleEvent): Effect.Effect<void> => {
       switch (event._tag) {
         case "DomainConfiguring":
           return surface.progress(`Configuring Vercel domain ${terminalText(event.hostname)}`);
+        case "AccessPasswordReady":
+          return Ref.set(accessPassword, event.password);
         case "TunnelStarting": {
-          return Ref.set(tunnelUrl, publicTunnelUrl(event.config)).pipe(
-            Effect.andThen(surface.settle(renderStarting(event, colors))),
+          return Ref.get(accessPassword).pipe(
+            Effect.flatMap((password) =>
+              Ref.set(tunnelUrl, publicTunnelUrl(event.config)).pipe(
+                Effect.andThen(surface.settle(renderStarting(event, password, colors))),
+              ),
+            ),
           );
         }
-        case "LocalApplicationWaiting":
-          return surface.progress(
-            `Waiting for local app at ${event.target.host}:${event.target.port}`,
-          );
-        case "LocalApplicationReady":
-          return surface.append(`${colors.green("✓")} Local app ready`);
         case "DevelopmentOutputStarting":
           return surface
             .settle(renderOutputBoundary("dev server", colors))
@@ -139,6 +140,7 @@ function indent(value: string): string {
 
 function renderStarting(
   event: Extract<LifecycleEvent, { readonly _tag: "TunnelStarting" }>,
+  password: string | undefined,
   colors: ReturnType<typeof pc.createColors>,
 ): string {
   const publicUrl = publicTunnelUrl(event.config);
@@ -159,6 +161,7 @@ function renderStarting(
               ? "password"
               : `IP allowlist (${event.config.accessPolicy.cidrs.length})`,
       },
+      ...(password === undefined ? [] : [{ label: "Password", value: password }]),
       ...(event.launch._tag === "ManagedProcess"
         ? [
             { label: "Process", value: event.launch.command },

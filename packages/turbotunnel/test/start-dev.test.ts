@@ -1,28 +1,25 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Layer, Redacted } from "effect";
-import { TestClock } from "effect/testing";
 
 import { DevProcess } from "../src/adapters/dev-process.js";
 import { Entropy } from "../src/adapters/entropy.js";
 import { GatewayStatusChecker } from "../src/adapters/gateway-status-checker.js";
-import { LocalAppProbe } from "../src/adapters/local-app-probe.js";
 import { LocalConfigStore } from "../src/adapters/local-config-store.js";
-import { PortAllocator } from "../src/adapters/port-allocator.js";
-import { ProjectDiscovery } from "../src/adapters/project-discovery.js";
 import { ProjectConfigStore } from "../src/adapters/project-config-store.js";
 import { ProjectDomain } from "../src/adapters/project-domain.js";
 import { TunnelRuntime } from "../src/adapters/tunnel-runtime.js";
+import type { HttpTunnelConfig } from "../src/domain/tunnel-config.js";
 import { startDev } from "../src/programs/start-dev.js";
 import { TunnelReporter } from "../src/runtime/tunnel-reporter.js";
 import type { LifecycleEvent } from "../src/runtime/lifecycle-event.js";
 
 describe("startDev", () => {
-  it.effect("inherits the parent environment without injecting tunnel values", () =>
+  it.effect("runs the exact child command from the invocation directory", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const root = yield* Effect.acquireRelease(
@@ -30,36 +27,34 @@ describe("startDev", () => {
           (path) =>
             Effect.promise(() => rm(path, { recursive: true, force: true })).pipe(Effect.orDie),
         );
-        yield* Effect.promise(() =>
-          writeFile(
-            join(root, "package.json"),
-            JSON.stringify({ scripts: { dev: "node server.js" } }),
-          ),
-        );
-        const outputPath = join(root, "environment.json");
+        const realRoot = yield* Effect.promise(() => realpath(root));
+        const outputPath = join(root, "child.json");
         const events: Array<LifecycleEvent> = [];
         const script =
-          "require('node:fs').writeFileSync(process.argv[1], JSON.stringify({ PORT: process.env.PORT, URL: process.env.TURBOTUNNEL_URL, HOST: process.env.TURBOTUNNEL_HOST, SLUG: process.env.TURBOTUNNEL_SLUG })); process.exit(19)";
+          "require('node:fs').writeFileSync(process.argv[1], JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(2), injected: { PORT: process.env.PORT, URL: process.env.TURBOTUNNEL_URL } })); process.exit(19)";
 
         const exitCode = yield* startDev({
           input: {
             port: 5173,
             command: [process.execPath, "-e", script, outputPath, "--api-key", "secret"],
           },
-          cwd: root,
+          cwd: realRoot,
         }).pipe(Effect.provide(makeTestLayer(events)), Effect.provide(NodeServices.layer));
 
         expect(exitCode).toBe(19);
-        expect(JSON.parse(yield* Effect.promise(() => readFile(outputPath, "utf8")))).toEqual({});
+        expect(JSON.parse(yield* Effect.promise(() => readFile(outputPath, "utf8")))).toEqual({
+          cwd: realRoot,
+          argv: ["--api-key", "secret"],
+          injected: {},
+        });
         expect(events[0]).toMatchObject({
           _tag: "TunnelStarting",
           launch: {
             _tag: "ManagedProcess",
-            directory: root,
+            directory: realRoot,
           },
         });
         const event = events[0];
-        expect(event?._tag).toBe("TunnelStarting");
         if (event?._tag === "TunnelStarting" && event.launch._tag === "ManagedProcess") {
           expect(event.launch.command).toContain(`${process.execPath} -e`);
           expect(event.launch.command).toContain("--api-key <redacted>");
@@ -69,58 +64,72 @@ describe("startDev", () => {
     ),
   );
 
-  it.effect("fails with a typed error when readiness exceeds 60 seconds", () =>
+  it.effect("opens the tunnel without spawning a child when no command is supplied", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const root = yield* Effect.acquireRelease(
-          Effect.promise(() => mkdtemp(join(tmpdir(), "turbotunnel-dev-timeout-"))),
+          Effect.promise(() => mkdtemp(join(tmpdir(), "turbotunnel-dev-tunnel-only-"))),
           (path) =>
             Effect.promise(() => rm(path, { recursive: true, force: true })).pipe(Effect.orDie),
         );
-        yield* Effect.promise(() =>
-          writeFile(
-            join(root, "package.json"),
-            JSON.stringify({ scripts: { dev: "node server.js" } }),
-          ),
-        );
-        const started = yield* Deferred.make<void>();
+        const started = yield* Deferred.make<HttpTunnelConfig>();
+        const events: Array<LifecycleEvent> = [];
         const running = startDev({
-          input: { port: 5173, command: [process.execPath, "server.js"] },
+          input: { port: 4173, command: [] },
           cwd: root,
-        }).pipe(Effect.provide(makeTimeoutLayer(started)), Effect.provide(NodeServices.layer));
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(events, {
+              devProcess: DevProcess.of({ spawn: () => Effect.die("unexpected child spawn") }),
+              tunnelRuntime: TunnelRuntime.of({
+                run: (config) =>
+                  Deferred.succeed(started, config).pipe(Effect.andThen(Effect.never)),
+              }),
+            }),
+          ),
+          Effect.provide(NodeServices.layer),
+        );
 
         const fiber = yield* Effect.forkChild(running);
-        yield* Deferred.await(started);
-        yield* TestClock.adjust("60 seconds");
-        const error = yield* Fiber.join(fiber).pipe(Effect.flip);
+        const config = yield* Deferred.await(started);
 
-        expect(error._tag).toBe("DevServerReadinessTimeout");
-        if (error._tag === "DevServerReadinessTimeout") {
-          expect(error.port).toBe(5173);
-          expect(error.timeoutSeconds).toBe(60);
-        }
+        expect(config.target).toEqual({ protocol: "http", host: "localhost", port: 4173 });
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            _tag: "TunnelStarting",
+            launch: { _tag: "ExistingApplication" },
+          }),
+        );
+        yield* Fiber.interrupt(fiber);
       }),
     ),
   );
 });
 
-const makeTestLayer = (events: Array<LifecycleEvent>) =>
+const makeTestLayer = (
+  events: Array<LifecycleEvent>,
+  options?: {
+    readonly devProcess?: DevProcess["Service"];
+    readonly tunnelRuntime?: TunnelRuntime["Service"];
+  },
+) =>
   Layer.mergeAll(
-    ProjectDiscovery.live,
     ProjectConfigStore.live,
     Layer.succeed(
       ProjectDomain,
       ProjectDomain.of({ reconcile: () => Effect.die("unexpected domain reconciliation") }),
     ),
     gatewayStatusLayer,
-    DevProcess.live,
-    Layer.succeed(PortAllocator, PortAllocator.of({ freePort: Effect.succeed(6000) })),
+    options?.devProcess === undefined
+      ? DevProcess.live
+      : Layer.succeed(DevProcess, options.devProcess),
     Layer.succeed(
       Entropy,
       Entropy.of({
         deploySlug: Effect.succeed("deploy"),
         tunnelSlug: Effect.succeed("generated"),
         relaySecret: Effect.succeed(Redacted.make("secret", { label: "relay-secret" })),
+        accessPassword: Effect.succeed("tt_generated"),
       }),
     ),
     Layer.succeed(
@@ -136,76 +145,13 @@ const makeTestLayer = (events: Array<LifecycleEvent>) =>
       }),
     ),
     Layer.succeed(
-      LocalAppProbe,
-      LocalAppProbe.of({
-        assertReachable: () => Effect.void,
-        waitUntilReachable: () => Effect.never,
-      }),
-    ),
-    Layer.succeed(
       TunnelRuntime,
-      TunnelRuntime.of({
-        run: (_config, beforeConnect = Effect.void) =>
-          beforeConnect.pipe(Effect.andThen(Effect.never)),
-      }),
+      options?.tunnelRuntime ?? TunnelRuntime.of({ run: () => Effect.never }),
     ),
     Layer.succeed(
       TunnelReporter,
       TunnelReporter.of({ emit: (event) => Effect.sync(() => events.push(event)) }),
     ),
-  );
-
-const makeTimeoutLayer = (started: Deferred.Deferred<void>) =>
-  Layer.mergeAll(
-    ProjectDiscovery.live,
-    ProjectConfigStore.live,
-    Layer.succeed(
-      ProjectDomain,
-      ProjectDomain.of({ reconcile: () => Effect.die("unexpected domain reconciliation") }),
-    ),
-    gatewayStatusLayer,
-    Layer.succeed(
-      DevProcess,
-      DevProcess.of({
-        spawn: () =>
-          Deferred.succeed(started, undefined).pipe(Effect.as({ exitCode: Effect.never })),
-      }),
-    ),
-    Layer.succeed(PortAllocator, PortAllocator.of({ freePort: Effect.succeed(6000) })),
-    Layer.succeed(
-      Entropy,
-      Entropy.of({
-        deploySlug: Effect.succeed("deploy"),
-        tunnelSlug: Effect.succeed("generated"),
-        relaySecret: Effect.succeed(Redacted.make("secret", { label: "relay-secret" })),
-      }),
-    ),
-    Layer.succeed(
-      LocalConfigStore,
-      LocalConfigStore.of({
-        read: Effect.succeed({
-          slug: "demo",
-          relayDomain: "tunnel.example.com",
-          relaySecret: "secret",
-        }),
-        update: () => Effect.void,
-      }),
-    ),
-    Layer.succeed(
-      LocalAppProbe,
-      LocalAppProbe.of({
-        assertReachable: () => Effect.void,
-        waitUntilReachable: () => Effect.never,
-      }),
-    ),
-    Layer.succeed(
-      TunnelRuntime,
-      TunnelRuntime.of({
-        run: (_config, beforeConnect = Effect.void) =>
-          beforeConnect.pipe(Effect.andThen(Effect.never)),
-      }),
-    ),
-    Layer.succeed(TunnelReporter, TunnelReporter.of({ emit: () => Effect.void })),
   );
 
 const gatewayStatusLayer = Layer.succeed(

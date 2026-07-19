@@ -7,21 +7,17 @@ This page describes repository projects, saved gateway settings, and the product
 
 ## Project configuration
 
-Place `turbotunnel.json` in a directory that contains the projects it configures. Turbotunnel searches upward from your current directory and uses the nearest file. Named projects use paths relative to that file:
+Place `turbotunnel.json` in a repository directory. Turbotunnel searches upward from your current directory and uses the nearest file. Named projects contain tunnel settings only:
 
 ```json
 {
   "access": { "type": "public" },
   "projects": {
     "dashboard": {
-      "root": "packages/dashboard",
-      "dev": "vp run dev",
       "port": 3000,
       "slug": "dashboard"
     },
     "docs": {
-      "root": "docs",
-      "dev": "pnpm dev",
       "port": 5173,
       "domain": "docs.eers.dev"
     }
@@ -29,11 +25,11 @@ Place `turbotunnel.json` in a directory that contains the projects it configures
 }
 ```
 
-Run `tt dev dashboard` from the configuration directory. Run `tt dev` anywhere under `packages/dashboard`. A single-project configuration can put `dev`, `port`, `slug`, `domain`, `env`, and `access` at the top level.
+Run `tt dev dashboard` to select a named project. With one configured project, `tt dev` selects it automatically. With multiple projects, an interactive terminal presents a selector. A single-project configuration can put `port`, `slug`, `domain`, and `access` at the top level.
 
 `slug: "dashboard"` first requests `dashboard-turbotunnel.vercel.app`. If another Vercel project owns that name, Turbotunnel assigns and saves `tt<random>-dashboard.vercel.app`. `domain` selects one exact custom hostname. You cannot combine `domain` with `slug`.
 
-Supported access policies are `public`, `password`, and `ip` with an `allow` array. Pass a password with `--password <value>` or omit the value to use a hidden terminal prompt. Turbotunnel never writes passwords to configuration.
+Supported access policies are `public`, `password`, and `ip` with an `allow` array. Password access generates a fresh `tt_<nanoid>` password for each session. Pass `--password <value>` to use a custom value. Turbotunnel never writes passwords to configuration.
 
 ## Saved configuration
 

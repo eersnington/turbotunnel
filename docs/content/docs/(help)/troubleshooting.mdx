@@ -5,11 +5,9 @@ description: Diagnose gateway, local app, configuration, and deployment failures
 
 Find the symptom that matches your failure, apply the suggested check, and retry the command. Turbotunnel preserves saved configuration when deployment or gateway verification fails.
 
-## `tt dev` cannot reach the local app
+## The local app is unavailable
 
-`tt dev` repeatedly sends `HEAD /` while it waits for the local app. Each probe has a one-second timeout. The command stops the child process and tunnel after 60s. Any HTTP response counts as reachable.
-
-`tt http` does not run this check. While its local app is unavailable, the public URL returns an HTTP `502` page with recovery steps.
+`tt http` and `tt dev` start the tunnel without waiting for the local app. While the app is unavailable, the public URL returns an HTTP `502` page with recovery steps.
 
 Start the app and confirm its port. If it listens on a different interface, pass that host:
 
@@ -17,7 +15,7 @@ Start the app and confirm its port. If it listens on a different interface, pass
 tt http 5173 --host 127.0.0.1
 ```
 
-If the app is running but the check still fails, compare its URL with the `Local` row. Pass the same port to fixed-port scripts with `tt dev --port`. Use `tt http --host` for servers on another interface.
+If the app is running but forwarding still fails, compare its URL with the `Local` row. The command passed after `tt dev --` must listen on the configured project port or `--port` value. Use `tt http --host` for servers on another interface.
 
 ## No gateway is configured
 

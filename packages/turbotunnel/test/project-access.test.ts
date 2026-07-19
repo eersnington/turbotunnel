@@ -4,14 +4,30 @@ import { describe, expect, it } from "vitest";
 import { resolveAccessPolicy } from "../src/domain/project-access.js";
 
 describe("resolveAccessPolicy", () => {
-  it("fails clearly when no secret is available non-interactively", async () => {
-    const error = await Effect.runPromise(
+  it("uses the generated password when password access has no explicit value", async () => {
+    const access = await Effect.runPromise(
       resolveAccessPolicy({
-        override: { type: "password" },
-        interactive: false,
-      }).pipe(Effect.flip),
+        configured: { type: "password" },
+        generatedPassword: "tt_generated",
+      }),
     );
-    expect(error._tag).toBe("CliConfigError");
-    expect(error.message).toContain("--password <value>");
+
+    expect(access.password).toBe("tt_generated");
+    expect(access.policy.type).toBe("password");
+    if (access.policy.type === "password") {
+      expect(access.policy.hash).not.toContain("tt_generated");
+    }
+  });
+
+  it("uses an explicit password override", async () => {
+    const access = await Effect.runPromise(
+      resolveAccessPolicy({
+        override: { type: "password", password: "chosen-password" },
+        generatedPassword: "tt_generated",
+      }),
+    );
+
+    expect(access.password).toBe("chosen-password");
+    expect(access.policy.type).toBe("password");
   });
 });

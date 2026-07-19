@@ -10,14 +10,11 @@ import { GatewayVerifier } from "./adapters/gateway-verifier.js";
 import { GatewayStatusChecker } from "./adapters/gateway-status-checker.js";
 import { GatewayControlClient } from "./adapters/gateway-control-client.js";
 import { GatewayWorkspace } from "./adapters/gateway-workspace.js";
-import { LocalAppProbe } from "./adapters/local-app-probe.js";
 import { LocalConfigStore } from "./adapters/local-config-store.js";
 import { LocalControl } from "./adapters/local-control.js";
 import { RuntimeRegistry } from "./adapters/runtime-registry.js";
 import { TunnelRuntime } from "./adapters/tunnel-runtime.js";
 import { DevProcess } from "./adapters/dev-process.js";
-import { PortAllocator } from "./adapters/port-allocator.js";
-import { ProjectDiscovery } from "./adapters/project-discovery.js";
 import { ProjectConfigStore } from "./adapters/project-config-store.js";
 import { ProjectDomain } from "./adapters/project-domain.js";
 import { VercelCli } from "./adapters/vercel-cli.js";
@@ -51,12 +48,9 @@ const applicationLayer = Layer.mergeAll(
   configurationLayer,
   GatewayWorkspace.live,
   GatewayVerifier.live,
-  LocalAppProbe.live,
   GatewayStatusChecker.live,
   gatewayControlLayer,
   DevProcess.live,
-  PortAllocator.live,
-  ProjectDiscovery.live,
   ProjectConfigStore.live,
   projectDomainLayer,
   terminalUiLayer,
@@ -130,17 +124,9 @@ Command.runWith(turbotunnelCommand, { version: TURBOTUNNEL_VERSION })(
     GatewayVerificationError: handleExpectedFailure,
     GatewayControlError: handleExpectedFailure,
     NoGatewayConfigured: handleExpectedFailure,
-    LocalTargetNotReachable: handleExpectedFailure,
     RuntimeRegistryError: handleExpectedFailure,
     LocalControlError: handleExpectedFailure,
-    ProjectNotFound: handleExpectedFailure,
-    ProjectManifestError: handleExpectedFailure,
-    UnsupportedPackageManager: handleExpectedFailure,
-    ConflictingLockfiles: handleExpectedFailure,
-    DevScriptNotFound: handleExpectedFailure,
-    PortAllocationError: handleExpectedFailure,
     DevProcessError: handleExpectedFailure,
-    DevServerReadinessTimeout: handleExpectedFailure,
   }),
   Effect.catchDefect(handleUnexpectedFailure),
   Effect.provide(liveLayer),

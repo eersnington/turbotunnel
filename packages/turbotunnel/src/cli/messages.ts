@@ -311,29 +311,11 @@ function failureContext(tag: string): {
   readonly preserved: string;
   readonly next: string;
 } {
-  if (
-    [
-      "ProjectNotFound",
-      "ProjectManifestError",
-      "UnsupportedPackageManager",
-      "ConflictingLockfiles",
-      "DevScriptNotFound",
-      "PortAllocationError",
-      "DevProcessError",
-      "DevServerReadinessTimeout",
-    ].includes(tag)
-  ) {
+  if (["DevProcessError"].includes(tag)) {
     return {
       attempted: "Resolved the project, process, local app, and tunnel requirements.",
       preserved: "Turbotunnel requested shutdown for any managed process and tunnel it started.",
       next: "Correct the issue above, then rerun `tt dev`.",
-    };
-  }
-  if (tag === "LocalTargetNotReachable") {
-    return {
-      attempted: "Checked the configured local host and port before opening the tunnel.",
-      preserved: "The local application was not changed and no tunnel was started.",
-      next: "Start the local app or correct `--host` and the port, then retry.",
     };
   }
   if (["RuntimeRegistryError", "LocalControlError"].includes(tag)) {

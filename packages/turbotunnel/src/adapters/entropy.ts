@@ -8,6 +8,7 @@ export type EntropyShape = {
   readonly deploySlug: Effect.Effect<string>;
   readonly tunnelSlug: Effect.Effect<string>;
   readonly relaySecret: Effect.Effect<Redacted.Redacted<string>>;
+  readonly accessPassword: Effect.Effect<string>;
 };
 
 export class Entropy extends Context.Service<Entropy, EntropyShape>()(
@@ -20,6 +21,7 @@ export class Entropy extends Context.Service<Entropy, EntropyShape>()(
       return Entropy.of({
         deploySlug: Effect.sync(() => `tt${deploySlugAlphabet()}`),
         tunnelSlug: Effect.sync(() => tunnelSlugAlphabet()),
+        accessPassword: Effect.sync(() => `tt_${accessPasswordAlphabet()}`),
         relaySecret: crypto.randomBytes(24).pipe(
           Effect.map((bytes) =>
             Redacted.make(`ttsec_${Buffer.from(bytes).toString("base64url")}`, {
@@ -35,3 +37,7 @@ export class Entropy extends Context.Service<Entropy, EntropyShape>()(
 
 const deploySlugAlphabet = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
 const tunnelSlugAlphabet = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 5);
+const accessPasswordAlphabet = customAlphabet(
+  "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz",
+  20,
+);

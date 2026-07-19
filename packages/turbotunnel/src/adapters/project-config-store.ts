@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 
 import { Context, Effect, Layer, Schema } from "effect";
@@ -12,8 +12,6 @@ export type ProjectSelection = {
   readonly configPath: string;
   readonly configRoot: string;
   readonly name: string | undefined;
-  readonly root: string;
-  readonly dev: string | undefined;
   readonly port: number | undefined;
   readonly slug: string | undefined;
   readonly domain: string | undefined;
@@ -52,19 +50,17 @@ const ProjectAccessSchema = Schema.Union([
 ]);
 
 const ProjectFields = {
-  dev: Schema.optional(Schema.String),
   port: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }))),
   slug: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
   access: Schema.optional(ProjectAccessSchema),
 };
-const SingleProjectSchema = Schema.Struct(ProjectFields);
-const RepositoryProjectSchema = Schema.Struct({ root: Schema.String, ...ProjectFields });
+const ProjectSchema = Schema.Struct(ProjectFields);
 const RepositoryConfigSchema = Schema.Struct({
   access: Schema.optional(ProjectAccessSchema),
-  projects: Schema.Record(Schema.String, RepositoryProjectSchema),
+  projects: Schema.Record(Schema.String, ProjectSchema),
 });
-const ProjectFileSchema = Schema.Union([RepositoryConfigSchema, SingleProjectSchema]);
+const ProjectFileSchema = Schema.Union([RepositoryConfigSchema, ProjectSchema]);
 const decodeProjectFile = Schema.decodeUnknownEffect(Schema.fromJsonString(ProjectFileSchema), {
   onExcessProperty: "error",
 });
@@ -92,7 +88,7 @@ const discoverProjectConfig = Effect.fn("ProjectConfigStore.discover")(function*
           }),
       ),
     );
-    if (exists) return yield* readAndSelect(fs, configPath, absoluteCwd, projectName);
+    if (exists) return yield* readAndSelect(fs, configPath, projectName);
     if (directory === filesystemRoot) return undefined;
     directory = dirname(directory);
   }
@@ -101,7 +97,6 @@ const discoverProjectConfig = Effect.fn("ProjectConfigStore.discover")(function*
 const readAndSelect = Effect.fn("ProjectConfigStore.readAndSelect")(function* (
   fs: FileSystem,
   configPath: string,
-  cwd: string,
   projectName?: string,
 ): Effect.fn.Return<ProjectSelection, ConfigFileReadError | ConfigFileParseError | CliConfigError> {
   const text = yield* fs.readFileString(configPath, "utf8").pipe(
@@ -131,10 +126,12 @@ const readAndSelect = Effect.fn("ProjectConfigStore.readAndSelect")(function* (
         message: `${configPath} configures one project, so project name ${JSON.stringify(projectName)} cannot be selected. Remove the project name and retry. No child process or tunnel was started.`,
       });
     }
-    return yield* makeSelection(configPath, configRoot, undefined, configRoot, config);
+    return yield* makeSelection(configPath, configRoot, undefined, config);
   }
 
-  const entries = Object.entries(config.projects);
+  const entries = Object.entries(config.projects).map(
+    ([name, project]) => [name, { ...project, access: project.access ?? config.access }] as const,
+  );
   if (entries.length === 0) {
     return yield* new CliConfigError({
       message: `${configPath} does not define any projects. Add a project under "projects" and retry. No child process or tunnel was started.`,
@@ -142,63 +139,50 @@ const readAndSelect = Effect.fn("ProjectConfigStore.readAndSelect")(function* (
   }
   const selected =
     projectName === undefined
-      ? yield* selectFromCwd(configPath, configRoot, cwd, entries)
+      ? yield* selectProject(configPath, entries)
       : config.projects[projectName] === undefined
         ? yield* unknownProject(
             configPath,
             projectName,
             entries.map(([name]) => name),
           )
-        : ([projectName, config.projects[projectName]] as const);
+        : ([
+            projectName,
+            {
+              ...config.projects[projectName],
+              access: config.projects[projectName].access ?? config.access,
+            },
+          ] as const);
   const [name, project] = selected;
-  const root = yield* checkedProjectRoot(configPath, configRoot, name, project.root);
-  return yield* makeSelection(configPath, configRoot, name, root, {
-    ...project,
-    access: project.access ?? config.access,
-  });
+  return yield* makeSelection(configPath, configRoot, name, project);
 });
 
-const selectFromCwd = Effect.fn("ProjectConfigStore.selectFromCwd")(function* (
+const selectProject = Effect.fn("ProjectConfigStore.selectProject")(function* (
   configPath: string,
-  configRoot: string,
-  cwd: string,
-  entries: ReadonlyArray<readonly [string, typeof RepositoryProjectSchema.Type]>,
-): Effect.fn.Return<readonly [string, typeof RepositoryProjectSchema.Type], CliConfigError> {
-  const resolved = yield* Effect.forEach(entries, ([name, project]) =>
-    Effect.gen(function* () {
-      const root = yield* checkedProjectRoot(configPath, configRoot, name, project.root);
-      return [name, project, root] as const;
-    }),
-  );
-  const matches = resolved
-    .filter(([, , root]) => contains(root, cwd))
-    .sort((left, right) => right[2].length - left[2].length);
-  const best = matches[0];
-  if (best !== undefined && matches[1]?.[2] !== best[2]) {
-    return [best[0], best[1]];
-  }
+  entries: ReadonlyArray<readonly [string, typeof ProjectSchema.Type]>,
+): Effect.fn.Return<readonly [string, typeof ProjectSchema.Type], CliConfigError> {
   if (entries.length === 1) return entries[0]!;
   if (process.stdin.isTTY && process.stdout.isTTY) {
     return yield* promptForProject(entries);
   }
-  const choices = entries.map(([name]) => `  tt dev ${name}`).join("\n");
+  const choices = entries.map(([name]) => `  ${name}`).join("\n");
   return yield* Effect.fail(
     new CliConfigError({
-      message: `Multiple Turbotunnel projects are configured in ${configPath}. Select one explicitly:\n${choices}\nNo child process or tunnel was started.`,
+      message: `Multiple Turbotunnel projects are configured in ${configPath}. Select one explicitly by name:\n${choices}\nNo child process or tunnel was started.`,
     }),
   );
 });
 
 function promptForProject(
-  entries: ReadonlyArray<readonly [string, typeof RepositoryProjectSchema.Type]>,
-): Effect.Effect<readonly [string, typeof RepositoryProjectSchema.Type], CliConfigError> {
+  entries: ReadonlyArray<readonly [string, typeof ProjectSchema.Type]>,
+): Effect.Effect<readonly [string, typeof ProjectSchema.Type], CliConfigError> {
   const selectionError = () =>
     new CliConfigError({
-      message: `Project selection was not recognized. Retry with an explicit project name, for example: tt dev ${entries[0]?.[0] ?? "<project>"}. No child process or tunnel was started.`,
+      message: `Project selection was not recognized. Retry with an explicit project name, for example: ${entries[0]?.[0] ?? "<project>"}. No child process or tunnel was started.`,
     });
   return Effect.gen(function* () {
     process.stdout.write(
-      `Select a Turbotunnel project:\n${entries.map(([name, project], index) => `  ${index + 1}. ${name}  ${project.root}`).join("\n")}\n`,
+      `Select a Turbotunnel project:\n${entries.map(([name, project], index) => `  ${index + 1}. ${projectSummary(name, project)}`).join("\n")}\n`,
     );
     const terminal = createInterface({ input: process.stdin, output: process.stdout });
     const answer = yield* Effect.tryPromise({
@@ -225,34 +209,11 @@ function unknownProject(
   );
 }
 
-function checkedProjectRoot(
-  configPath: string,
-  configRoot: string,
-  name: string,
-  configuredRoot: string,
-): Effect.Effect<string, CliConfigError> {
-  const root = resolve(configRoot, configuredRoot);
-  if (isAbsolute(configuredRoot) || !contains(configRoot, root)) {
-    return Effect.fail(
-      new CliConfigError({
-        message: `projects.${name}.root in ${configPath} must be a relative path inside ${configRoot}. No child process or tunnel was started.`,
-      }),
-    );
-  }
-  return Effect.succeed(root);
-}
-
-function contains(parent: string, child: string): boolean {
-  const path = relative(parent, child);
-  return path === "" || (!path.startsWith("..") && !isAbsolute(path));
-}
-
 function makeSelection(
   configPath: string,
   configRoot: string,
   name: string | undefined,
-  root: string,
-  project: typeof SingleProjectSchema.Type,
+  project: typeof ProjectSchema.Type,
 ): Effect.Effect<ProjectSelection, CliConfigError> {
   if (project.slug !== undefined && project.domain !== undefined) {
     return Effect.fail(
@@ -265,11 +226,18 @@ function makeSelection(
     configPath,
     configRoot,
     name,
-    root,
-    dev: project.dev,
     port: project.port,
     slug: project.slug,
     domain: project.domain,
     access: project.access,
   });
+}
+
+function projectSummary(name: string, project: typeof ProjectSchema.Type): string {
+  const local = project.port === undefined ? "port not configured" : `localhost:${project.port}`;
+  const publicHost =
+    project.domain ??
+    (project.slug === undefined ? "generated hostname" : `${project.slug}-turbotunnel.vercel.app`);
+  const access = project.access?.type ?? "public";
+  return `${name}  ${local}  ${publicHost}  ${access}`;
 }

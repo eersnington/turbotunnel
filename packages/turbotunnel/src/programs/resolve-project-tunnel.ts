@@ -24,10 +24,10 @@ export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* 
   const requestedSlug = options.input.slug ?? options.projectConfig?.slug;
   const requestedDomain =
     options.input.slug === undefined ? options.projectConfig?.domain : undefined;
-  const accessPolicy = yield* resolveAccessPolicy({
+  const access = yield* resolveAccessPolicy({
     configured: options.projectConfig?.access,
     override: options.accessOverride,
-    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
+    generatedPassword: yield* entropy.accessPassword,
   });
   const provisionalConfig = yield* resolveTunnelConfig({
     input: {
@@ -36,7 +36,7 @@ export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* 
       publicHost:
         requestedDomain ??
         (requestedSlug === undefined ? undefined : `${requestedSlug}-turbotunnel.vercel.app`),
-      accessPolicy,
+      accessPolicy: access.policy,
     },
     savedConfig,
     generatedSlug: generatedTunnelSlug,
@@ -66,14 +66,15 @@ export const prepareProjectTunnel = Effect.fn("prepareProjectTunnel")(function* 
           },
           generatedDeploySlug,
         });
-  return yield* resolveTunnelConfig({
+  const config = yield* resolveTunnelConfig({
     input: {
       ...options.input,
       slug: domainAssignment?.slug ?? options.input.slug ?? options.projectConfig?.slug,
       publicHost: domainAssignment?.domain,
-      accessPolicy,
+      accessPolicy: access.policy,
     },
     savedConfig,
     generatedSlug: generatedTunnelSlug,
   });
+  return { config, password: access.password };
 });
