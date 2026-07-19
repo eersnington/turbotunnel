@@ -7,11 +7,7 @@ export type GatewayConfigShape = {
   readonly relaySecret: Redacted.Redacted<string>;
   readonly queueRegion: string;
   readonly brokerKind: "memory" | "vercel";
-  readonly port: number;
 };
-
-const portSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }));
-const brokerKindSchema = Schema.Literals(["memory", "vercel"]);
 
 export class GatewayConfigurationError extends Schema.TaggedErrorClass<GatewayConfigurationError>()(
   "GatewayConfigurationError",
@@ -24,15 +20,16 @@ export class GatewayConfigurationError extends Schema.TaggedErrorClass<GatewayCo
 export class GatewayConfig extends Context.Service<GatewayConfig, GatewayConfigShape>()(
   "turbotunnel/gateway/GatewayConfig",
 ) {
-  static readonly layer = Layer.effect(this)(loadGatewayConfig());
-
-  static readonly layerFromEnv = (env: NodeJS.ProcessEnv) =>
-    this.layer.pipe(
+  static readonly layerFromEnv = (
+    env: NodeJS.ProcessEnv,
+    brokerKind: "memory" | "vercel" = "memory",
+  ) =>
+    Layer.effect(this)(loadGatewayConfig(brokerKind)).pipe(
       Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: envRecord(env) }))),
     );
 }
 
-function loadGatewayConfig() {
+function loadGatewayConfig(brokerKind: "memory" | "vercel") {
   return Effect.gen(function* () {
     const baseDomain = yield* Config.schema(Schema.NonEmptyString, "TURBOTUNNEL_BASE_DOMAIN").pipe(
       Config.withDefault("localhost"),
@@ -53,20 +50,11 @@ function loadGatewayConfig() {
       Schema.NonEmptyString,
       "TURBOTUNNEL_QUEUE_REGION",
     ).pipe(Config.withDefault("iad1"));
-    const brokerOption = yield* Config.option(
-      Config.schema(brokerKindSchema, "TURBOTUNNEL_BROKER"),
-    );
-    const nodeEnv = yield* Config.option(Config.schema(Schema.String, "NODE_ENV"));
-    const port = yield* Config.schema(portSchema, "PORT").pipe(Config.withDefault(3002));
-
     return GatewayConfig.of({
       baseDomain,
       relaySecret,
       queueRegion,
-      brokerKind:
-        Option.getOrUndefined(brokerOption) ??
-        (Option.getOrUndefined(nodeEnv) === "development" ? "memory" : "vercel"),
-      port,
+      brokerKind,
     });
   });
 }

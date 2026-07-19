@@ -17,7 +17,6 @@ export type ProjectSelection = {
   readonly port: number | undefined;
   readonly slug: string | undefined;
   readonly domain: string | undefined;
-  readonly env: Readonly<Record<string, string>>;
   readonly access: ProjectAccess | undefined;
 };
 
@@ -52,19 +51,16 @@ const ProjectAccessSchema = Schema.Union([
   Schema.Struct({ type: Schema.Literal("ip"), allow: Schema.Array(Schema.String) }),
 ]);
 
-const EnvironmentSchema = Schema.Record(Schema.String, Schema.String);
 const ProjectFields = {
   dev: Schema.optional(Schema.String),
   port: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65_535 }))),
   slug: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
-  env: Schema.optional(EnvironmentSchema),
   access: Schema.optional(ProjectAccessSchema),
 };
 const SingleProjectSchema = Schema.Struct(ProjectFields);
 const RepositoryProjectSchema = Schema.Struct({ root: Schema.String, ...ProjectFields });
 const RepositoryConfigSchema = Schema.Struct({
-  env: Schema.optional(EnvironmentSchema),
   access: Schema.optional(ProjectAccessSchema),
   projects: Schema.Record(Schema.String, RepositoryProjectSchema),
 });
@@ -158,7 +154,6 @@ const readAndSelect = Effect.fn("ProjectConfigStore.readAndSelect")(function* (
   const root = yield* checkedProjectRoot(configPath, configRoot, name, project.root);
   return yield* makeSelection(configPath, configRoot, name, root, {
     ...project,
-    env: { ...config.env, ...project.env },
     access: project.access ?? config.access,
   });
 });
@@ -275,7 +270,6 @@ function makeSelection(
     port: project.port,
     slug: project.slug,
     domain: project.domain,
-    env: project.env ?? {},
     access: project.access,
   });
 }

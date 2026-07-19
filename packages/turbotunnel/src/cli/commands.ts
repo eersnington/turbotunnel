@@ -3,7 +3,7 @@ import { Argument, Command, Flag } from "effect/unstable/cli";
 
 import { deployGateway } from "../programs/deploy-gateway.js";
 import { showStatus } from "../programs/show-status.js";
-import { startHttpTunnel, tunnelEnvironmentFromProcess } from "../programs/start-http-tunnel.js";
+import { startHttpTunnel } from "../programs/start-http-tunnel.js";
 import { startDev } from "../programs/start-dev.js";
 import { listTunnels } from "../programs/list-tunnels.js";
 import { CliConfigError } from "../errors.js";
@@ -50,9 +50,7 @@ export const httpCommand = Command.make(
       Flag.withDescription("temporarily allow public access without authentication"),
     ),
     password: Flag.string("password").pipe(
-      Flag.withDescription(
-        "temporarily require password access; pass a value, omit to prompt, or use TURBOTUNNEL_PASSWORD",
-      ),
+      Flag.withDescription("temporarily require password access; pass a value or omit to prompt"),
       Flag.optional,
     ),
     allowIp: Flag.string("allow-ip").pipe(
@@ -86,11 +84,9 @@ export const httpCommand = Command.make(
         secret: Option.getOrUndefined(secret),
         relayUrl: Option.getOrUndefined(relayUrl),
       },
-      tunnelEnvironmentFromProcess(process.env),
       {
         cwd: process.cwd(),
         projectName: positionalPort === undefined ? selected : undefined,
-        processEnv: process.env,
         accessOverride: yield* parseAccessOverride({
           publicAccess,
           password,
@@ -106,7 +102,7 @@ export const httpCommand = Command.make(
     { command: "tt http dashboard", description: "Share a configured monorepo project" },
     {
       command: "tt http 3000 --password",
-      description: "Share with password access (prompt or TURBOTUNNEL_PASSWORD)",
+      description: "Share with password access",
     },
     {
       command: "tt http 3000 --relay-url ws://127.0.0.1:3002",
@@ -211,9 +207,7 @@ export const devCommand = Command.make(
       Flag.withDescription("temporarily allow public access without authentication"),
     ),
     password: Flag.string("password").pipe(
-      Flag.withDescription(
-        "temporarily require password access; pass a value, omit to prompt, or use TURBOTUNNEL_PASSWORD",
-      ),
+      Flag.withDescription("temporarily require password access; pass a value or omit to prompt"),
       Flag.optional,
     ),
     allowIp: Flag.string("allow-ip").pipe(
@@ -230,9 +224,7 @@ export const devCommand = Command.make(
     const exitCode = yield* startDev({
       input: { port: Option.getOrUndefined(port), command: parsed.command },
       cwd: process.cwd(),
-      env: tunnelEnvironmentFromProcess(process.env),
       projectName: parsed.project,
-      processEnv: process.env,
       accessOverride: yield* parseAccessOverride({
         publicAccess,
         password,
@@ -251,7 +243,7 @@ export const devCommand = Command.make(
     { command: "tt dev --port 5173", description: "Start the dev server on port 5173" },
     {
       command: "tt dev --password",
-      description: "Start with password access (prompt or TURBOTUNNEL_PASSWORD)",
+      description: "Start with password access",
     },
     {
       command: "tt dev -- vite --host 0.0.0.0",

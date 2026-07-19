@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import { ProjectConfigStore } from "../src/adapters/project-config-store.js";
 
 describe("ProjectConfigStore", () => {
-  it.effect("selects an arbitrary monorepo target from cwd and merges shared defaults", () =>
+  it.effect("selects an arbitrary monorepo target from cwd and applies shared access", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const root = yield* Effect.acquireRelease(
@@ -24,7 +24,6 @@ describe("ProjectConfigStore", () => {
           writeFile(
             join(root, "turbotunnel.json"),
             JSON.stringify({
-              env: { SHARED_ORIGIN: "${TURBOTUNNEL_URL}" },
               access: { type: "public" },
               projects: {
                 dashboard: {
@@ -32,7 +31,6 @@ describe("ProjectConfigStore", () => {
                   dev: "vp run dev",
                   port: 3000,
                   slug: "dashboard",
-                  env: { DASHBOARD_ORIGIN: "${TURBOTUNNEL_URL}/dashboard" },
                 },
                 docs: { root: "docs", port: 5173 },
               },
@@ -51,10 +49,6 @@ describe("ProjectConfigStore", () => {
           port: 3000,
           slug: "dashboard",
           access: { type: "public" },
-          env: {
-            SHARED_ORIGIN: "${TURBOTUNNEL_URL}",
-            DASHBOARD_ORIGIN: "${TURBOTUNNEL_URL}/dashboard",
-          },
         });
       }),
     ),

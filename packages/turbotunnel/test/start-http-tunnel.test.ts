@@ -16,7 +16,7 @@ describe("startHttpTunnel", () => {
     Effect.gen(function* () {
       const recorder = new TunnelRecorder();
 
-      yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
+      yield* startHttpTunnel({ port: 5173, host: "localhost" }).pipe(
         Effect.provide(recorder.layer()),
         Effect.forkScoped,
       );
@@ -36,7 +36,7 @@ describe("startHttpTunnel", () => {
     Effect.gen(function* () {
       const recorder = new TunnelRecorder({ savedGateway: false });
 
-      const exit = yield* startHttpTunnel({ port: 5173, host: "localhost" }, {}).pipe(
+      const exit = yield* startHttpTunnel({ port: 5173, host: "localhost" }).pipe(
         Effect.provide(recorder.layer()),
         Effect.exit,
       );

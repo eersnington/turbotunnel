@@ -13,19 +13,19 @@ Before connecting, terminal output shows the resolved public URL, local target, 
 
 ## Arguments and options
 
-| Input                | Description                                                                             | Default                        |
-| -------------------- | --------------------------------------------------------------------------------------- | ------------------------------ |
-| `<project-or-port>`  | Configured project name or local TCP port.                                              | Project selected from cwd      |
-| `--port <port>`      | Override the configured local port.                                                     | Project port                   |
-| `--slug <slug>`      | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters.  | Saved slug or a random slug    |
-| `--host <host>`      | Local app host.                                                                         | `localhost`                    |
-| `--pool <count>`     | Number of local relay sockets, from 1 to 16.                                            | `2`                            |
-| `--domain <domain>`  | Base tunnel domain or `{slug}` host pattern for this run.                               | Saved domain                   |
-| `--secret <secret>`  | Relay secret for local gateway development.                                             | Saved secret                   |
-| `--relay-url <url>`  | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                  | Derived from the tunnel domain |
-| `--public`           | Temporarily use public access.                                                          | Project access policy          |
-| `--password [value]` | Temporarily require a password; omit the value to prompt or use `TURBOTUNNEL_PASSWORD`. | Project access policy          |
-| `--allow-ip <cidr>`  | Temporarily allow an IP/CIDR; may be repeated.                                          | Project access policy          |
+| Input                | Description                                                                            | Default                        |
+| -------------------- | -------------------------------------------------------------------------------------- | ------------------------------ |
+| `<project-or-port>`  | Configured project name or local TCP port.                                             | Project selected from cwd      |
+| `--port <port>`      | Override the configured local port.                                                    | Project port                   |
+| `--slug <slug>`      | Public tunnel slug. Use lowercase letters, digits, and hyphens; maximum 63 characters. | Saved slug or a random slug    |
+| `--host <host>`      | Local app host.                                                                        | `localhost`                    |
+| `--pool <count>`     | Number of local relay sockets, from 1 to 16.                                           | `2`                            |
+| `--domain <domain>`  | Base tunnel domain or `{slug}` host pattern for this run.                              | Saved domain                   |
+| `--secret <secret>`  | Relay secret for local gateway development.                                            | Saved secret                   |
+| `--relay-url <url>`  | Explicit `http`, `https`, `ws`, or `wss` relay origin.                                 | Derived from the tunnel domain |
+| `--public`           | Temporarily use public access.                                                         | Project access policy          |
+| `--password [value]` | Temporarily require a password; omit the value to prompt.                              | Project access policy          |
+| `--allow-ip <cidr>`  | Temporarily allow an IP/CIDR; may be repeated.                                         | Project access policy          |
 
 ## Common tunnel configurations
 

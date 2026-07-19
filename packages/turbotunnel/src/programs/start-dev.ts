@@ -15,12 +15,9 @@ import {
   type DevCommandInput,
   resolveDevLaunch,
 } from "../domain/dev-project.js";
-import { parseEnvironmentPort } from "../domain/environment-port.js";
-import { type TunnelEnvironment } from "../domain/tunnel-config.js";
 import { formatProcessCommand, redactShellCommand } from "../domain/process-command.js";
-import { publicTunnelHost, publicTunnelUrl } from "../domain/tunnel-url.js";
 import { type AccessOverride } from "../domain/project-access.js";
-import { CliConfigError, DevServerReadinessTimeout, type StartDevError } from "../errors.js";
+import { DevServerReadinessTimeout, type StartDevError } from "../errors.js";
 import { TunnelReporter } from "../runtime/tunnel-reporter.js";
 import { prepareProjectTunnel } from "./resolve-project-tunnel.js";
 
@@ -29,9 +26,7 @@ const DEV_SERVER_READINESS_TIMEOUT_SECONDS = 60;
 export const startDev = Effect.fn("startDev")(function* (options: {
   readonly input: DevCommandInput;
   readonly cwd: string;
-  readonly env: TunnelEnvironment;
   readonly projectName?: string;
-  readonly processEnv?: Readonly<Record<string, string | undefined>>;
   readonly accessOverride?: AccessOverride;
 }): Effect.fn.Return<
   number,
@@ -58,52 +53,25 @@ export const startDev = Effect.fn("startDev")(function* (options: {
 
   const projectConfig = yield* projectConfigStore.discover(options.cwd, options.projectName);
   const project = yield* projectDiscovery.discover(projectConfig?.root ?? options.cwd);
-  const environmentPort = yield* parseEnvironmentPort(
-    options.processEnv?.TURBOTUNNEL_PORT,
-    "No child process or tunnel was started.",
-  );
   const customPort =
     options.input.port === undefined ? yield* customCommandPort(options.input.command) : undefined;
   const port =
-    options.input.port ??
-    customPort ??
-    environmentPort ??
-    projectConfig?.port ??
-    (yield* portAllocator.freePort);
-  const launch = yield* resolveDevLaunch(
-    project,
-    options.input,
-    port,
-    options.processEnv?.TURBOTUNNEL_DEV ?? projectConfig?.dev,
-  );
-  yield* validateProjectEnvironment(projectConfig?.env ?? {});
+    options.input.port ?? customPort ?? projectConfig?.port ?? (yield* portAllocator.freePort);
+  const launch = yield* resolveDevLaunch(project, options.input, port, projectConfig?.dev);
   const config = yield* prepareProjectTunnel({
     input: {
       port,
       host: "localhost",
     },
-    env: options.env,
     cwd: options.cwd,
     targetPath: project.root,
     projectConfig,
-    processEnv: options.processEnv ?? {},
     accessOverride: options.accessOverride,
   });
-  const publicUrl = publicTunnelUrl(config);
   const command =
     launch.shell === true
       ? redactShellCommand(launch.executable)
       : formatProcessCommand(launch.executable, launch.args);
-  const mappedEnvironment = yield* expandProjectEnvironment(
-    projectConfig?.env ?? {},
-    {
-      TURBOTUNNEL_URL: publicUrl,
-      TURBOTUNNEL_HOST: publicTunnelHost(config),
-      TURBOTUNNEL_SLUG: config.slug,
-    },
-    options.processEnv ?? {},
-  );
-
   return yield* Effect.scoped(
     Effect.gen(function* () {
       yield* reporter.emit({
@@ -117,13 +85,7 @@ export const startDev = Effect.fn("startDev")(function* (options: {
         executable: launch.executable,
         args: launch.args,
         cwd: project.root,
-        env: {
-          ...mappedEnvironment,
-          PORT: String(port),
-          TURBOTUNNEL_URL: publicUrl,
-          TURBOTUNNEL_HOST: publicTunnelHost(config),
-          TURBOTUNNEL_SLUG: config.slug,
-        },
+        env: {},
         shell: launch.shell,
         displayCommand: command,
       });
@@ -150,51 +112,3 @@ export const startDev = Effect.fn("startDev")(function* (options: {
     }),
   );
 });
-
-const PLACEHOLDER_PATTERN = /\$\{(TURBOTUNNEL_[A-Z0-9_]+)\}/gu;
-const SUPPORTED_PLACEHOLDERS = new Set(["TURBOTUNNEL_URL", "TURBOTUNNEL_HOST", "TURBOTUNNEL_SLUG"]);
-
-function validateProjectEnvironment(
-  configured: Readonly<Record<string, string>>,
-): Effect.Effect<void, CliConfigError> {
-  for (const [name, template] of Object.entries(configured)) {
-    for (const match of template.matchAll(PLACEHOLDER_PATTERN)) {
-      const placeholder = match[1]!;
-      if (!SUPPORTED_PLACEHOLDERS.has(placeholder)) return invalidPlaceholder(name, placeholder);
-    }
-  }
-  return Effect.void;
-}
-
-function expandProjectEnvironment(
-  configured: Readonly<Record<string, string>>,
-  tunnel: Readonly<Record<"TURBOTUNNEL_URL" | "TURBOTUNNEL_HOST" | "TURBOTUNNEL_SLUG", string>>,
-  processEnvironment: Readonly<Record<string, string | undefined>>,
-): Effect.Effect<Readonly<Record<string, string>>, CliConfigError> {
-  const result: Record<string, string> = {};
-  for (const [name, template] of Object.entries(configured)) {
-    if (processEnvironment[name] !== undefined) continue;
-    let invalid: string | undefined;
-    const value = template.replace(PLACEHOLDER_PATTERN, (_match, placeholder: string) => {
-      if (placeholder in tunnel) return tunnel[placeholder as keyof typeof tunnel];
-      invalid = placeholder;
-      return "";
-    });
-    if (invalid !== undefined) {
-      return invalidPlaceholder(name, invalid);
-    }
-    result[name] = value;
-  }
-  return Effect.succeed(result);
-}
-
-function invalidPlaceholder(
-  name: string,
-  placeholder: string,
-): Effect.Effect<never, CliConfigError> {
-  return Effect.fail(
-    new CliConfigError({
-      message: `Unknown Turbotunnel placeholder \${${placeholder}} in environment variable ${name}. Supported placeholders are \${TURBOTUNNEL_URL}, \${TURBOTUNNEL_HOST}, and \${TURBOTUNNEL_SLUG}. No child process or tunnel was started.`,
-    }),
-  );
-}

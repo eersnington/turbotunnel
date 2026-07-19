@@ -1,9 +1,9 @@
 ---
 title: Configure Turbotunnel
-description: Configure saved gateway settings, secrets, and runtime overrides.
+description: Configure projects and saved gateway settings.
 ---
 
-This page describes repository projects, saved gateway settings, runtime overrides, and the production variables managed by `tt deploy`.
+This page describes repository projects, saved gateway settings, and the production variables managed by `tt deploy`.
 
 ## Project configuration
 
@@ -17,10 +17,7 @@ Place `turbotunnel.json` in a directory that contains the projects it configures
       "root": "packages/dashboard",
       "dev": "vp run dev",
       "port": 3000,
-      "slug": "dashboard",
-      "env": {
-        "EERS_DASHBOARD_ORIGIN": "${TURBOTUNNEL_URL}"
-      }
+      "slug": "dashboard"
     },
     "docs": {
       "root": "docs",
@@ -36,7 +33,7 @@ Run `tt dev dashboard` from the configuration directory. Run `tt dev` anywhere u
 
 `slug: "dashboard"` first requests `dashboard-turbotunnel.vercel.app`. If another Vercel project owns that name, Turbotunnel assigns and saves `tt<random>-dashboard.vercel.app`. `domain` selects one exact custom hostname. You cannot combine `domain` with `slug`.
 
-Supported access policies are `public`, `password`, and `ip` with an `allow` array. Password secrets resolve in order: `--password <value>`, `TURBOTUNNEL_PASSWORD`, then a hidden terminal prompt. Turbotunnel never writes passwords to configuration.
+Supported access policies are `public`, `password`, and `ip` with an `allow` array. Pass a password with `--password <value>` or omit the value to use a hidden terminal prompt. Turbotunnel never writes passwords to configuration.
 
 ## Saved configuration
 
@@ -56,35 +53,12 @@ The relay secret authenticates local relay connections, access cookies, and requ
 
 `tt deploy` also keeps generated deployment files in `~/.turbotunnel/relay`. It preserves that directory's `.vercel` project metadata between deployments.
 
-## Environment variables
-
-Use environment variables for per-process overrides and local gateway development. `tt http` and `tt dev` read these tunnel settings. `TURBOTUNNEL_DEV` applies only to `tt dev`:
-
-| Variable                   | Purpose                                      |
-| -------------------------- | -------------------------------------------- |
-| `TURBOTUNNEL_SLUG`         | Public slug for the current tunnel.          |
-| `TURBOTUNNEL_BASE_DOMAIN`  | Base domain or `{slug}` host pattern.        |
-| `TURBOTUNNEL_RELAY_DOMAIN` | Older alias for `TURBOTUNNEL_BASE_DOMAIN`.   |
-| `TURBOTUNNEL_RELAY_SECRET` | Gateway bearer secret.                       |
-| `TURBOTUNNEL_RELAY_URL`    | Explicit relay origin for local development. |
-| `TURBOTUNNEL_PORT`         | Project local port.                          |
-| `TURBOTUNNEL_DEV`          | Project development command.                 |
-| `TURBOTUNNEL_DOMAIN`       | Exact custom public hostname.                |
-| `TURBOTUNNEL_ACCESS`       | `public`, `password`, or `ip`.               |
-| `TURBOTUNNEL_PASSWORD`     | Password for password access.                |
-| `TURBOTUNNEL_ALLOW_IP`     | Comma-separated IP/CIDR allowlist.           |
-
 `tt http` resolves configuration in this order:
 
 1. Command-line options
-2. Environment variables
-3. Repository project configuration
-4. Saved gateway configuration
-5. Generated defaults
-
-Project environment mappings support `${TURBOTUNNEL_URL}`, `${TURBOTUNNEL_HOST}`, and `${TURBOTUNNEL_SLUG}` only. Existing process variables take precedence. Turbotunnel does not change `.env` files.
-
-For the domain, `TURBOTUNNEL_BASE_DOMAIN` takes precedence over `TURBOTUNNEL_RELAY_DOMAIN`.
+2. Repository project configuration
+3. Saved gateway configuration
+4. Generated defaults
 
 ## Vercel environment variables
 
@@ -96,14 +70,6 @@ For the domain, `TURBOTUNNEL_BASE_DOMAIN` takes precedence over `TURBOTUNNEL_REL
 | `TURBOTUNNEL_RELAY_SECRET` | The generated or reused relay secret.       |
 | `TURBOTUNNEL_QUEUE_REGION` | The configured queue region.                |
 
-## Gateway development variables
+## Local gateway development
 
-When you run the gateway outside Vercel, it also reads these variables:
-
-| Variable             | Purpose                     | Development default                  |
-| -------------------- | --------------------------- | ------------------------------------ |
-| `TURBOTUNNEL_BROKER` | Select `memory` or `vercel` | `memory` when `NODE_ENV=development` |
-| `NODE_ENV`           | Select development behavior | None                                 |
-| `PORT`               | Gateway HTTP port           | `3002`                               |
-
-The local gateway defaults to domain `localhost`, relay secret `dev_secret`, and Queue region `iad1`. Do not use the development secret for a public deployment.
+The local gateway listens on port `3002` with an in-memory broker. It defaults to domain `localhost`, relay secret `dev_secret`, and Queue region `iad1`. Do not use the development secret for a public deployment.
