@@ -7,6 +7,8 @@ Turbotunnel gives a local HTTP or WebSocket app a public URL through a gateway i
 
 ## Choose a workflow
 
+Pick the command that matches how you run the app:
+
 | Situation                           | Command                                   |
 | ----------------------------------- | ----------------------------------------- |
 | App already running                 | `tt http <port>`                          |
@@ -14,7 +16,9 @@ Turbotunnel gives a local HTTP or WebSocket app a public URL through a gateway i
 | Named project in `turbotunnel.json` | `tt dev <project>` or `tt http <project>` |
 | Temporary access override           | `--public`, `--password`, or `--allow-ip` |
 
-## Examples
+## Browse by task
+
+Open a guide for the job you need to finish:
 
 <CardGroup cols={2}>
   <Card title="Receive webhooks locally" href="/docs/webhooks">
@@ -40,13 +44,13 @@ Turbotunnel gives a local HTTP or WebSocket app a public URL through a gateway i
   </Card>
 </CardGroup>
 
-## Not a fit
+## When Turbotunnel is the wrong tool
 
-Do not use Turbotunnel for:
+Skip Turbotunnel for these workloads:
 
 - Production or always-on hosting
 - Large uploads, downloads, or streaming
-- Requests longer than 30 seconds
+- Requests longer than 30s
 - Load testing
 - Raw TCP, UDP, SSH, or database connections
 - WebSockets that require `Sec-WebSocket-Protocol`

@@ -5,9 +5,9 @@ description: Give coding agents a stable public URL for apps in sandboxes and re
 
 Use Turbotunnel when an agent runs an app inside a sandbox, container, or remote workspace and a human needs to review it.
 
-## When to use Turbotunnel
+## Decide whether Turbotunnel is the right ingress
 
-Vercel Sandbox can already expose ports with `ports` and `sandbox.domain(port)`. Prefer native Sandbox URLs for simple one-off previews inside that product.
+[Vercel Sandbox](https://vercel.com/docs/sandbox) can already expose ports with `ports` and `sandbox.domain(port)`. Prefer native Sandbox URLs for one-off previews inside that product.
 
 Use Turbotunnel when you need:
 
@@ -16,7 +16,9 @@ Use Turbotunnel when you need:
 - The same preview workflow outside Vercel Sandbox
 - Gateway-wide discovery with `tt list`
 
-## Recommended flow
+## Follow the agent preview flow
+
+Run these steps in order:
 
 1. Deploy the gateway once outside the sandbox: `tt deploy`
 2. Inject `~/.turbotunnel/config.json` as a protected secret with mode `0600`
@@ -26,9 +28,9 @@ Use Turbotunnel when you need:
 6. Return the public URL and password with the agent result
 7. Stop the sandbox when review ends
 
-## Example
+## Bootstrap config and start the tunnel
 
-Bootstrap the gateway config into the sandbox home directory:
+Copy the gateway config into the sandbox home directory:
 
 ```sh
 install -d -m 700 "$HOME/.turbotunnel"
@@ -44,7 +46,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 &
 tt http 5173 --host 127.0.0.1 --password --slug agent-pr-1842
 ```
 
-With repository configuration and Vercel authentication available in the environment:
+When repository configuration and Vercel authentication are available in the environment:
 
 ```sh
 tt dev dashboard --password -- pnpm --filter dashboard dev
@@ -52,7 +54,7 @@ tt dev dashboard --password -- pnpm --filter dashboard dev
 
 A preloaded gateway config lets `tt http <port>` run without an interactive Vercel login. A discovered `turbotunnel.json` project triggers domain reconciliation and needs an authenticated Vercel CLI session.
 
-## Readiness and discovery
+## Check readiness and discover tunnels
 
 Tunnel commands stay in the foreground while healthy. For automation, poll local state:
 
@@ -60,31 +62,35 @@ Tunnel commands stay in the foreground while healthy. For automation, poll local
 tt status --format json
 ```
 
-`tt status` reports exact process state only within the same machine and home directory. Gateway-wide discovery:
+`tt status` reports exact process state only within the same machine and home directory. For gateway-wide discovery:
 
 ```sh
 tt list --format json
 ```
 
-`tt list` is bounded by Queue delivery and a 30-second presence lease. It can briefly omit or retain sessions.
+`tt list` is bounded by Queue delivery and a 30s presence lease. It can briefly omit or retain sessions.
 
-## Security
+## Protect agent previews
 
-- Prefer generated `--password`. Avoid putting passwords in process arguments or logs when possible.
-- Do not commit, bake into images, or print `~/.turbotunnel/config.json`. It contains the relay secret.
-- Public access is the default without an override. Prefer password access for agent-built apps.
-- Sandbox firewalls must allow HTTPS and WebSocket egress to the gateway domain.
-- Stopping or suspending the sandbox stops the tunnel, even if the filesystem persists.
+Treat agent-built apps as untrusted until you review them:
 
-## Limits that matter here
+- Prefer generated `--password`; avoid putting passwords in process arguments or logs when you can
+- Do not commit, bake into images, or print `~/.turbotunnel/config.json`; it contains the relay secret
+- Override the default public access with password access for agent-built apps
+- Allow HTTPS and WebSocket egress to the gateway domain in the sandbox firewall
+- Expect the tunnel to stop when you stop or suspend the sandbox, even if the filesystem persists
 
-- The public URL lives only while `tt` and its host environment stay running.
-- Turbotunnel does not daemonize, discover ports, inject environment variables, or extend sandbox lifetime.
-- HTTP requests time out after 30 seconds. Request and response bodies are limited to 4 MiB.
-- One process owns a public host. A second claim is a route conflict, not load balancing.
-- `localhost` means local to the `tt` process. An app on another machine is not reachable through sandbox `localhost`.
+## Respect agent environment limits
 
-## Related
+These limits shape how you run tunnels from agents:
+
+- The public URL lives only while `tt` and its host environment stay running
+- Turbotunnel does not daemonize, discover ports, inject environment variables, or extend sandbox lifetime
+- HTTP requests time out after 30s; request and response bodies are limited to 4 MiB
+- One process owns a public host; a second claim is a route conflict, not load balancing
+- `localhost` means local to the `tt` process; an app on another machine is not reachable through sandbox `localhost`
+
+## Related docs
 
 - [`tt http`](/docs/http)
 - [`tt dev`](/docs/dev)

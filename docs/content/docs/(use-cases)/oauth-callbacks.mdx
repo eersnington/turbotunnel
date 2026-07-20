@@ -5,9 +5,9 @@ description: Keep a stable HTTPS callback hostname while developing auth flows.
 
 OAuth providers and many third-party integrations require a fixed HTTPS redirect URL. Turbotunnel can hold that hostname while your local app restarts.
 
-## Example
+## Configure a stable callback host
 
-Save a stable project tunnel:
+Save a project tunnel in `turbotunnel.json`:
 
 ```json
 {
@@ -39,14 +39,15 @@ Use an exact custom domain when the provider already allows one hostname:
 }
 ```
 
-## Tips
+## Keep the redirect path public
 
-- Providers usually need a public callback path. Password or IP access can block the provider's redirect.
-- Keep the tunnel running while you restart the app. Forwarding resumes when the app returns.
-- Prefer a saved `slug` or `domain` so callback configuration does not change every session.
-- If a managed `vercel.app` hostname is unavailable, Turbotunnel assigns a generated fallback. Confirm the printed public URL after the first connect.
+Providers usually need a public callback path. Password or IP access can block the provider redirect.
 
-## Related
+Keep the tunnel running while you restart the app. Forwarding resumes when the app returns.
+
+Prefer a saved `slug` or `domain` so callback configuration does not change every session. If a managed `vercel.app` hostname is unavailable, Turbotunnel assigns a generated fallback. Confirm the printed public URL after the first connect.
+
+## Related docs
 
 - [`tt dev`](/docs/dev)
 - [Configure project tunnels](/docs/configuration)
