@@ -445,7 +445,6 @@ export function passwordLoginPage(options?: { error?: string }): string {
           <h1>Password required</h1>
           <p class="lead">Enter the password for this tunnel to continue. Access lasts for this browser session.</p>
           <form class="form" method="post" action="/_turbotunnel/login">
-            ${error}
             <div class="field">
               <label for="password">Password</label>
               <input id="password" name="password" type="password" required autofocus autocomplete="current-password">
@@ -453,6 +452,7 @@ export function passwordLoginPage(options?: { error?: string }): string {
             <div class="actions">
               <button class="button button-primary" type="submit">Continue</button>
             </div>
+            ${error}
           </form>
         </section>
       </div>
