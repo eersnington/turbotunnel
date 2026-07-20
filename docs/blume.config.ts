@@ -45,7 +45,7 @@ export default defineConfig({
     llmsTxt: true,
   },
   seo: {
-    og: { enabled: true },
+    og: { enabled: true, logo: "/logo.svg" },
     sitemap: true,
     robots: true,
     structuredData: true,
