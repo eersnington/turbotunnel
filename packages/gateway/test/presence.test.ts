@@ -7,7 +7,7 @@ import {
   type TunnelPresenceEvent,
 } from "@turbotunnel/contracts";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer, Result, Schema } from "effect";
+import { Deferred, Effect, Layer, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
 import { hasValidBearerAuth } from "../src/auth.js";
@@ -16,12 +16,62 @@ import { GatewayConfig } from "../src/gateway-config.js";
 import { runLocalClient } from "../src/local-client.js";
 import { compactExpiredMemoryQueueEntries, MemoryQueue } from "../src/memory-queue.js";
 import { listTunnels, PresenceReplayLimitError, reducePresence } from "../src/presence.js";
+import { presenceReceiveDelay, PublicRouteRegistry } from "../src/public-route-registry.js";
 import { Queue, QueueSendError } from "../src/queue.js";
 import type { GatewayWebSocket } from "../src/websocket.js";
 
 const target = { protocol: "http", host: "127.0.0.1", port: 3000 } as const;
 
 describe("tunnel presence", () => {
+  it("uses hot, warm, and cold delays for empty route-registry receives", () => {
+    expect(presenceReceiveDelay(1)).toBe(100);
+    expect(presenceReceiveDelay(2)).toBe(1_000);
+    expect(presenceReceiveDelay(5)).toBe(5_000);
+  });
+
+  it.effect("refreshes the registry once before reporting a route missing", () =>
+    Effect.gen(function* () {
+      const firstReceive = yield* Deferred.make<void>();
+      let receives = 0;
+      const route = event("upsert", "refresh-on-miss", "session", "client", 1);
+      const queue = Layer.succeed(
+        Queue,
+        Queue.of({
+          send: () => Effect.void,
+          receive: () =>
+            Effect.gen(function* () {
+              receives += 1;
+              if (receives === 1) {
+                yield* Deferred.succeed(firstReceive, undefined);
+                return [];
+              }
+              return [
+                {
+                  id: "refresh-on-miss",
+                  sentAt: 1_000,
+                  payload: route,
+                  ack: Effect.void,
+                },
+              ];
+            }),
+        }),
+      );
+      const registryLayer = PublicRouteRegistry.layer.pipe(
+        Layer.provide(Layer.merge(GatewayState.layer, queue)),
+      );
+
+      yield* Effect.gen(function* () {
+        const routes = yield* PublicRouteRegistry;
+        yield* Deferred.await(firstReceive);
+        expect(yield* routes.lookup(route.publicHost)).toMatchObject({
+          _tag: "Found",
+          route: { slug: route.slug },
+        });
+        expect(receives).toBe(2);
+      }).pipe(Effect.scoped, Effect.provide(registryLayer));
+    }),
+  );
+
   it("compares relay bearer credentials in constant-time-compatible form", () => {
     expect(hasValidBearerAuth("Bearer relay_secret", "relay_secret")).toBe(true);
     expect(hasValidBearerAuth("Bearer wrong", "relay_secret")).toBe(false);
