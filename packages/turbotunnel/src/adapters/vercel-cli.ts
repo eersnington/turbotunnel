@@ -11,11 +11,13 @@ export type VercelCliShape = {
   readonly linkProject: (
     cwd: string,
     project: string,
+    scope?: string,
   ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
   readonly setProductionEnv: (
     cwd: string,
     name: string,
     value: string | Redacted.Redacted<string>,
+    scope?: string,
   ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
   readonly addDomain: (
     cwd: string,
@@ -32,6 +34,7 @@ export type VercelCliShape = {
   ) => Effect.Effect<void, VercelCliNotFound | VercelCliFailed>;
   readonly deployProduction: (
     cwd: string,
+    scope?: string,
   ) => Effect.Effect<string, VercelCliNotFound | VercelCliFailed | DeployOutputParseError>;
 };
 
@@ -60,24 +63,51 @@ export class VercelCli extends Context.Service<VercelCli, VercelCliShape>()(
             failureMessage:
               "Vercel CLI is installed, but `vercel whoami` failed. Run `vercel login`, confirm the account can create projects, then retry `tt deploy`. No gateway was deployed and your local tunnel config was not changed.",
           }).pipe(Effect.map((output) => output.stdout.trim())),
-          linkProject: (cwd, project) =>
-            run(["link", "--yes", "--project", project], { cwd }).pipe(Effect.asVoid),
-          setProductionEnv: (cwd, name, value) =>
+          linkProject: (cwd, project, scope) =>
+            run(
+              [
+                "link",
+                "--yes",
+                "--project",
+                project,
+                ...(scope === undefined ? [] : ["--scope", scope]),
+              ],
+              { cwd },
+            ).pipe(Effect.asVoid),
+          setProductionEnv: (cwd, name, value, scope) =>
             Effect.gen(function* () {
-              const update = yield* run(["env", "update", name, "production"], {
-                cwd,
-                stdin: value,
-                allowNonZeroExit: true,
-              });
+              const update = yield* run(
+                [
+                  "env",
+                  "update",
+                  name,
+                  "production",
+                  ...(scope === undefined ? [] : ["--scope", scope]),
+                ],
+                {
+                  cwd,
+                  stdin: value,
+                  allowNonZeroExit: true,
+                },
+              );
               if (update.exitCode === 0) {
                 return;
               }
 
-              yield* run(["env", "add", name, "production"], {
-                cwd,
-                stdin: value,
-                failureMessage: `Failed to set ${name} for the Production environment. No local tunnel config was changed. Open the Vercel project Environment Variables, fix the value, then run \`tt deploy\` again.`,
-              });
+              yield* run(
+                [
+                  "env",
+                  "add",
+                  name,
+                  "production",
+                  ...(scope === undefined ? [] : ["--scope", scope]),
+                ],
+                {
+                  cwd,
+                  stdin: value,
+                  failureMessage: `Failed to set ${name} for the Production environment. No local tunnel config was changed. Open the Vercel project Environment Variables, fix the value, then run \`tt deploy\` again.`,
+                },
+              );
             }),
           addDomain: (cwd, domain, project, scope) =>
             run(
@@ -123,8 +153,8 @@ export class VercelCli extends Context.Service<VercelCli, VercelCliShape>()(
               Effect.andThen((output) => parseJsonOutput(output.stdout, "vercel domains verify")),
               Effect.andThen(parseDomainVerification),
             ),
-          deployProduction: (cwd) =>
-            run(["deploy", "--prod", "--yes"], {
+          deployProduction: (cwd, scope) =>
+            run(["deploy", "--prod", "--yes", ...(scope === undefined ? [] : ["--scope", scope])], {
               cwd,
               includeOutputOnFailure: true,
               failureMessage:

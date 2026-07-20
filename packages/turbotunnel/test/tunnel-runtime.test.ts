@@ -13,7 +13,7 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Redacted, Result } from "effect";
 import { TestClock } from "effect/testing";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer } from "ws";
 
 import { LocalControl } from "../src/adapters/local-control.js";
 import { RuntimeRegistry } from "../src/adapters/runtime-registry.js";

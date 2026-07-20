@@ -134,12 +134,12 @@ process.exit(1);
 
         yield* Effect.gen(function* () {
           const vercel = yield* VercelCli;
-          yield* vercel.linkProject(workspace, "demo-turbotunnel");
+          yield* vercel.linkProject(workspace, "demo-turbotunnel", "team_123");
         }).pipe(Effect.provide(vercelLayer(fake)));
 
         expect(yield* readCalls(fake.callsPath)).toEqual([
           {
-            argv: ["link", "--yes", "--project", "demo-turbotunnel"],
+            argv: ["link", "--yes", "--project", "demo-turbotunnel", "--scope", "team_123"],
             cwd: workspace,
             stdin: "",
           },
@@ -296,7 +296,7 @@ process.exit(0);
       Effect.gen(function* () {
         const workspace = yield* temporaryRealDirectory("turbotunnel-vercel-workspace-");
         const fake = yield* fakeVercel(`
-if (command === "deploy --prod --yes") {
+ if (command === "deploy --prod --yes --scope team_123") {
   process.stdout.write(${JSON.stringify(stdout)});
   process.exit(0);
 }
@@ -305,7 +305,7 @@ process.exit(1);
 
         const deploymentUrl = yield* Effect.gen(function* () {
           const vercel = yield* VercelCli;
-          return yield* vercel.deployProduction(workspace);
+          return yield* vercel.deployProduction(workspace, "team_123");
         }).pipe(Effect.provide(vercelLayer(fake)));
 
         expect(deploymentUrl).toBe(expected);
