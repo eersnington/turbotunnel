@@ -1,0 +1,13 @@
+diff --git a/src/og/card.ts b/src/og/card.ts
+index d51de9a..ae0ec45 100644
+--- a/src/og/card.ts
++++ b/src/og/card.ts
+@@ -109,7 +109,7 @@ export const truncate = (value: string, max: number): string => {
+ // Brand mark sizing: target this height, but scale down so an extremely wide
+ // logo stays within the lockup. The cap leaves room for a wordmark to render
+ // at full height — it stands alone as the brand (no text label beside it).
+-const MARK_HEIGHT = 32;
++const MARK_HEIGHT = 60;
+ const MARK_MAX_WIDTH = 240;
+ // Accept either quote style and a non-zero min-x/min-y; only width/height
+ // matter for the aspect ratio. A miss falls back to a square mark.
