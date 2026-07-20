@@ -193,7 +193,7 @@ const runRelaySession = Effect.fn("runRelaySession")(function* (
     }
   });
 
-  const refreshOidcSession = Effect.sleep(45 * 60 * 1_000 + index * 5_000).pipe(
+  const refreshOidcSession = Effect.sleep(270_000).pipe(
     Effect.andThen(socket.close(1012, "refreshing Vercel session")),
   );
   yield* Effect.raceFirst(Effect.raceFirst(receive, heartbeat), refreshOidcSession);

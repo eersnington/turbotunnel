@@ -74,10 +74,8 @@ describe("TunnelRuntime", () => {
       const sessionsDir = yield* temporaryDirectory;
       const server = yield* listenWebSocketServer();
       const events: Array<LifecycleEvent> = [];
-      const clients: Array<WebSocket> = [];
       const hellos: Array<LocalClientHello> = [];
       server.on("connection", (socket) => {
-        clients.push(socket);
         socket.on("message", (data) => {
           const decoded = parseProtocolFrameJson(data.toString());
           if (Result.isSuccess(decoded) && decoded.success.type === "local.hello") {
@@ -141,7 +139,7 @@ describe("TunnelRuntime", () => {
         const firstHello = yield* waitForHello(hellos, 1);
         expect(firstHello.connectedAt).toBe(ready.startedAtMs);
 
-        clients[0]?.terminate();
+        yield* TestClock.adjust("270 seconds");
         const reconnecting = yield* waitForSnapshot(
           registry,
           control,
