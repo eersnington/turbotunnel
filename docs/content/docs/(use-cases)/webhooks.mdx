@@ -1,0 +1,49 @@
+---
+title: Receive webhooks locally
+description: Forward provider callbacks to a local HTTP endpoint.
+---
+
+Give providers a stable public hostname that reaches your local HTTP app during development.
+
+## Open a webhook tunnel
+
+Deploy a gateway once if you have not already:
+
+```sh
+tt deploy
+```
+
+Start the app on a fixed port, then open a named tunnel:
+
+```sh
+tt http 3000 --slug stripe-hooks
+```
+
+If the project is already in `turbotunnel.json`, name it instead:
+
+```sh
+tt http api
+```
+
+Register the public URL with the provider:
+
+```text
+https://stripe-hooks-turbotunnel.vercel.app/api/webhooks/stripe
+```
+
+## Keep callbacks reliable
+
+Use these constraints when you wire the provider:
+
+- Save a `slug` or `domain` in `turbotunnel.json` so the callback URL stays stable across sessions
+- Finish handlers within 30s; the gateway times out after that
+- Keep request and response bodies at or under 4 MiB
+- Treat handlers as idempotent: a `504` does not prove the local app never received the request
+- Expect HTTP `502` while the app is down; the tunnel starts without waiting for it
+
+## Related docs
+
+- [`tt http`](/docs/http)
+- [Configure project tunnels](/docs/configuration)
+- [Turbotunnel limits](/docs/limits)
+- [Troubleshoot failures](/docs/troubleshooting)

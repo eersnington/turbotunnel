@@ -1,0 +1,61 @@
+---
+title: Share a protected preview
+description: Share local work with a password or IP allowlist.
+---
+
+Show unfinished work to a teammate, client, or designer without deploying it.
+
+## Share a password-protected URL
+
+Expose a running app with a generated session password:
+
+```sh
+tt http 5173 --password
+```
+
+Startup output prints the public URL and password once. Share both. The password stays in memory for that session and is never written to project configuration, `tt status`, or `tt list`.
+
+For a named project and child command:
+
+```sh
+tt dev dashboard --password -- pnpm --filter dashboard dev
+```
+
+## Choose an access policy
+
+Match the policy to who should reach the tunnel:
+
+| Goal                        | Access                 |
+| --------------------------- | ---------------------- |
+| Open demo or webhook target | `public`               |
+| One-off review link         | `password` (generated) |
+| Known office or VPN only    | `ip` allowlist         |
+
+Override access for a single run:
+
+```sh
+tt http 5173 --public
+tt http 5173 --password
+tt http 5173 --password chosen-password
+tt http 5173 --allow-ip 203.0.113.0/24
+```
+
+Prefer generated passwords. A custom `--password <value>` appears in process arguments and can show up in shell history or agent logs.
+
+Save a default policy in `turbotunnel.json`:
+
+```json
+{
+  "port": 5173,
+  "slug": "preview",
+  "access": { "type": "password" }
+}
+```
+
+Turbotunnel never stores password values in configuration. Each password session generates a fresh `tt_<nanoid>` value unless you pass a custom value.
+
+## Related docs
+
+- [`tt http`](/docs/http)
+- [`tt dev`](/docs/dev)
+- [Configure project tunnels](/docs/configuration)

@@ -1,0 +1,58 @@
+---
+title: Use cases
+description: Practical ways to use Turbotunnel with local apps, previews, and agent environments.
+---
+
+Turbotunnel gives a local HTTP or WebSocket app a public URL through a gateway in your Vercel account. The URL works only while `tt http` or `tt dev` stays connected.
+
+## Choose a workflow
+
+Pick the command that matches how you run the app:
+
+| Situation                           | Command                                   |
+| ----------------------------------- | ----------------------------------------- |
+| App already running                 | `tt http <port>`                          |
+| Manage the app process too          | `tt dev -- <command>`                     |
+| Named project in `turbotunnel.json` | `tt dev <project>` or `tt http <project>` |
+| Temporary access override           | `--public`, `--password`, or `--allow-ip` |
+
+## Browse by task
+
+Open a guide for the job you need to finish:
+
+<CardGroup cols={2}>
+  <Card title="Receive webhooks locally" href="/docs/webhooks">
+    Point Stripe, GitHub, or Clerk at a stable public URL and debug callbacks on your machine.
+  </Card>
+  <Card title="Share a protected preview" href="/docs/protected-previews">
+    Send a teammate or client a URL with a generated session password.
+  </Card>
+  <Card title="Test on another device" href="/docs/device-testing">
+    Open the same local app on a phone, tablet, or remote browser.
+  </Card>
+  <Card title="Develop OAuth callbacks" href="/docs/oauth-callbacks">
+    Keep one HTTPS callback hostname while the local app restarts.
+  </Card>
+  <Card title="Expose a WebSocket app" href="/docs/websockets">
+    Forward HTTP and WebSocket traffic for chat, collaboration, or live dashboards.
+  </Card>
+  <Card title="Manage monorepo projects" href="/docs/monorepos">
+    Give dashboard, API, and docs their own ports, hostnames, and access policies.
+  </Card>
+  <Card title="Preview work from background agents" href="/docs/agent-previews">
+    Expose apps built in sandboxes or remote VMs under stable, protected URLs.
+  </Card>
+</CardGroup>
+
+## When Turbotunnel is the wrong tool
+
+Skip Turbotunnel for these workloads:
+
+- Production or always-on hosting
+- Large uploads, downloads, or streaming
+- Requests longer than 30s
+- Load testing
+- Raw TCP, UDP, SSH, or database connections
+- WebSockets that require `Sec-WebSocket-Protocol`
+
+See [Turbotunnel limits](/docs/limits) for request, body, and connection caps.
