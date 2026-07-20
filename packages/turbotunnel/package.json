@@ -1,6 +1,6 @@
 {
   "name": "turbotunnel",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": false,
   "description": "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
   "keywords": [
