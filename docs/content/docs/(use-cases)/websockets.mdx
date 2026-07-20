@@ -1,0 +1,43 @@
+---
+title: Expose a WebSocket app
+description: Forward HTTP and WebSocket traffic to a local realtime app.
+---
+
+Turbotunnel forwards public WebSocket upgrades through the same tunnel as HTTP. Use it for chat, collaborative editors, live dashboards, and notification streams during development.
+
+## Example
+
+```sh
+tt http 3000 --slug chat-dev
+```
+
+Connect browsers or clients to the printed public URL. The same host serves ordinary HTTP routes and WebSocket upgrades.
+
+With project configuration:
+
+```sh
+tt dev chat -- pnpm --filter chat dev
+```
+
+## Compatibility
+
+- Bidirectional text and binary frames are forwarded.
+- Closure propagates in both directions.
+- Public WebSocket subprotocol negotiation is not supported. Upgrade requests that include `Sec-WebSocket-Protocol` are rejected with HTTP `400`.
+- While the local app is unavailable, WebSocket connections close with code `1011`. Reconnect after the app starts.
+
+## Limits
+
+| Surface             | Limit                                   |
+| ------------------- | --------------------------------------- |
+| Public WebSockets   | 32 per tunnel slug per gateway instance |
+| WebSocket buffering | 256 pending events or commands          |
+| Local relay pool    | 1 to 16 sockets; default 2              |
+
+Excess public WebSocket connections close with code `1013`. See [Turbotunnel limits](/docs/limits) for the full table.
+
+## Related
+
+- [`tt http`](/docs/http)
+- [How it works](/docs/how-it-works)
+- [Troubleshoot failures](/docs/troubleshooting)

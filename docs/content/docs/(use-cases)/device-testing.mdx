@@ -1,0 +1,41 @@
+---
+title: Test on another device
+description: Open a local app on phones, tablets, and remote browsers.
+---
+
+Use a public HTTPS URL when you need to exercise a local app outside your development machine.
+
+## Example
+
+Start the app, then open a tunnel:
+
+```sh
+tt http 5173
+```
+
+Open the printed public URL on a phone, tablet, virtual machine, or remote browser.
+
+Useful checks include:
+
+- Responsive layout and touch interaction
+- Mobile browsers and WebViews
+- Camera, microphone, and device APIs that require a secure origin
+- Cross-browser differences without LAN setup
+
+## Tips
+
+- No local IP, mDNS hostname, or device trust configuration is required.
+- The app must already listen on the chosen port.
+- Use `--host` when the app binds an interface other than `localhost`:
+
+```sh
+tt http 3000 --host 127.0.0.1
+```
+
+- Protect unfinished work with `--password` before sharing the URL broadly.
+
+## Related
+
+- [`tt http`](/docs/http)
+- [Share a protected preview](/docs/protected-previews)
+- [Turbotunnel limits](/docs/limits)

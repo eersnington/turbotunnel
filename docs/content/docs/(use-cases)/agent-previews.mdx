@@ -1,0 +1,95 @@
+---
+title: Preview work from background agents
+description: Give coding agents a stable public URL for apps in sandboxes and remote VMs.
+---
+
+Use Turbotunnel when an agent runs an app inside a sandbox, container, or remote workspace and a human needs to review it.
+
+## When to use Turbotunnel
+
+Vercel Sandbox can already expose ports with `ports` and `sandbox.domain(port)`. Prefer native Sandbox URLs for simple one-off previews inside that product.
+
+Use Turbotunnel when you need:
+
+- Stable repository-defined hostnames
+- Generated password or IP access
+- The same preview workflow outside Vercel Sandbox
+- Gateway-wide discovery with `tt list`
+
+## Recommended flow
+
+1. Deploy the gateway once outside the sandbox: `tt deploy`
+2. Inject `~/.turbotunnel/config.json` as a protected secret with mode `0600`
+3. Start the app and tunnel as long-lived processes in the same network namespace
+4. Default to generated password access
+5. Poll readiness with `tt status --format json`
+6. Return the public URL and password with the agent result
+7. Stop the sandbox when review ends
+
+## Example
+
+Bootstrap the gateway config into the sandbox home directory:
+
+```sh
+install -d -m 700 "$HOME/.turbotunnel"
+install -m 600 /run/secrets/turbotunnel-config \
+  "$HOME/.turbotunnel/config.json"
+```
+
+Start the app under the agent or sandbox supervisor, then keep the tunnel process alive:
+
+```sh
+npm run dev -- --host 127.0.0.1 --port 5173 &
+
+tt http 5173 --host 127.0.0.1 --password --slug agent-pr-1842
+```
+
+With repository configuration and Vercel authentication available in the environment:
+
+```sh
+tt dev dashboard --password -- pnpm --filter dashboard dev
+```
+
+A preloaded gateway config lets `tt http <port>` run without an interactive Vercel login. A discovered `turbotunnel.json` project triggers domain reconciliation and needs an authenticated Vercel CLI session.
+
+## Readiness and discovery
+
+Tunnel commands stay in the foreground while healthy. For automation, poll local state:
+
+```sh
+tt status --format json
+```
+
+`tt status` reports exact process state only within the same machine and home directory. Gateway-wide discovery:
+
+```sh
+tt list --format json
+```
+
+`tt list` is bounded by Queue delivery and a 30-second presence lease. It can briefly omit or retain sessions.
+
+## Security
+
+- Prefer generated `--password`. Avoid putting passwords in process arguments or logs when possible.
+- Do not commit, bake into images, or print `~/.turbotunnel/config.json`. It contains the relay secret.
+- Public access is the default without an override. Prefer password access for agent-built apps.
+- Sandbox firewalls must allow HTTPS and WebSocket egress to the gateway domain.
+- Stopping or suspending the sandbox stops the tunnel, even if the filesystem persists.
+
+## Limits that matter here
+
+- The public URL lives only while `tt` and its host environment stay running.
+- Turbotunnel does not daemonize, discover ports, inject environment variables, or extend sandbox lifetime.
+- HTTP requests time out after 30 seconds. Request and response bodies are limited to 4 MiB.
+- One process owns a public host. A second claim is a route conflict, not load balancing.
+- `localhost` means local to the `tt` process. An app on another machine is not reachable through sandbox `localhost`.
+
+## Related
+
+- [`tt http`](/docs/http)
+- [`tt dev`](/docs/dev)
+- [`tt status`](/docs/status)
+- [`tt list`](/docs/list)
+- [Configure project tunnels](/docs/configuration)
+- [Configure your gateway](/docs/gateway-configuration)
+- [Turbotunnel limits](/docs/limits)

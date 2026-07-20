@@ -63,6 +63,7 @@ See [Turbotunnel limits](https://turbotunnel.dev/docs/limits) for scopes and HTT
 
 ## Common tasks
 
+- [Browse use cases](https://turbotunnel.dev/docs/use-cases)
 - [Deploy a gateway and configure domains](https://turbotunnel.dev/docs/deploy)
 - [Expose an already-running app with `tt http`](https://turbotunnel.dev/docs/http)
 - [Run a development server with `tt dev`](https://turbotunnel.dev/docs/dev)

@@ -1,0 +1,70 @@
+---
+title: Manage monorepo projects
+description: Give monorepo apps stable ports, hostnames, and access policies.
+---
+
+Use `turbotunnel.json` when several apps in one repository need their own public tunnels.
+
+## Example
+
+```json
+{
+  "access": { "type": "password" },
+  "projects": {
+    "dashboard": {
+      "port": 3000,
+      "slug": "dashboard"
+    },
+    "api": {
+      "port": 4000,
+      "slug": "api",
+      "access": { "type": "public" }
+    },
+    "docs": {
+      "port": 5173,
+      "domain": "docs.example.com"
+    }
+  }
+}
+```
+
+Start one project and its exact child command:
+
+```sh
+tt dev dashboard -- pnpm --filter dashboard dev
+```
+
+Expose an already-running project:
+
+```sh
+tt http api
+```
+
+With one configured project, Turbotunnel selects it automatically. With multiple projects, interactive terminals present a selector. Non-interactive commands must name the project.
+
+## What configuration covers
+
+Each project may set:
+
+- `port`
+- `slug` or `domain`
+- `access`
+
+Top-level `access` is the default for named projects that omit their own policy.
+
+Project configuration does not define commands, working directories, environment variables, package-manager behavior, or framework settings. Pass the exact command after `--`.
+
+## Tips
+
+- Place `turbotunnel.json` near the repository root. Turbotunnel searches upward from the current directory and uses the nearest file.
+- CLI flags override project settings for a single run.
+- Managed `vercel.app` hostnames attach to the gateway project during connect. Confirm the printed public URL if a requested hostname is unavailable.
+- Inspect local tunnels with `tt status`. Discover recent sessions across machines with `tt list`.
+
+## Related
+
+- [`tt dev`](/docs/dev)
+- [`tt http`](/docs/http)
+- [Configure project tunnels](/docs/configuration)
+- [`tt status`](/docs/status)
+- [`tt list`](/docs/list)
