@@ -27,7 +27,9 @@ describe("buildGatewayDeployment", () => {
     const gateway = await readFile(join(outputDir, "src", "gateway", "index.ts"), "utf8");
     const contracts = await readFile(join(outputDir, "src", "contracts", "index.ts"), "utf8");
     const packageText = await readFile(join(outputDir, "package.json"), "utf8");
+    const vercelText = await readFile(join(outputDir, "vercel.json"), "utf8");
     const generatedPackage: unknown = JSON.parse(packageText);
+    const generatedVercel: unknown = JSON.parse(vercelText);
 
     expect(server).toContain('from "../src/gateway/index.js"');
     expect(gateway).not.toContain("@turbotunnel/contracts");
@@ -35,6 +37,10 @@ describe("buildGatewayDeployment", () => {
     expect(generatedPackage).toMatchObject({
       name: "turbotunnel-gateway-deployment",
       private: true,
+    });
+    expect(generatedVercel).toMatchObject({
+      fluid: true,
+      functions: { "api/server.ts": { maxDuration: 300 } },
     });
   });
 });

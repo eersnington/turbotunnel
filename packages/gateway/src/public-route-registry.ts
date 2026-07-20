@@ -5,12 +5,16 @@ import {
   PRESENCE_REPLAY_EVENT_LIMIT,
   PRESENCE_TOPIC,
   PRESENCE_VISIBILITY_TIMEOUT_SECONDS,
+  QUEUE_RECEIVE_COLD_AFTER_EMPTY,
+  QUEUE_RECEIVE_COLD_DELAY_MS,
+  QUEUE_RECEIVE_HOT_DELAY_MS,
+  QUEUE_RECEIVE_WARM_DELAY_MS,
   tunnelPresenceEventSchema,
   type AccessPolicy,
   type RouteIdentity,
   type TunnelPresenceEvent,
 } from "@turbotunnel/contracts";
-import { Clock, Context, Deferred, Effect, Layer, Option, Result, Schema } from "effect";
+import { Clock, Context, Deferred, Effect, Layer, Option, Result, Schema, Semaphore } from "effect";
 import { nanoid } from "nanoid";
 
 import { GatewayState } from "./gateway-state.js";
@@ -46,6 +50,7 @@ export class PublicRouteRegistry extends Context.Service<
       const state = yield* GatewayState;
       const records = new Map<string, PresenceRecord>();
       const consumerGroup = `tt_route_registry_${nanoid(12)}`;
+      const receiveLock = yield* Semaphore.make(1);
       // Completes on empty receive, over-limit, pass error, or catch-up budget.
       // Budget/error complete the wait without serving a partial map (NotReady until empty).
       const firstCatchUp = yield* Deferred.make<void>();
@@ -53,6 +58,7 @@ export class PublicRouteRegistry extends Context.Service<
       let overLimit = false;
       let catchUpIncomplete = false;
       let catchUpPasses = 0;
+      let emptyReceives = 0;
       const CATCH_UP_PASS_BUDGET = 100;
       const CATCH_UP_WAIT_MS = 2_000;
 
@@ -71,12 +77,14 @@ export class PublicRouteRegistry extends Context.Service<
         });
         yield* state.recordMetric("queueReceives");
         if (messages.length === 0) {
+          emptyReceives += 1;
           compactRecords(records, yield* Clock.currentTimeMillis);
           overLimit = records.size > PRESENCE_REPLAY_EVENT_LIMIT;
           catchUpIncomplete = false;
           yield* markCatchUpComplete;
           return false;
         }
+        emptyReceives = 0;
         for (const message of messages) {
           const decoded = decodePresenceEvent(message.payload);
           if (Result.isSuccess(decoded))
@@ -103,9 +111,77 @@ export class PublicRouteRegistry extends Context.Service<
         return true;
       });
 
+      const receivePass = receiveLock.withPermit(runPass);
+
+      const lookupRoute = (host: string): Effect.Effect<PublicRouteLookup> =>
+        Effect.gen(function* () {
+          if (overLimit || catchUpIncomplete) return { _tag: "NotReady" };
+          const now = yield* Clock.currentTimeMillis;
+          compactRecords(records, now);
+          if (records.size > PRESENCE_REPLAY_EVENT_LIMIT) return { _tag: "NotReady" };
+          const active = [...records.values()].filter(({ event }) => event.type !== "remove");
+          const matching = active.filter(({ event }) => event.publicHost === host);
+          const first = matching[0];
+          if (first === undefined) return { _tag: "Missing" };
+          const fingerprint = accessPolicyFingerprint(first.event.accessPolicy);
+          const identity: RouteIdentity = {
+            publicHost: first.event.publicHost,
+            policyFingerprint: fingerprint,
+            sessionId: first.event.sessionId,
+          };
+          const conflictingHost = matching.some(
+            ({ event }) =>
+              event.slug !== first.event.slug ||
+              event.sessionId !== identity.sessionId ||
+              accessPolicyFingerprint(event.accessPolicy) !== fingerprint,
+          );
+          const conflictingSlug = active.some(
+            ({ event }) =>
+              event.slug === first.event.slug &&
+              (event.publicHost !== identity.publicHost ||
+                event.sessionId !== identity.sessionId ||
+                accessPolicyFingerprint(event.accessPolicy) !== fingerprint),
+          );
+          return conflictingHost || conflictingSlug
+            ? { _tag: "Conflicting" }
+            : {
+                _tag: "Found",
+                route: {
+                  slug: first.event.slug,
+                  accessPolicy: first.event.accessPolicy,
+                  identity,
+                },
+              };
+        });
+
+      const refreshOnMiss = (host: string) =>
+        receiveLock
+          .withPermit(
+            Effect.gen(function* () {
+              const route = yield* lookupRoute(host);
+              if (route._tag !== "Missing") return route;
+              yield* runPass;
+              return yield* lookupRoute(host);
+            }),
+          )
+          .pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                catchUpIncomplete = true;
+              }).pipe(
+                Effect.andThen(
+                  Effect.logError("public route registry refresh failed").pipe(
+                    Effect.annotateLogs({ errorTag: error._tag }),
+                  ),
+                ),
+                Effect.as({ _tag: "NotReady" } as const),
+              ),
+            ),
+          );
+
       const worker = Effect.gen(function* () {
         while (true) {
-          const hot = yield* runPass.pipe(
+          const hot = yield* receivePass.pipe(
             Effect.catch((error) => {
               catchUpIncomplete = true;
               return Effect.logError("public route registry queue pass failed").pipe(
@@ -115,7 +191,7 @@ export class PublicRouteRegistry extends Context.Service<
               );
             }),
           );
-          if (!hot) yield* Effect.sleep(100);
+          if (!hot) yield* Effect.sleep(presenceReceiveDelay(emptyReceives));
         }
       });
       yield* Effect.forkScoped(worker);
@@ -127,47 +203,19 @@ export class PublicRouteRegistry extends Context.Service<
               Effect.timeoutOption(CATCH_UP_WAIT_MS),
             );
             if (Option.isNone(ready)) return { _tag: "NotReady" };
-            if (overLimit || catchUpIncomplete) return { _tag: "NotReady" };
-            const now = yield* Clock.currentTimeMillis;
-            compactRecords(records, now);
-            if (records.size > PRESENCE_REPLAY_EVENT_LIMIT) return { _tag: "NotReady" };
-            const active = [...records.values()].filter(({ event }) => event.type !== "remove");
-            const matching = active.filter(({ event }) => event.publicHost === host);
-            const first = matching[0];
-            if (first === undefined) return { _tag: "Missing" };
-            const fingerprint = accessPolicyFingerprint(first.event.accessPolicy);
-            const identity: RouteIdentity = {
-              publicHost: first.event.publicHost,
-              policyFingerprint: fingerprint,
-              sessionId: first.event.sessionId,
-            };
-            const conflictingHost = matching.some(
-              ({ event }) =>
-                event.slug !== first.event.slug ||
-                event.sessionId !== identity.sessionId ||
-                accessPolicyFingerprint(event.accessPolicy) !== fingerprint,
-            );
-            const conflictingSlug = active.some(
-              ({ event }) =>
-                event.slug === first.event.slug &&
-                (event.publicHost !== identity.publicHost ||
-                  event.sessionId !== identity.sessionId ||
-                  accessPolicyFingerprint(event.accessPolicy) !== fingerprint),
-            );
-            return conflictingHost || conflictingSlug
-              ? { _tag: "Conflicting" }
-              : {
-                  _tag: "Found",
-                  route: {
-                    slug: first.event.slug,
-                    accessPolicy: first.event.accessPolicy,
-                    identity,
-                  },
-                };
+            const route = yield* lookupRoute(host);
+            if (route._tag !== "Missing") return route;
+            return yield* refreshOnMiss(host);
           }),
       });
     }),
   );
+}
+
+export function presenceReceiveDelay(emptyReceives: number): number {
+  if (emptyReceives <= 1) return QUEUE_RECEIVE_HOT_DELAY_MS;
+  if (emptyReceives < QUEUE_RECEIVE_COLD_AFTER_EMPTY) return QUEUE_RECEIVE_WARM_DELAY_MS;
+  return QUEUE_RECEIVE_COLD_DELAY_MS;
 }
 
 function applyRecord(records: Map<string, PresenceRecord>, candidate: PresenceRecord): void {

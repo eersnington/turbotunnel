@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import pc from "picocolors";
 
 import { AppPaths } from "../adapters/app-paths.js";
@@ -22,7 +22,7 @@ import {
   makeDeployPlan,
   toSavedDeployConfig,
 } from "../domain/deploy-plan.js";
-import type { DeployGatewayError } from "../errors.js";
+import { type DeployGatewayError, VercelCliFailed } from "../errors.js";
 
 export const deployGateway = Effect.fn("deployGateway")(function* (
   input: DeployCommandInput,
@@ -57,6 +57,13 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   });
   yield* vercel.requireInstalled;
   const account = yield* vercel.currentAccount;
+  const existingProject =
+    savedConfig.project !== plan.project
+      ? undefined
+      : yield* vercel
+          .apiGet(`/v9/projects/${encodeURIComponent(plan.project)}`)
+          .pipe(Effect.andThen(decodeProjectReference));
+  const scope = existingProject?.accountId ?? savedConfig.teamId;
 
   if (input.output._tag === "Terminal") {
     yield* surface.append(renderDeployTerminal({ _tag: "Preview", plan, account }, colors));
@@ -68,11 +75,21 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   yield* progress("GeneratingWorkspace");
   yield* gatewayWorkspace.copyTo(plan.deployDir);
   yield* progress("LinkingProject");
-  yield* vercel.linkProject(plan.deployDir, plan.project);
+  yield* vercel.linkProject(plan.deployDir, plan.project, scope);
   yield* progress("SettingEnvironment");
-  yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_BASE_DOMAIN", plan.baseDomain);
-  yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_RELAY_SECRET", plan.relaySecret);
-  yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_QUEUE_REGION", plan.queueRegion);
+  yield* vercel.setProductionEnv(plan.deployDir, "TURBOTUNNEL_BASE_DOMAIN", plan.baseDomain, scope);
+  yield* vercel.setProductionEnv(
+    plan.deployDir,
+    "TURBOTUNNEL_RELAY_SECRET",
+    plan.relaySecret,
+    scope,
+  );
+  yield* vercel.setProductionEnv(
+    plan.deployDir,
+    "TURBOTUNNEL_QUEUE_REGION",
+    plan.queueRegion,
+    scope,
+  );
 
   if (!plan.publicHost.endsWith(".vercel.app")) {
     yield* progress("AddingDomain");
@@ -80,11 +97,14 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
   }
 
   yield* progress("DeployingProduction");
-  const deploymentUrl = yield* vercel.deployProduction(plan.deployDir);
+  const deploymentUrl = yield* vercel.deployProduction(plan.deployDir, scope);
   yield* progress("VerifyingGateway");
   yield* gatewayVerifier.verify(plan);
   yield* localConfigStore.update({
     ...toSavedDeployConfig(plan),
+    ...(existingProject === undefined
+      ? {}
+      : { teamId: existingProject.accountId, projectId: existingProject.id }),
     ...(savedConfig.project === plan.project
       ? {}
       : { teamId: undefined, projectId: undefined, domainAssignments: undefined }),
@@ -99,6 +119,20 @@ export const deployGateway = Effect.fn("deployGateway")(function* (
     ? surface.settle(renderDeployTerminal(summary, colors))
     : output.write(renderDeploy(summary));
 });
+
+const ProjectReference = Schema.Struct({ id: Schema.String, accountId: Schema.String });
+const decodeProjectReference = (input: unknown) =>
+  Schema.decodeUnknownEffect(ProjectReference)(input).pipe(
+    Effect.mapError(
+      () =>
+        new VercelCliFailed({
+          command: "vercel api /v9/projects",
+          failure: { _tag: "InvalidJsonOutput", stdout: "" },
+          message:
+            "Vercel returned project metadata without an id and accountId. Upgrade the Vercel CLI, then retry `tt deploy`. Your local tunnel config was not changed.",
+        }),
+    ),
+  );
 
 function writeDeployProgress(
   mode: DeployOutput,

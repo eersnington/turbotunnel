@@ -53,12 +53,19 @@ describe("deployGateway", () => {
 
       yield* deployGateway({ output: { _tag: "Terminal" } }).pipe(Effect.provide(recorder.layer()));
 
-      expect(recorder.vercelOperations).toContain("env:TURBOTUNNEL_RELAY_SECRET=saved_secret");
+      expect(recorder.vercelOperations).toContain(
+        "env:TURBOTUNNEL_RELAY_SECRET=saved_secret:team_123",
+      );
+      expect(recorder.vercelOperations).toContain("project:demo-turbotunnel");
+      expect(recorder.vercelOperations).toContain("link:demo-turbotunnel:team_123");
+      expect(recorder.vercelOperations).toContain("deploy:team_123");
       expect(recorder.writtenConfig).toMatchObject({
         project: "demo-turbotunnel",
         slug: "demo",
         relayDomain: "tunnel.example.com",
         queueRegion: "sfo1",
+        teamId: "team_123",
+        projectId: "prj_123",
       });
     }),
   );
@@ -175,15 +182,28 @@ class DeployRecorder {
             this.vercelOperations.push("currentAccount");
             return "vercel-user";
           }),
-          linkProject: (_cwd, project) =>
-            Effect.sync(() => this.vercelOperations.push(`link:${project}`)),
-          setProductionEnv: (_cwd, name, value) =>
-            Effect.sync(() => this.vercelOperations.push(`env:${name}=${envValue(value)}`)),
+          linkProject: (_cwd, project, scope) =>
+            Effect.sync(() =>
+              this.vercelOperations.push(
+                `link:${project}${scope === undefined ? "" : `:${scope}`}`,
+              ),
+            ),
+          setProductionEnv: (_cwd, name, value, scope) =>
+            Effect.sync(() =>
+              this.vercelOperations.push(
+                `env:${name}=${envValue(value)}${scope === undefined ? "" : `:${scope}`}`,
+              ),
+            ),
           addDomain: (_cwd, domain) =>
             Effect.sync(() => this.vercelOperations.push(`domain:${domain}`)),
-          apiGet: () => Effect.succeed({}),
+          apiGet: (path) =>
+            Effect.sync(() => {
+              const project = path.slice("/v9/projects/".length);
+              this.vercelOperations.push(`project:${project}`);
+              return { id: "prj_123", accountId: "team_123" };
+            }),
           verifyDomain: () => Effect.void,
-          deployProduction: () =>
+          deployProduction: (_cwd, scope) =>
             this.failDeploy
               ? Effect.fail(
                   new VercelCliFailed({
@@ -193,7 +213,7 @@ class DeployRecorder {
                   }),
                 )
               : Effect.sync(() => {
-                  this.vercelOperations.push("deploy");
+                  this.vercelOperations.push(`deploy${scope === undefined ? "" : `:${scope}`}`);
                   return "https://deployment.example.com/";
                 }),
         }),
