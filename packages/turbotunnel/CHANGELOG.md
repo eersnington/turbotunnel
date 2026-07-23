@@ -1,5 +1,11 @@
 # turbotunnel
 
+## 0.1.1
+
+### Patch Changes
+
+- Fix npm installation by replacing unresolved Bun `catalog:` dependency references with standard semver versions in the published package manifest.
+
 ## 0.1.0
 
 ### Minor Changes

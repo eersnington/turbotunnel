@@ -13,18 +13,18 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-bun": "catalog:",
+    "@effect/platform-bun": "4.0.0-beta.92",
     "@turbotunnel/contracts": "*",
-    "effect": "catalog:",
-    "nanoid": "catalog:",
-    "ws": "catalog:"
+    "effect": "4.0.0-beta.92",
+    "nanoid": "^5.1.6",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
+    "@effect/vitest": "4.0.0-beta.92",
     "@turbotunnel/typescript-config": "*",
     "@types/node": "^22.15.3",
-    "@types/ws": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@types/ws": "^8.18.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.9"
   }
 }

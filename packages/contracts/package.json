@@ -11,13 +11,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "effect": "catalog:"
+    "effect": "4.0.0-beta.92"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
+    "@effect/vitest": "4.0.0-beta.92",
     "@turbotunnel/typescript-config": "*",
     "@types/node": "^22.15.3",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "6.0.3",
+    "vitest": "4.1.9"
   }
 }
