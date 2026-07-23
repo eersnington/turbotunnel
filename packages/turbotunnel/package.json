@@ -1,6 +1,6 @@
 {
   "name": "turbotunnel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Tunnel your local dev server with a public URL, powered by Vercel WebSockets.",
   "keywords": [
@@ -34,6 +34,7 @@
     "test": "vitest run",
     "test:watch": "vitest --watch",
     "build": "rolldown -c",
+    "release": "bun publish",
     "prepack": "bun run --cwd ../gateway build && bun run build && bun ./scripts/prepare-package.ts"
   },
   "dependencies": {
